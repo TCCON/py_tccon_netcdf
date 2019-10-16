@@ -39,10 +39,18 @@ def md5(file_name):
 	file_name: full path to the file
 	"""
 	hash_md5 = hashlib.md5()
-	with open(file_name, "rb") as f:
-		for chunk in iter(lambda: f.read(4096), b""):
-			hash_md5.update(chunk)
-	return hash_md5.hexdigest()
+	if 'telluric_linelists.md5' not in file_name:
+		with open(file_name, "rb") as f:
+			for chunk in iter(lambda: f.read(4096), b""):
+				hash_md5.update(chunk)		
+		md5sum = hash_md5.hexdigest()
+	else:
+		with open(file_name,'r') as f:
+			content = f.readlines()
+		text = '\n'.join([line.split()[0] for line in content])+'\n'
+		md5sum = hashlib.md5(text.encode('utf-8')).hexdigest()
+
+	return md5sum
 
 def checksum(file_name,hexdigest):
 	"""
@@ -71,9 +79,122 @@ def file_info(file_name):
 
 	return nhead,ncol
 
+
+def gravity(gdlat,altit):
+	"""
+	This function is just the GGG/src/comn/gravity.f routine translated to python
+
+
+	Input Parameters:
+	    gdlat       GeoDetric Latitude (degrees)
+	    altit       Geometric Altitude (km)
+	
+	Output Parameter:
+	    gravity     Effective Gravitational Acceleration (m/s2)
+	
+	Computes the effective Earth gravity at a given latitude and altitude.
+	This is the sum of the gravitational and centripital accelerations.
+	These are based on equation I.2.4-(17) in US Standard Atmosphere 1962
+	The Earth is assumed to be an oblate ellipsoid, with a ratio of the
+	major to minor axes = sqrt(1+con) where con=.006738
+	This eccentricity makes the Earth's gravititational field smaller at
+	the poles and larger at the equator than if the Earth were a sphere
+	of the same mass. [At the equator, more of the mass is directly
+	below, whereas at the poles more is off to the sides). This effect
+	also makes the local mid-latitude gravity field not point towards
+	the center of mass.
+	
+	The equation used in this subroutine agrees with the International
+	Gravitational Formula of 1967 (Helmert's equation) within 0.005%.
+	
+	Interestingly, since the centripital effect of the Earth's rotation
+	(-ve at equator, 0 at poles) has almost the opposite shape to the
+	second order gravitational field (+ve at equator, -ve at poles),
+	their sum is almost constant so that the surface gravity could be
+	approximated (.07%) by the simple expression g=0.99746*GM/radius^2,
+	the latitude variation coming entirely from the variation of surface
+	r with latitude. This simple equation is not used in this subroutine.
+	"""
+
+	d2r=3.14159265/180.0	# Conversion from degrees to radians
+	gm=3.9862216e+14  		# Gravitational constant times Earth's Mass (m3/s2)
+	omega=7.292116E-05		# Earth's angular rotational velocity (radians/s)
+	con=0.006738       		# (a/b)**2-1 where a & b are equatorial & polar radii
+	shc=1.6235e-03  		# 2nd harmonic coefficient of Earth's gravity field 
+	eqrad=6378178.0   		# Equatorial Radius (m)
+
+	gclat=np.arctan(np.tan(d2r*gdlat)/(1.0+con))  # radians
+
+	radius=1000.0*altit+eqrad/np.sqrt(1.0+con*np.sin(gclat)**2)
+	ff=(radius/eqrad)**2
+	hh=radius*omega**2
+	ge=gm/eqrad**2                      # = gravity at Re
+
+	gravity=(ge*(1-shc*(3.0*np.sin(gclat)**2-1)/ff)/ff-hh*np.cos(gclat)**2)*(1+0.5*(np.sin(gclat)*np.cos(gclat)*(hh/ge+2.0*shc/ff**2))**2)
+
+	return gravity
+
+def read_mav(path):
+	"""
+	read .mav files into a dictionary with spectrum filnames as keys (from each "Next spectrum" block in the .mav file)
+	values are dataframes with the prior data
+	"""
+	sys.stdout.write('Reading MAV file ...')
+	sys.stdout.flush()
+	DATA = OrderedDict()
+
+	with open(path,'r') as infile:
+		for i in range(3): # line[0] is gsetup version and line[1] is a "next spectrum" line
+
+			line = infile.readline()
+			if i == 1:
+				spectrum = line.strip().split(':')[1]
+		tropalt = float(infile.readline().split(':')[1])
+		oblat = float(infile.readline().split(':')[1])
+		vmr_time = (datetime.strptime(infile.readline().split()[0].split(os.sep)[-1].split('_')[1],'%Y%m%d%H')-datetime(1970,1,1)).total_seconds()
+
+	nhead, ncol, nlev = [int(elem) for elem in line.split()]
+
+	d = pd.read_csv(path,skiprows=nhead+1,delim_whitespace=True)
+	d.rename(index=str,columns={'Height':'altitude','Temp':'temperature','Pres':'pressure','Density':'density'},inplace=True)
+
+	mav_block = d[:nlev].apply(pd.to_numeric) # turn all the strings into numbers
+	DATA[spectrum] = {
+						'data':mav_block[mav_block['altitude']>=0].copy(deep=True), # don't keep cell levels
+						'time':vmr_time,
+						'tropopause_altitude':tropalt,
+	}
+	DATA[spectrum]['data']['gravity'] = DATA[spectrum]['data']['altitude'].apply(lambda z: gravity(oblat,z))
+	
+	ispec = 1
+	while True:
+		block_id = ispec*nlev+(ispec-1)*7
+		try:
+			spectrum = d['temperature'][block_id].split(':')[1]
+		except (KeyError, IndexError) as e:
+			break
+
+		tropalt = float(d['pressure'][block_id+2])
+		oblat = float(d['pressure'][block_id+3])
+		vmr_time = (datetime.strptime(d['altitude'][block_id+4].split(os.sep)[-1].split('_')[1],'%Y%m%d%H')-datetime(1970,1,1)).total_seconds()
+		
+		mav_block = d[block_id+7:block_id+7+nlev].apply(pd.to_numeric) # turn all the strings into numbers
+		DATA[spectrum] = {
+							'data':mav_block[mav_block['altitude']>=0].copy(deep=True), # don't keep cell levels
+							'time':vmr_time,
+							'tropopause_altitude':tropalt,
+		}
+		DATA[spectrum]['data']['gravity'] = DATA[spectrum]['data']['altitude'].apply(lambda z: gravity(oblat,z))
+
+		ispec += 1
+
+	nlev = DATA[spectrum]['data']['altitude'].size # get nlev again without the cell levels
+	sys.stdout.write(' DONE')
+	return DATA, nlev
+
 if __name__=='__main__': # execute only when the code is run by itself, and not when it is imported
 
-	wnc_version = 'write_netcdf.py (Version 1.0; 2019-10-07; SR)'
+	wnc_version = 'write_netcdf.py (Version 1.0; 2019-10-07; SR)\n'
 	print(wnc_version)
 
 	try:
@@ -85,7 +206,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 			print('You need to set a GGGPATH (or gggpath) environment variable')
 			sys.exit()
 
-	description = wnc_version + "\nThis writes TCCON outputs in a NETCDF file"
+	description = wnc_version + "This writes TCCON outputs in a NETCDF file"
 	
 	parser = argparse.ArgumentParser(description=description,formatter_class=argparse.RawTextHelpFormatter)
 	
@@ -107,6 +228,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 
 	# input and output file names
 	tav_file = args.file
+	mav_file = tav_file.replace('.tav','.mav')
 	vav_file = tav_file.replace('.tav','.vav')
 	asw_file = tav_file.replace('.tav','.asw')
 	ada_file = vav_file+'.ada'
@@ -122,13 +244,9 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 	nc_file = tav_file.replace('.tav','.nc') # the final output file
 
 	col_file_list = sorted([i for i in os.listdir(os.getcwd()) if '.col' in i])
-	map_file_list = sorted([i for i in os.listdir(os.getcwd()) if '.map' in i])
 
 	if not col_file_list: # [] evaluates to False
 		print('No .col files !')
-		sys.exit()
-	if not map_file_list:
-		print('No .map files !')
 		sys.exit()
 
 	## read data, I add the file_name to the data dictionaries for some of them
@@ -140,7 +258,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 	site_data = site_data[site_data['id']==siteID].reset_index().loc[0].drop('index') # just keep data for the current site
 	site_data['releaselag'] = '{} days'.format(site_data['releaselag'])
 
-	# multiggg.sh
+	# multiggg.sh; use it to get the number of windows fitted and check they all have a .col file
 	with open('multiggg.sh','r') as infile:
 		content = [line for line in infile.readlines() if line[0]!=':' or line.strip()!=''] # the the file without blank lines or commented out lines starting with ':'
 	ncol = len(content)
@@ -148,37 +266,40 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		print('/!\\ multiggg.sh has {} command lines but there are {} .col files'.format(ncol,len(col_file_list)))
 		sys.exit()
 
-	# header file
+	# read prior data
+	prior_data, nlev = read_mav(mav_file)
+
+	# header file: it contains general information and comments.
 	with open(header_file,'r') as infile:
 		header_content = infile.read()
 
-	# correction file
+	# correction file: it contains the airmass dependent and independent correction factors for main target gases
 	nhead, ncol = file_info(correction_file)
 	correction_data = pd.read_csv(correction_file,delim_whitespace=True,skiprows=nhead)
 
-	# qc file
+	# qc file: it contains information on some variables as well as their flag limits
 	nhead, ncol = file_info(qc_file)
 	qc_data = pd.read_fwf(qc_file,widths=[15,3,8,7,10,9,10,45],skiprows=nhead+1,names='Variable Output Scale Format Unit Vmin Vmax Description'.split())
 	for key in ['Variable','Format','Unit']:
 		qc_data[key] = [i.replace('"','') for i in qc_data[key]]
 
-	# error scale factors
+	# error scale factors: 
 	nhead, ncol = file_info(esf_file)
 	esf_data = pd.read_csv(esf_file,delim_whitespace=True,skiprows=nhead)
 
-	# oof file
+	# oof file: 'official output file', it contains data from other files, it isn't directly used here
 	nhead, ncol = file_info(oof_file)
 	oof_data = pd.read_csv(oof_file,delim_whitespace=True,skiprows=nhead)
 	oof_data['file'] = oof_file
 	site_info = pd.read_csv(oof_file,delim_whitespace=True,skiprows=lambda x: x in range(nhead-3) or x>=nhead-1) # has keys ['Latitude','Longitude','Altitude','siteID']
 
-	# lse file
+	# lse file: contains laser sampling error data
 	nhead, ncol = file_info(lse_file)
 	lse_data = pd.read_csv(lse_file,delim_whitespace=True,skiprows=nhead)
 	lse_data['file'] = lse_file
 	lse_data.rename(index=str,columns={'Specname':'spectrum'},inplace=True) # the other files use 'spectrum'
 
-	# tav file
+	# tav file: contains VSFs
 	with open(tav_file,'r') as infile:
 		nhead,ncol,nrow,naux = np.array(infile.readline().split()).astype(int)
 	nhead = nhead-1
@@ -186,28 +307,29 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 	tav_data['file'] = tav_file
 	nwin = int((ncol-naux)/2)
 
-	# vav file
+	# vav file: contains column amounts
 	nhead, ncol = file_info(vav_file)
 	vav_data = pd.read_csv(vav_file,delim_whitespace=True,skiprows=nhead)
 	vav_data['file'] = vav_file
 
-	# ada file
+	# ada file: contains column-average dry-air mole fractions
 	nhead, ncol = file_info(ada_file)
 	ada_data = pd.read_csv(ada_file,delim_whitespace=True,skiprows=nhead)
 	ada_data['file'] = ada_file
 	
-	# aia file
+	# aia file: ada file with scale factor applied
 	nhead, ncol = file_info(aia_file)
 	aia_data = pd.read_csv(aia_file,delim_whitespace=True,skiprows=nhead)
 	aia_data['file'] = aia_file
 
-	## check all files have the same spectrum list as the vav file
-	check_spec = np.array([data['spectrum']==vav_data['spectrum'] for data in [tav_data,ada_data,aia_data,oof_data]]).flatten()
-	if False in check_spec:
+	## check all files have the same spectrum lists
+	check_spec = np.array([(data['spectrum']==vav_data['spectrum']).all() for data in [tav_data,ada_data,aia_data,oof_data]])
+	if not check_spec.all():
 		print('Files have inconsistent spectrum lists !')
-		for data in [vav_data,ada_data,aia_data,oof_data]:
+		for data in [tav_data,ada_data,aia_data,oof_data]:
 			print(len(data['spectrum']),'spectra in',data['file'][0])
 		sys.exit()
+	nspec = len(tav_data['spectrum'])
 
 	# make all the column names consistent between the different files
 	for dataframe in [correction_data,qc_data,esf_data,oof_data,lse_data,vav_data,ada_data,aia_data]:
@@ -224,8 +346,6 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 	mchar = 0
 	if 'spectrum' in tav_data.columns:
 		mchar = 1
-
-	#sys.exit()
 
 	# Let's try to be CF compliant: http://cfconventions.org/Data/cf-conventions/cf-conventions-1.7/cf-conventions.pdf
 	standard_name_dict = {
@@ -265,6 +385,12 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 	'zpres':'pressure_altitude',
 	'cbf':'continuum_basis_function_coefficient_{}',
 	'ncbf':'number of continuum basis functions',
+	'lsf':'laser_sampling_fraction',
+	'lse':'laser_sampling_error',
+	'lsu':'laser_sampling_error_uncertainty',
+	'lst':'laser_sampling_error_correction_type',
+	'dip':'dip',
+	'mvd':'maximum_velocity_displacement',
 	}
 
 	checksum_var_list = ['config','apriori','runlog','levels','mav','ray','isotopologs','windows','telluric_linelists','solar']
@@ -310,6 +436,20 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 	'zpres':'km',
 	'cbf':'',
 	'ncbf':'',
+	'prior_temperature':'degrees_Kelvin',
+	'prior_density':'molecules.cm-3',
+	'prior_pressure':'atm',
+	'prior_altitude':'km',
+	'prior_tropopause_altitude':'km',
+	'prior_gravity':'m.s-2',
+	'prior_h2o':'ppm',
+	'prior_hdo':'ppm',
+	'prior_co2':'ppm',
+	'prior_n2o':'ppb',
+	'prior_co':'ppb',
+	'prior_ch4':'ppb',
+	'prior_hf':'ppt',
+	'prior_o2':'ppm',
 	}
 
 	if os.path.exists(nc_file):
@@ -343,17 +483,54 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		nc_data.history = "Created {} (UTC)".format(time.asctime(time.gmtime(time.time())))
 
 		## create dimensions
-		tim = nc_data.createDimension('time',None)
+		"""
+		NOTE: when setting the time dimension as unlimited I get a segmentation fault when writing the prior data
+		If the time dimension is fixed the writing of the prior data is MUCH faster and does not lead to segmentation fault.
+		This is a known issue from the netCDF4 library (or the C library it's built on) and writing to multidimensional variables with unlimited dimensions
+		We can fix this later when they fix the problem.
+		As far as I am aware this will only be an issue if people want to concatenate multiple netcdf files along the time dimension, they will have to turn the time dimension to an unlimited dimension first
+		"""
+		nc_data.createDimension('time',nspec)
+		nc_data.createDimension('prior_altitude',nlev) # used for the prior profiles
 
 		## create coordinate variables
 		nc_data.createVariable('time',np.float64,('time',))
 		nc_data['time'].standard_name = "time"
 		nc_data['time'].long_name = "time"
-		nc_data['time'].description = 'fractional days since 1970-01-01 00:00:00 (UTC)'
-		nc_data['time'].units = 'days since 1970-01-01 00:00:00'
+		nc_data['time'].description = 'UTC time'
+		nc_data['time'].units = 'seconds since 1970-01-01 00:00:00'
 		nc_data['time'].calendar = 'gregorian'
 
 		## create variables
+
+		# priors
+		for var in ['altitude','temperature','pressure','density','gravity','h2o','hdo','co2','n2o','co','ch4','hf','o2']:
+			prior_var = 'prior_{}'.format(var)
+			if var == 'altitude':
+				nc_data.createVariable(prior_var,np.float64,('prior_altitude')) # this one doesn't change between priors
+			else:
+				nc_data.createVariable(prior_var,np.float64,('time','prior_altitude'))
+
+			nc_data[prior_var].standard_name = '{}_profile'.format(prior_var)
+			nc_data[prior_var].long_name = nc_data[prior_var].standard_name.replace('_',' ')
+			nc_data[prior_var].description = nc_data[prior_var].long_name
+			nc_data[prior_var].units = units_dict[prior_var]
+
+		nc_data['prior_altitude'].description = "altitude levels for the prior profiles, these are the same for all the priors"
+		nc_data['prior_altitude'][0:nlev] = prior_data[list(prior_data.keys())[0]]['data']['altitude'].values
+		
+		nc_data.createVariable('prior_time',np.float64,('time'))
+		nc_data['prior_time'].standard_name = "prior_time"
+		nc_data['prior_time'].long_name = "prior time"
+		nc_data['prior_time'].description = 'UTC time for the prior profiles, corresponds to GEOS5 times every 3 hours from 0 to 21'
+		nc_data['prior_time'].units = 'seconds since 1970-01-01 00:00:00'
+		nc_data['prior_time'].calendar = 'gregorian'
+
+		nc_data.createVariable('prior_tropopause_altitude',np.float64,('time'))
+		nc_data['prior_tropopause_altitude'].standard_name = 'prior_tropopause_altitude'
+		nc_data['prior_tropopause_altitude'].long_name = 'prior tropopause altitude'
+		nc_data['prior_tropopause_altitude'].description = 'altitude at which the gradient in the prior temperature profile becomes > -2 degrees per km'
+		nc_data['prior_tropopause_altitude'].units = units_dict[prior_var]
 
 		# checksums
 		for var in checksum_var_list:
@@ -386,6 +563,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 
 		nc_data.createVariable('spectrum',str,('time',))
 		nc_data['spectrum'].standard_name = 'spectrum_file_name'
+		nc_data['spectrum'].long_name = 'spectrum file name'
 		nc_data['spectrum'].description = 'spectrum file name'
 		for i,specname in enumerate(aia_data['spectrum'].values):
 			nc_data['spectrum'][i] = specname
@@ -396,15 +574,15 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 			qc_id = list(qc_data['variable']).index(var)
 			digit = int(qc_data['format'][qc_id].split('.')[-1])
 			nc_data.createVariable(var,np.float64,('time',),zlib=True,least_significant_digit=digit)
-			if var in standard_name_dict.keys():
-				nc_data[var].standard_name = standard_name_dict[var]
-				nc_data[var].long_name = long_name_dict[var]
-				nc_data[var].units = units_dict[var]
 			# set attributes using the qc.dat file
 			nc_data[var].description = qc_data['description'][qc_id]
 			nc_data[var].units = qc_data['unit'][qc_id].replace('(','').replace(')','').strip()
 			nc_data[var].vmin = qc_data['vmin'][qc_id]
 			nc_data[var].vmax = qc_data['vmax'][qc_id]
+			if var in standard_name_dict.keys():
+				nc_data[var].standard_name = standard_name_dict[var]
+				nc_data[var].long_name = long_name_dict[var]
+				nc_data[var].units = units_dict[var] # reset units here for some of the variables in the qc_file using UDUNITS compatible units
 
 		nc_data['hour'].description = 'Fractional UT hours (zero path difference crossing time)'
 
@@ -426,12 +604,12 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 
 			nc_data.createVariable('vsf_'+var,np.float64,('time',))
 			nc_data['vsf_'+var].description = var+" Volume Scale Factor"
-			nc_data['vsf_'+var][:] = vav_data[var].values
+			nc_data['vsf_'+var][:] = tav_data[var].values
 			
 			nc_data.createVariable('column_'+var,np.float64,('time',))
 			nc_data['column_'+var].description = var+' molecules per square meter'
 			nc_data['column_'+var].units = 'molecules.m-2'
-			nc_data['column_'+var][:] = tav_data[var].values
+			nc_data['column_'+var][:] = vav_data[var].values
 
 			nc_data.createVariable('ada_x'+var,np.float64,('time',))
 			nc_data['ada_x'+var].description = var+' column-average dry-air mole fraction'
@@ -439,10 +617,19 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 			nc_data['ada_x'+var][:] = ada_data['x'+var].values
 
 		# lse data
-		lse_description = {'lst':'Laser sampling T','lse':'Laser sampling error','lsu':'Laser sampling U'}
+		lse_description = {
+					'lst':'The type of LSE correction applied (2=Si)',
+					'lse':'Laser sampling error (shift)',
+					'lsu':'Laser sampling error uncertainty',
+					'lsf':'laser sampling fraction',
+					'dip':'A proxy for nonlinearity - the dip at ZPD in the smoothed low-resolution interferogram',
+					'mvd':'Maximum velocity displacement - a measure of how smoothly the scanner is running',
+					}
 		common_spec = np.intersect1d(aia_data['spectrum'],lse_data['spectrum'],return_indices=True)[2]
 		for var in lse_description.keys():
 			nc_data.createVariable(var,np.float64,('time',))
+			nc_data[var].standard_name = standard_name_dict[var]
+			nc_data[var].long_name = long_name_dict[var]
 			nc_data[var].description = lse_description[var]
 			nc_data[var][:] = lse_data[var][common_spec].values
 
@@ -519,14 +706,19 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		nc_data['day'][:] = np.round(aia_data['day'][:].values-aia_data['hour'][:].values/24.0)
 
 		specdate = np.array([datetime(int(aia_data['year'][i]),1,1)+timedelta(days=aia_data['day'][i]-1) for i in range(nrow)])
-		nc_data['time'][:] = np.array([elem.total_seconds() for elem in (specdate-datetime(1970,1,1))])/(24.0*3600.0)
+		nc_data['time'][:] = np.array([elem.total_seconds() for elem in (specdate-datetime(1970,1,1))])
 
-		# write data from col files
+		# write data from .col and .cbf files
+		print('\n\nWriting data:')
 		for col_id,col_file in enumerate(col_file_list):
 
 			cbf_file = col_file.replace('.col','.cbf')
+			with open(cbf_file,'r') as infile:
+				content = infile.readlines()
 			nhead,ncol = file_info(cbf_file)
-			cbf_data = pd.read_csv(cbf_file,delim_whitespace=True,skiprows=nhead)
+			headers = content[nhead].split()
+			#cbf_data = pd.read_csv(cbf_file,delim_whitespace=True,skiprows=nhead)
+			cbf_data = pd.read_fwf(cbf_file,widths=[20,11,9],names=headers,skiprows=nhead+1)
 			cbf_data.rename(index=str,columns={'Spectrum_Name':'spectrum'},inplace=True)
 
 			gas_XXXX = col_file.split('.')[0] # gas_XXXX, suffix for nc_data variable names corresponding to each .col file (i.e. VSF_h2o from the 6220 co2 window becomes co2_6220_VSF_co2)
@@ -571,7 +763,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 				print('\nMismatch between .col file spectra and .vav spectra')
 				print('col file:',col_file)
 				continue # contine or exit here ? Might not need to exit if we can add in the results from the faulty col file afterwards
-			if not all(col_data['spectrum'].values == cbf_data['spectrum'].values):
+			if not all(col_data['spectrum'].values == cbf_data['spectrum'].values) and 'luft' not in col_file: # luft has no cbfs
 				print('\nMismatch between .col file spectra and .cbf spectra')
 				print('col file:',col_file)
 				continue # contine or exit here ? Might not need to exit if we can add in the results from the faulty col file afterwards
@@ -599,3 +791,26 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 				nc_data[varname][:] = cbf_data[var].values
 
 			progress(col_id,len(col_file_list),word=col_file)
+
+		print('\nWriting prior data:')
+		factor = {'temperature':1.0,'pressure':1.0,'density':1.0,'gravity':1.0,'1h2o':1e6,'1hdo':1e6,'1co2':1e6,'1n2o':1e9,'1co':1e9,'1ch4':1e9,'1hf':1e12,'1o2':1e6}
+		prior_spec_gen = (spectrum for spectrum in prior_data.keys())
+		prior_spectrum = next(prior_spec_gen)
+		next_spectrum = next(prior_spec_gen)
+		for spec_id,spectrum in enumerate(nc_data['spectrum'][:]):
+			if spectrum==next_spectrum:
+				prior_spectrum = next_spectrum
+				try:
+					next_spectrum = next(prior_spec_gen)
+				except StopIteration:
+					pass
+
+			for var in ['temperature','pressure','density','gravity','1h2o','1hdo','1co2','1n2o','1co','1ch4','1hf','1o2']:
+				prior_var = 'prior_{}'.format(var.strip('1'))
+
+				nc_data[prior_var][spec_id,0:nlev] = factor[var]*prior_data[prior_spectrum]['data'][var].values
+
+			nc_data['prior_time'][spec_id] = prior_data[prior_spectrum]['time']
+			nc_data['prior_tropopause_altitude'][spec_id] = prior_data[prior_spectrum]['tropopause_altitude']
+
+			progress(spec_id,nspec,word=spectrum)
