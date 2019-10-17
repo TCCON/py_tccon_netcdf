@@ -908,25 +908,39 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		## copy all the metadata
 		public_data.setncatts(private_data.__dict__)
 
+		# get indices of data to copy based on the release_lag
+		release_lag = int(private_data.release_lag.split()[0])
+		last_public_time = (datetime.utcnow()-datetime(1970,1,1)).total_seconds() - timedelta(days=release_lag).total_seconds()
+		public_ids = np.where(private_data['time'][:]<last_public_time)[0]
+		nspec_public = len(public_ids)
+		last_public_id = public_ids[-1]
+
 		## copy dimensions
 		for name, dimension in private_data.dimensions.items():
-			public_data.createDimension(name, (len(dimension) if not dimension.isunlimited() else None))
+			if name == 'time':
+				public_data.createDimension(name, nspec_public)
+			else:
+				public_data.createDimension(name, (len(dimension) if not dimension.isunlimited() else None))
 
 		## copy variables based on the info in public_variables.txt
 		with open(os.path.join(code_dir,'public_variables.txt')) as f:
 			c = f.read()
 		public_variables = eval(c)
 
-		for varname,variable in private_data.variables.items():
+		for name,variable in private_data.variables.items():
 			
-			contain_check = np.array([elem in varname for elem in public_variables['contains']]).any()
-			startswith_check = np.array([varname.startswith(elem) for elem in public_variables['startswith']]).any()
-			endswith_check = np.array([varname.endswith(elem) for elem in public_variables['endswith']]).any()
-			isequalto_check = np.array([varname==elem for elem in public_variables['isequalto']]).any()
+			contain_check = np.array([elem in name for elem in public_variables['contains']]).any()
+			startswith_check = np.array([name.startswith(elem) for elem in public_variables['startswith']]).any()
+			endswith_check = np.array([name.endswith(elem) for elem in public_variables['endswith']]).any()
+			isequalto_check = np.array([name==elem for elem in public_variables['isequalto']]).any()
 			
 			if  np.array([contain_check,isequalto_check,startswith_check,endswith_check]).any():
-				public_data.createVariable(varname, variable.datatype, variable.dimensions)
-				public_data[varname][:] = private_data[varname][:]
+				if 'time' in variable.dimensions:
+					public_data.createVariable(name, variable.datatype, variable.dimensions)
+					public_data[name][:] = private_data[name][0:last_public_id+1]
+				else:
+					public_data.createVariable(name, variable.datatype, variable.dimensions)
+					public_data[name][:] = private_data[name][:]
 				# copy variable attributes all at once via dictionary
-				public_data[varname].setncatts(private_data[varname].__dict__)
+				public_data[name].setncatts(private_data[name].__dict__)
 	print('Created',public_nc_file)
