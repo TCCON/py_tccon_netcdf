@@ -86,11 +86,11 @@ def gravity(gdlat,altit):
 
 
 	Input Parameters:
-	    gdlat       GeoDetric Latitude (degrees)
-	    altit       Geometric Altitude (km)
+		gdlat       GeoDetric Latitude (degrees)
+		altit       Geometric Altitude (km)
 	
 	Output Parameter:
-	    gravity     Effective Gravitational Acceleration (m/s2)
+		gravity     Effective Gravitational Acceleration (m/s2)
 	
 	Computes the effective Earth gravity at a given latitude and altitude.
 	This is the sum of the gravitational and centripital accelerations.
@@ -241,7 +241,6 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 	header_file = os.path.join(GGGPATH,'tccon','{}_oof_header.dat'.format(siteID))
 	correction_file =  os.path.join(GGGPATH,'tccon','corrections.dat')
 	lse_file = os.path.join(GGGPATH,'lse','gnd',tav_file.split(os.sep)[-1].replace('.tav','.lse'))
-	nc_file = tav_file.replace('.tav','.nc') # the final output file
 
 	col_file_list = sorted([i for i in os.listdir(os.getcwd()) if '.col' in i])
 
@@ -254,9 +253,10 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 	# read site specific data from the tccon_netcdf repository
 	code_dir = os.path.dirname(__file__) # path to the tccon_netcdf repository
 	# the .apply and .rename bits just strip the columns from leading and tailing white spaces
-	site_data = pd.read_csv(os.path.join(code_dir,'site_list.txt'),delimiter='|',encoding='latin-1').apply(lambda x: x.str.strip() if x.dtype == "object" else x).rename(columns=lambda x: x.strip()).rename(str.lower,axis='columns')
-	site_data = site_data[site_data['id']==siteID].reset_index().loc[0].drop('index') # just keep data for the current site
-	site_data['releaselag'] = '{} days'.format(site_data['releaselag'])
+	with open(os.path.join(code_dir,'site_info.txt'),'r') as f:
+		c = f.read()
+	site_data = eval(c)[siteID]
+	site_data['release_lag'] = '{} days'.format(site_data['release_lag'])
 
 	# multiggg.sh; use it to get the number of windows fitted and check they all have a .col file
 	with open('multiggg.sh','r') as infile:
@@ -265,6 +265,21 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 	if ncol!=len(col_file_list):
 		print('/!\\ multiggg.sh has {} command lines but there are {} .col files'.format(ncol,len(col_file_list)))
 		sys.exit()
+
+	# averaging kernels
+	ak_file_list = os.listdir(os.path.join(code_dir,'lamont_averaging_kernels'))
+	ak_data = {} # will have keys as species 'h2o','co2' etc.
+	for ak_file in ak_file_list:
+		ak_file_path = os.path.join(code_dir,'lamont_averaging_kernels',ak_file)
+		nhead,col = file_info(ak_file_path)
+		ak_data[ak_file.split('_')[2]] = pd.read_csv(ak_file_path,delim_whitespace=True,skiprows=nhead)
+	# check all pressure levels are the same
+	check_ak_pres = np.array([(ak_data['co2']['P_hPa']==ak_data[gas]['P_hPa']).all() for gas in ak_data.keys()]).all()
+	if not check_ak_pres:
+		print('AK files have inconsistent pressure levels !')
+		sys.exit()
+	nlev_ak = ak_data['co2']['P_hPa'].size
+	nsza_ak = ak_data['co2'].columns.size -1 # minus one because of the pressure column
 
 	# read prior data
 	prior_data, nlev = read_mav(mav_file)
@@ -301,7 +316,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 
 	# tav file: contains VSFs
 	with open(tav_file,'r') as infile:
-		nhead,ncol,nrow,naux = np.array(infile.readline().split()).astype(int)
+		nhead,ncol,nspec,naux = np.array(infile.readline().split()).astype(int)
 	nhead = nhead-1
 	tav_data = pd.read_csv(tav_file,delim_whitespace=True,skiprows=nhead)
 	tav_data['file'] = tav_file
@@ -329,7 +344,12 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		for data in [tav_data,ada_data,aia_data,oof_data]:
 			print(len(data['spectrum']),'spectra in',data['file'][0])
 		sys.exit()
-	nspec = len(tav_data['spectrum'])
+
+	specdates = np.array([datetime(int(aia_data['year'][i]),1,1)+timedelta(days=aia_data['day'][i]-1) for i in range(nspec)])
+	start_date = datetime.strftime(specdates[0],'%Y%m%d')
+	end_date = datetime.strftime(specdates[-1],'%Y%m%d')
+
+	private_nc_file = '{}{}_{}.private.nc'.format(siteID,start_date,end_date) # the final output file
 
 	# make all the column names consistent between the different files
 	for dataframe in [correction_data,qc_data,esf_data,oof_data,lse_data,vav_data,ada_data,aia_data]:
@@ -398,7 +418,13 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 	standard_name_dict.update({var+'_checksum':var+'_checksum' for var in checksum_var_list})
 
 	long_name_dict = {key:val.replace('_',' ') for key,val in standard_name_dict.items()} # standard names without underscores
-
+	
+	"""
+	dimensionless and unspecified units will have empty strings
+	we could use "1" for dimensionless units instead
+	both empty string and 1 are recognized as dimensionless units by udunits
+	but using 1 would differentiate actual dimensionless variables and variables with unspecified units
+	"""
 	units_dict = {
 	'year':'years',
 	'run':'',
@@ -417,7 +443,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 	'pout':'hPa',
 	'hout':'%',
 	'sia':'',
-	'fvsi':'',
+	'fvsi':'%',
 	'zobs':'km',
 	'zmin':'km',
 	'osds':'ppm',
@@ -442,20 +468,20 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 	'prior_altitude':'km',
 	'prior_tropopause_altitude':'km',
 	'prior_gravity':'m.s-2',
-	'prior_h2o':'ppm',
-	'prior_hdo':'ppm',
+	'prior_h2o':'',
+	'prior_hdo':'',
 	'prior_co2':'ppm',
 	'prior_n2o':'ppb',
 	'prior_co':'ppb',
 	'prior_ch4':'ppb',
 	'prior_hf':'ppt',
-	'prior_o2':'ppm',
+	'prior_o2':'',
 	}
 
-	if os.path.exists(nc_file):
-		os.remove(nc_file)
+	if os.path.exists(private_nc_file):
+		os.remove(private_nc_file)
 
-	with netCDF4.Dataset(nc_file,'w',format='NETCDF4') as nc_data:
+	with netCDF4.Dataset(private_nc_file,'w',format='NETCDF4') as nc_data:
 		
 		## global attributes
 		
@@ -492,6 +518,8 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		"""
 		nc_data.createDimension('time',nspec)
 		nc_data.createDimension('prior_altitude',nlev) # used for the prior profiles
+		nc_data.createDimension('ak_pressure',nlev_ak)
+		nc_data.createDimension('ak_sza',nsza_ak)
 
 		## create coordinate variables
 		nc_data.createVariable('time',np.float64,('time',))
@@ -501,23 +529,51 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		nc_data['time'].units = 'seconds since 1970-01-01 00:00:00'
 		nc_data['time'].calendar = 'gregorian'
 
+		nc_data.createVariable('prior_altitude',np.float64,('prior_altitude')) # this one doesn't change between priors
+		nc_data['prior_altitude'].standard_name = '{}_profile'.format('prior_altitude')
+		nc_data['prior_altitude'].long_name = nc_data['prior_altitude'].standard_name.replace('_',' ')
+		nc_data['prior_altitude'].units = units_dict['prior_altitude']
+		nc_data['prior_altitude'].description = "altitude levels for the prior profiles, these are the same for all the priors"
+		nc_data['prior_altitude'][0:nlev] = prior_data[list(prior_data.keys())[0]]['data']['altitude'].values
+
+		nc_data.createVariable('ak_pressure',np.float64,('ak_pressure'))
+		nc_data['ak_pressure'].standard_name = "averaging_kernel_pressure_levels"
+		nc_data['ak_pressure'].long_name = nc_data['ak_pressure'].standard_name.replace('_',' ')
+		nc_data['ak_pressure'].description = "fixed pressure levels for the Lamont (OK, USA) column averaging kernels"
+		nc_data['ak_pressure'].units = 'hPa'
+		nc_data['ak_pressure'][0:nlev_ak] = ak_data['co2']['P_hPa'].values
+
+		nc_data.createVariable('ak_sza',np.float64,('ak_sza'))
+		nc_data['ak_sza'].standard_name = "averaging_kernel_solar_zenith_angles"
+		nc_data['ak_sza'].long_name = nc_data['ak_sza'].standard_name.replace('_',' ')
+		nc_data['ak_sza'].description = "fixed solar zenith angles for the Lamont (OK, USA) column averaging kernels"
+		nc_data['ak_sza'].units = 'degrees'
+		nc_data['ak_sza'][0:nsza_ak] = ak_data['co2'].columns[1:].values.astype(np.float64)		
+
 		## create variables
 
+		# averaging kernels
+		for gas in ak_data.keys():
+			var = '{}_ak'.format(gas)
+			nc_data.createVariable(var,np.float64,('ak_sza','ak_pressure'))
+			nc_data[var].standard_name = '{}_column_averaging_kernel'.format(gas)
+			nc_data[var].long_name = nc_data[var].standard_name.replace('_',' ')
+			nc_data[var].description = '{} column averaging kernel over Lamont (OK, USA)'.format(gas)
+			nc_data[var].units = ''
+			# write it now
+			for i,sza in enumerate(ak_data[gas].columns[1:]):
+				nc_data[var][i,0:nlev_ak] = ak_data[gas][sza].values
+ 
 		# priors
-		for var in ['altitude','temperature','pressure','density','gravity','h2o','hdo','co2','n2o','co','ch4','hf','o2']:
+		for var in ['temperature','pressure','density','gravity','h2o','hdo','co2','n2o','co','ch4','hf','o2']:
 			prior_var = 'prior_{}'.format(var)
-			if var == 'altitude':
-				nc_data.createVariable(prior_var,np.float64,('prior_altitude')) # this one doesn't change between priors
-			else:
-				nc_data.createVariable(prior_var,np.float64,('time','prior_altitude'))
+
+			nc_data.createVariable(prior_var,np.float64,('time','prior_altitude'))
 
 			nc_data[prior_var].standard_name = '{}_profile'.format(prior_var)
 			nc_data[prior_var].long_name = nc_data[prior_var].standard_name.replace('_',' ')
 			nc_data[prior_var].description = nc_data[prior_var].long_name
 			nc_data[prior_var].units = units_dict[prior_var]
-
-		nc_data['prior_altitude'].description = "altitude levels for the prior profiles, these are the same for all the priors"
-		nc_data['prior_altitude'][0:nlev] = prior_data[list(prior_data.keys())[0]]['data']['altitude'].values
 		
 		nc_data.createVariable('prior_time',np.float64,('time'))
 		nc_data['prior_time'].standard_name = "prior_time"
@@ -618,7 +674,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 
 		# lse data
 		lse_description = {
-					'lst':'The type of LSE correction applied (2=Si)',
+					'lst':'The type of LSE correction applied (0=none; 1=InGaAs (disabled); 2=Si; 3=Dohe et al. (disabled); 4=Other (disabled))',
 					'lse':'Laser sampling error (shift)',
 					'lsu':'Laser sampling error uncertainty',
 					'lsf':'laser sampling fraction',
@@ -704,9 +760,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		# time		
 		nc_data['year'][:] = np.round(aia_data['year'][:].values-aia_data['day'][:].values/365.25)
 		nc_data['day'][:] = np.round(aia_data['day'][:].values-aia_data['hour'][:].values/24.0)
-
-		specdate = np.array([datetime(int(aia_data['year'][i]),1,1)+timedelta(days=aia_data['day'][i]-1) for i in range(nrow)])
-		nc_data['time'][:] = np.array([elem.total_seconds() for elem in (specdate-datetime(1970,1,1))])
+		nc_data['time'][:] = np.array([elem.total_seconds() for elem in (specdates-datetime(1970,1,1))])
 
 		# write data from .col and .cbf files
 		print('\n\nWriting data:')
@@ -792,8 +846,39 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 
 			progress(col_id,len(col_file_list),word=col_file)
 
+
+		# read the data from missing_data.txt and update data with fill values to the netCDF4 default fill value
+		"""
+		It is a dictionary with siteID as keys, values are dictionaries of variable:fill_value
+
+		If a site has different null values defined for different time period the key has format siteID_ii_YYYYMMDD_YYYYMMDD
+		with ii just the period index (e.g. 01 ) so that they come in order when the keys get sorted
+		"""
+		with open(os.path.join(code_dir,'missing_data.txt'),'r') as f:
+			c = f.read()
+		missing_data = eval(c)
+		missing_data = {key:val for key,val in missing_data.items() if siteID in key}
+		if len(missing_data.keys())>1: # if there are different null values for different time periods
+			time_period_list = sorted(missing_data.keys())
+			for time_period in time_period_list:
+				start,end = [(datetime.strptime(elem,'%Y%m%d')-datetime(1970,1,1)).total_seconds for elem in time_period.split('_')[2:]]
+				replace_time_ids = set(np.where((start<nc_data['time']) & (nc_data['time']<end))[0])
+				for var in missing_data[time_period]:
+					replace_val_ids = set(np.where(nc_data[var]==missing_data[time_period][var])[0])
+					replace_ids = replace_time_ids.intersection(replace_val_ids) # indices for data equal to the fill value in the given time period
+					print('Convert fill value for',var,'from',missing_data[time_period][var],'to',netCDF4.default_fillvals['f4'],'between',str(netCDF4.num2date(start,units=nc_data['time'].units,calendar=nc_data['time'].calendar)),'and',str(netCDF4.num2date(end,units=nc_data['time'].units,calendar=nc_data['time'].calendar)))
+					for id in replace_ids:
+						nc_data[var][id] = netCDF4.default_fillvals['f4'] 
+		elif len(missing_data.keys())==1:
+			missing_data = missing_data[siteID]
+			for var in missing_data:
+				replace_ids = list(np.where(nc_data[var]==missing_data[var])[0])
+				print('Convert fill value for',var,'from',missing_data[time_period][var],'to',netCDF4.default_fillvals['f4'])
+				for id in replace_ids:
+					nc_data[var][id] = netCDF4.default_fillvals['f4'] 
+
 		print('\nWriting prior data:')
-		factor = {'temperature':1.0,'pressure':1.0,'density':1.0,'gravity':1.0,'1h2o':1e6,'1hdo':1e6,'1co2':1e6,'1n2o':1e9,'1co':1e9,'1ch4':1e9,'1hf':1e12,'1o2':1e6}
+		factor = {'temperature':1.0,'pressure':1.0,'density':1.0,'gravity':1.0,'1h2o':1.0,'1hdo':1.0,'1co2':1e6,'1n2o':1e9,'1co':1e9,'1ch4':1e9,'1hf':1e12,'1o2':1.0}
 		prior_spec_gen = (spectrum for spectrum in prior_data.keys())
 		prior_spectrum = next(prior_spec_gen)
 		next_spectrum = next(prior_spec_gen)
@@ -814,3 +899,34 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 			nc_data['prior_tropopause_altitude'][spec_id] = prior_data[prior_spectrum]['tropopause_altitude']
 
 			progress(spec_id,nspec,word=spectrum)
+
+	print('Created',private_nc_file)
+
+	print('\nWriting public file:')
+	public_nc_file = '{}{}_{}.public.nc'.format(siteID,start_date,end_date)
+	with netCDF4.Dataset(private_nc_file,'r') as private_data, netCDF4.Dataset(public_nc_file,'w') as public_data:
+		## copy all the metadata
+		public_data.setncatts(private_data.__dict__)
+
+		## copy dimensions
+		for name, dimension in private_data.dimensions.items():
+			public_data.createDimension(name, (len(dimension) if not dimension.isunlimited() else None))
+
+		## copy variables based on the info in public_variables.txt
+		with open(os.path.join(code_dir,'public_variables.txt')) as f:
+			c = f.read()
+		public_variables = eval(c)
+
+		for varname,variable in private_data.variables.items():
+			
+			contain_check = np.array([elem in varname for elem in public_variables['contains']]).any()
+			startswith_check = np.array([varname.startswith(elem) for elem in public_variables['startswith']]).any()
+			endswith_check = np.array([varname.endswith(elem) for elem in public_variables['endswith']]).any()
+			isequalto_check = np.array([varname==elem for elem in public_variables['isequalto']]).any()
+			
+			if  np.array([contain_check,isequalto_check,startswith_check,endswith_check]).any():
+				public_data.createVariable(varname, variable.datatype, variable.dimensions)
+				public_data[varname][:] = private_data[varname][:]
+				# copy variable attributes all at once via dictionary
+				public_data[varname].setncatts(private_data[varname].__dict__)
+	print('Created',public_nc_file)

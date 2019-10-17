@@ -1,0 +1,39 @@
+{
+	'contains':[],
+	
+	'isequalto':[
+		'time',
+		'year',
+		'day',
+		'hour',
+		'lat',
+		'long',
+		'zobs',
+		'zmin',
+		'asza',
+		'azim',
+		'tout',
+		'pout',
+		'hout',
+		'sia',
+		'fvsi',
+		'wspd',
+		'wdir',
+	],
+	
+	'startswith':[
+		'xhf',
+		'xh2o',
+		'xhdo',
+		'xco',
+		'xco2',
+		'xn2o',
+		'xch4',
+		'prior_'
+	],
+	
+	'endswith':[
+		'_ak',
+		'_version',
+	],
+}
