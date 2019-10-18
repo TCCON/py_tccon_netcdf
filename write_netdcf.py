@@ -194,7 +194,7 @@ def read_mav(path):
 
 if __name__=='__main__': # execute only when the code is run by itself, and not when it is imported
 
-	wnc_version = 'write_netcdf.py (Version 1.0; 2019-10-07; SR)\n'
+	wnc_version = 'write_netcdf.py (Version 1.0; 2019-10-18; SR)\n'
 	print(wnc_version)
 
 	try:
@@ -948,8 +948,12 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 			startswith_check = np.array([name.startswith(elem) for elem in public_variables['startswith']]).any()
 			endswith_check = np.array([name.endswith(elem) for elem in public_variables['endswith']]).any()
 			isequalto_check = np.array([name==elem for elem in public_variables['isequalto']]).any()
+
+			excluded = np.array([elem in name for elem in public_variables['exclude']]).any()
+
+			public = np.array([contain_check,isequalto_check,startswith_check,endswith_check]).any() and not excluded
 			
-			if  np.array([contain_check,isequalto_check,startswith_check,endswith_check]).any():
+			if public:
 				if 'time' in variable.dimensions:
 					public_data.createVariable(name, variable.datatype, variable.dimensions)
 					public_data[name][:] = private_data[name][0:last_public_id+1]

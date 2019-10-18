@@ -36,4 +36,9 @@
 		'_ak',
 		'_version',
 	],
+
+	'exclude':[
+		'_aicf',
+		'_adcf',
+	],
 }
