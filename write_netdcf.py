@@ -524,47 +524,47 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		nc_data.createDimension('ak_sza',nsza_ak)
 
 		## create coordinate variables
-		nc_data.createVariable('time',np.float64,('time',))
+		nc_data.createVariable('time',np.float32,('time',))
 		nc_data['time'].standard_name = "time"
 		nc_data['time'].long_name = "time"
 		nc_data['time'].description = 'UTC time'
 		nc_data['time'].units = 'seconds since 1970-01-01 00:00:00'
 		nc_data['time'].calendar = 'gregorian'
 
-		nc_data.createVariable('prior_time',np.float64,('prior_time'))
+		nc_data.createVariable('prior_time',np.float32,('prior_time'))
 		nc_data['prior_time'].standard_name = "prior_time"
 		nc_data['prior_time'].long_name = "prior time"
 		nc_data['prior_time'].description = 'UTC time for the prior profiles, corresponds to GEOS5 times every 3 hours from 0 to 21'
 		nc_data['prior_time'].units = 'seconds since 1970-01-01 00:00:00'
 		nc_data['prior_time'].calendar = 'gregorian'
 
-		nc_data.createVariable('prior_altitude',np.float64,('prior_altitude')) # this one doesn't change between priors
+		nc_data.createVariable('prior_altitude',np.float32,('prior_altitude')) # this one doesn't change between priors
 		nc_data['prior_altitude'].standard_name = '{}_profile'.format('prior_altitude')
 		nc_data['prior_altitude'].long_name = nc_data['prior_altitude'].standard_name.replace('_',' ')
 		nc_data['prior_altitude'].units = units_dict['prior_altitude']
 		nc_data['prior_altitude'].description = "altitude levels for the prior profiles, these are the same for all the priors"
 		nc_data['prior_altitude'][0:nlev] = prior_data[list(prior_data.keys())[0]]['data']['altitude'].values
 
-		nc_data.createVariable('ak_pressure',np.float64,('ak_pressure'))
+		nc_data.createVariable('ak_pressure',np.float32,('ak_pressure'))
 		nc_data['ak_pressure'].standard_name = "averaging_kernel_pressure_levels"
 		nc_data['ak_pressure'].long_name = nc_data['ak_pressure'].standard_name.replace('_',' ')
 		nc_data['ak_pressure'].description = "fixed pressure levels for the Lamont (OK, USA) column averaging kernels"
 		nc_data['ak_pressure'].units = 'hPa'
 		nc_data['ak_pressure'][0:nlev_ak] = ak_data['co2']['P_hPa'].values
 
-		nc_data.createVariable('ak_sza',np.float64,('ak_sza'))
+		nc_data.createVariable('ak_sza',np.float32,('ak_sza'))
 		nc_data['ak_sza'].standard_name = "averaging_kernel_solar_zenith_angles"
 		nc_data['ak_sza'].long_name = nc_data['ak_sza'].standard_name.replace('_',' ')
 		nc_data['ak_sza'].description = "fixed solar zenith angles for the Lamont (OK, USA) column averaging kernels"
 		nc_data['ak_sza'].units = 'degrees'
-		nc_data['ak_sza'][0:nsza_ak] = ak_data['co2'].columns[1:].values.astype(np.float64)		
+		nc_data['ak_sza'][0:nsza_ak] = ak_data['co2'].columns[1:].values.astype(np.float32)		
 
 		## create variables
 
 		# averaging kernels
 		for gas in ak_data.keys():
 			var = '{}_ak'.format(gas)
-			nc_data.createVariable(var,np.float64,('ak_sza','ak_pressure'))
+			nc_data.createVariable(var,np.float32,('ak_sza','ak_pressure'))
 			nc_data[var].standard_name = '{}_column_averaging_kernel'.format(gas)
 			nc_data[var].long_name = nc_data[var].standard_name.replace('_',' ')
 			nc_data[var].description = '{} column averaging kernel over Lamont (OK, USA)'.format(gas)
@@ -574,7 +574,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 				nc_data[var][i,0:nlev_ak] = ak_data[gas][sza].values
  
 		# priors
-		nc_data.createVariable('prior_index',int,('time',))
+		nc_data.createVariable('prior_index',np.int16,('time',))
 		nc_data['prior_index'].standard_name = 'prior_index'
 		nc_data['prior_index'].long_name = 'prior index'
 		nc_data['prior_index'].units = ''
@@ -583,14 +583,14 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		for var in ['temperature','pressure','density','gravity','h2o','hdo','co2','n2o','co','ch4','hf','o2']:
 			prior_var = 'prior_{}'.format(var)
 
-			nc_data.createVariable(prior_var,np.float64,('prior_time','prior_altitude'))
+			nc_data.createVariable(prior_var,np.float32,('prior_time','prior_altitude'))
 
 			nc_data[prior_var].standard_name = '{}_profile'.format(prior_var)
 			nc_data[prior_var].long_name = nc_data[prior_var].standard_name.replace('_',' ')
 			nc_data[prior_var].description = nc_data[prior_var].long_name
 			nc_data[prior_var].units = units_dict[prior_var]
 		
-		nc_data.createVariable('prior_tropopause_altitude',np.float64,('time'))
+		nc_data.createVariable('prior_tropopause_altitude',np.float32,('time'))
 		nc_data['prior_tropopause_altitude'].standard_name = 'prior_tropopause_altitude'
 		nc_data['prior_tropopause_altitude'].long_name = 'prior tropopause altitude'
 		nc_data['prior_tropopause_altitude'].description = 'altitude at which the gradient in the prior temperature profile becomes > -2 degrees per km'
@@ -604,18 +604,18 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 			checksum_var.description = 'hexdigest hash string of the md5 sum of the {} file'.format(var)
 
 		# code versions
-		nc_data.createVariable('gfit_version',np.float64,('time',))
+		nc_data.createVariable('gfit_version',np.float32,('time',))
 		nc_data['gfit_version'].description = "version number of the GFIT code that generated the data"
 		nc_data['gfit_version'].standard_name = standard_name_dict['gfit_version']
 		nc_data['gfit_version'].long_name_dict = long_name_dict['gfit_version']
 
-		nc_data.createVariable('gsetup_version',np.float64,('time',))
+		nc_data.createVariable('gsetup_version',np.float32,('time',))
 		nc_data['gsetup_version'].description = "version number of the GSETUP code that generated the priors"
 		nc_data['gsetup_version'].standard_name = standard_name_dict['gsetup_version']
 		nc_data['gsetup_version'].long_name_dict = long_name_dict['gsetup_version']
 
 		# flags
-		nc_data.createVariable('flag',np.float64,('time',))
+		nc_data.createVariable('flag',np.int16,('time',))
 		nc_data['flag'].description = 'data quality flag, 0 = good'
 		nc_data['flag'].standard_name = 'quality_flag'
 		nc_data['flag'].long_name = 'quality flag'
@@ -637,7 +637,11 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		for var in aux_var_list: 
 			qc_id = list(qc_data['variable']).index(var)
 			digit = int(qc_data['format'][qc_id].split('.')[-1])
-			nc_data.createVariable(var,np.float64,('time',),zlib=True,least_significant_digit=digit)
+			if var in ['year','day']:
+				var_type = np.int16
+			else:
+				var_type = np.float32 
+			nc_data.createVariable(var,var_type,('time',),zlib=True,least_significant_digit=digit)
 			# set attributes using the qc.dat file
 			nc_data[var].description = qc_data['description'][qc_id]
 			nc_data[var].units = qc_data['unit'][qc_id].replace('(','').replace(')','').strip()
@@ -657,7 +661,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 			qc_id = list(qc_data['variable']).index(xvar)
 
 			digit = int(qc_data['format'][qc_id].split('.')[-1])
-			nc_data.createVariable(xvar,np.float64,('time',),zlib=True,least_significant_digit=digit)
+			nc_data.createVariable(xvar,np.float32,('time',),zlib=True,least_significant_digit=digit)
 			nc_data[xvar].standard_name = xvar
 			nc_data[xvar].long_name = xvar.replace('_',' ')
 			nc_data[xvar].description = qc_data['description'][qc_id]
@@ -666,16 +670,16 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 			nc_data[xvar].vmax = qc_data['vmax'][qc_id]
 			nc_data[xvar].precision = qc_data['format'][qc_id]
 
-			nc_data.createVariable('vsf_'+var,np.float64,('time',))
+			nc_data.createVariable('vsf_'+var,np.float32,('time',))
 			nc_data['vsf_'+var].description = var+" Volume Scale Factor"
 			nc_data['vsf_'+var][:] = tav_data[var].values
 			
-			nc_data.createVariable('column_'+var,np.float64,('time',))
+			nc_data.createVariable('column_'+var,np.float32,('time',))
 			nc_data['column_'+var].description = var+' molecules per square meter'
 			nc_data['column_'+var].units = 'molecules.m-2'
 			nc_data['column_'+var][:] = vav_data[var].values
 
-			nc_data.createVariable('ada_x'+var,np.float64,('time',))
+			nc_data.createVariable('ada_x'+var,np.float32,('time',))
 			nc_data['ada_x'+var].description = var+' column-average dry-air mole fraction'
 			nc_data['ada_x'+var].units = qc_data['unit'][qc_id].replace('(','').replace(')','').strip()
 			nc_data['ada_x'+var][:] = ada_data['x'+var].values
@@ -691,7 +695,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 					}
 		common_spec = np.intersect1d(aia_data['spectrum'],lse_data['spectrum'],return_indices=True)[2]
 		for var in lse_description.keys():
-			nc_data.createVariable(var,np.float64,('time',))
+			nc_data.createVariable(var,np.float32,('time',))
 			nc_data[var].standard_name = standard_name_dict[var]
 			nc_data[var].long_name = long_name_dict[var]
 			nc_data[var].description = lse_description[var]
@@ -701,7 +705,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		for var in correction_data['gas']:
 			for key in correction_data.columns[1:]:
 				varname = var+'_'+key
-				nc_data.createVariable(varname,np.float64,('time',))
+				nc_data.createVariable(varname,np.float32,('time',))
 				nc_data[varname][:] = correction_data[key][list(correction_data['gas']).index(var)] # write directly
 
 		## write data
@@ -785,7 +789,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 			eflag[dmax>0.5] = kmax[dmax>0.5]
 			
 			# write the flagged variable index
-			nc_data['flag'][start:end] = eflag
+			nc_data['flag'][start:end] = [int(i) for i in eflag]
 
 			# write the flagged variable name
 			for i in range(start,end):
@@ -864,7 +868,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 			# create window specific variables
 			for var in col_data.columns[1:]: # skip the first one ("spectrum")
 				varname = '_'.join([gas_XXXX,var])
-				nc_data.createVariable(varname,np.float64,('time',))
+				nc_data.createVariable(varname,np.float32,('time',))
 				if var in standard_name_dict.keys():
 					nc_data[varname].standard_name = standard_name_dict[var]
 					nc_data[varname].long_name = long_name_dict[var]
@@ -877,7 +881,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 			nc_data[ncbf_var][:] = len(cbf_data.columns)-1 # minus 1 because of the spectrum name column
 			for var in cbf_data.columns[1:]: # don't use the 'Spectrum' column
 				varname = '_'.join([gas_XXXX,var])
-				nc_data.createVariable(varname,np.float64,('time',))
+				nc_data.createVariable(varname,np.float32,('time',))
 				nc_data[varname].standard_name = standard_name_dict[var.split('_')[0]].format(var.split('_')[1])
 				nc_data[varname].long_name = long_name_dict[var.split('_')[0]].format(var.split('_')[1])
 				
