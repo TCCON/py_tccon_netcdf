@@ -926,9 +926,17 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		# get indices of data to copy based on the release_lag
 		release_lag = int(private_data.release_lag.split()[0])
 		last_public_time = (datetime.utcnow()-datetime(1970,1,1)).total_seconds() - timedelta(days=release_lag).total_seconds()
-		public_ids = np.where(private_data['time'][:]<last_public_time)[0]
+		release_ids = np.where(private_data['time'][:]<last_public_time)[0]
+
+		# get indices of data with flag = 0
+		no_flag_ids = np.where(private_data['flag'][:]==0)[0]
+		
+		# get the intersection of release_lag and flag constrained indices
+		public_ids = list(set(release_ids).intersection(set(no_flag_ids)))
+
+		public_slice = np.array([i in public_ids for i in np.arange(nspec) ]) # boolean array to slice the private variables on the public ids
+
 		nspec_public = len(public_ids)
-		last_public_id = public_ids[-1]
 
 		## copy dimensions
 		for name, dimension in private_data.dimensions.items():
@@ -954,9 +962,9 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 			public = np.array([contain_check,isequalto_check,startswith_check,endswith_check]).any() and not excluded
 			
 			if public:
-				if 'time' in variable.dimensions:
+				if 'time' in variable.dimensions: # only the variables along the 'time' dimension need to be sampled with public_ids
 					public_data.createVariable(name, variable.datatype, variable.dimensions)
-					public_data[name][:] = private_data[name][0:last_public_id+1]
+					public_data[name][:] = private_data[name][public_slice]
 				else:
 					public_data.createVariable(name, variable.datatype, variable.dimensions)
 					public_data[name][:] = private_data[name][:]
