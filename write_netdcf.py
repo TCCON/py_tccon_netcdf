@@ -283,6 +283,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 
 	# read prior data
 	prior_data, nlev = read_mav(mav_file)
+	nprior = len(prior_data.keys())
 
 	# header file: it contains general information and comments.
 	with open(header_file,'r') as infile:
@@ -517,6 +518,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		As far as I am aware this will only be an issue if people want to concatenate multiple netcdf files along the time dimension, they will have to turn the time dimension to an unlimited dimension first
 		"""
 		nc_data.createDimension('time',nspec)
+		nc_data.createDimension('prior_time',nprior)
 		nc_data.createDimension('prior_altitude',nlev) # used for the prior profiles
 		nc_data.createDimension('ak_pressure',nlev_ak)
 		nc_data.createDimension('ak_sza',nsza_ak)
@@ -528,6 +530,13 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		nc_data['time'].description = 'UTC time'
 		nc_data['time'].units = 'seconds since 1970-01-01 00:00:00'
 		nc_data['time'].calendar = 'gregorian'
+
+		nc_data.createVariable('prior_time',np.float64,('prior_time'))
+		nc_data['prior_time'].standard_name = "prior_time"
+		nc_data['prior_time'].long_name = "prior time"
+		nc_data['prior_time'].description = 'UTC time for the prior profiles, corresponds to GEOS5 times every 3 hours from 0 to 21'
+		nc_data['prior_time'].units = 'seconds since 1970-01-01 00:00:00'
+		nc_data['prior_time'].calendar = 'gregorian'
 
 		nc_data.createVariable('prior_altitude',np.float64,('prior_altitude')) # this one doesn't change between priors
 		nc_data['prior_altitude'].standard_name = '{}_profile'.format('prior_altitude')
@@ -565,23 +574,22 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 				nc_data[var][i,0:nlev_ak] = ak_data[gas][sza].values
  
 		# priors
+		nc_data.createVariable('prior_index',int,('time',))
+		nc_data['prior_index'].standard_name = 'prior_index'
+		nc_data['prior_index'].long_name = 'prior index'
+		nc_data['prior_index'].units = ''
+		nc_data['prior_index'].description = 'Index of the prior profile associated with each measurement, it can be used to sample the prior_ variables along the prior_time dimension'
+
 		for var in ['temperature','pressure','density','gravity','h2o','hdo','co2','n2o','co','ch4','hf','o2']:
 			prior_var = 'prior_{}'.format(var)
 
-			nc_data.createVariable(prior_var,np.float64,('time','prior_altitude'))
+			nc_data.createVariable(prior_var,np.float64,('prior_time','prior_altitude'))
 
 			nc_data[prior_var].standard_name = '{}_profile'.format(prior_var)
 			nc_data[prior_var].long_name = nc_data[prior_var].standard_name.replace('_',' ')
 			nc_data[prior_var].description = nc_data[prior_var].long_name
 			nc_data[prior_var].units = units_dict[prior_var]
 		
-		nc_data.createVariable('prior_time',np.float64,('time'))
-		nc_data['prior_time'].standard_name = "prior_time"
-		nc_data['prior_time'].long_name = "prior time"
-		nc_data['prior_time'].description = 'UTC time for the prior profiles, corresponds to GEOS5 times every 3 hours from 0 to 21'
-		nc_data['prior_time'].units = 'seconds since 1970-01-01 00:00:00'
-		nc_data['prior_time'].calendar = 'gregorian'
-
 		nc_data.createVariable('prior_tropopause_altitude',np.float64,('time'))
 		nc_data['prior_tropopause_altitude'].standard_name = 'prior_tropopause_altitude'
 		nc_data['prior_tropopause_altitude'].long_name = 'prior tropopause altitude'
@@ -697,6 +705,37 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 				nc_data[varname][:] = correction_data[key][list(correction_data['gas']).index(var)] # write directly
 
 		## write data
+		sys.stdout.write('\nWriting prior data ...')
+		sys.stdout.flush()
+		factor = {'temperature':1.0,'pressure':1.0,'density':1.0,'gravity':1.0,'1h2o':1.0,'1hdo':1.0,'1co2':1e6,'1n2o':1e9,'1co':1e9,'1ch4':1e9,'1hf':1e12,'1o2':1.0}
+		prior_spec_list = list(prior_data.keys())
+		prior_spec_gen = (spectrum for spectrum in prior_spec_list)
+		prior_spectrum = next(prior_spec_gen)
+		next_spectrum = next(prior_spec_gen)
+		prior_index = 0
+		for spec_id,spectrum in enumerate(nc_data['spectrum'][:]):
+			if spectrum==next_spectrum:
+				prior_spectrum = next_spectrum
+				try:
+					next_spectrum = next(prior_spec_gen)
+				except StopIteration:
+					pass
+				
+				prior_index += 1
+
+			nc_data['prior_index'][spec_id] = prior_index
+
+		for prior_spec_id, prior_spectrum in enumerate(prior_spec_list):
+			for var in ['temperature','pressure','density','gravity','1h2o','1hdo','1co2','1n2o','1co','1ch4','1hf','1o2']:
+				prior_var = 'prior_{}'.format(var.strip('1'))
+
+				nc_data[prior_var][prior_spec_id,0:nlev] = factor[var]*prior_data[prior_spectrum]['data'][var].values
+
+			nc_data['prior_time'][prior_spec_id] = prior_data[prior_spectrum]['time']
+			nc_data['prior_tropopause_altitude'][prior_spec_id] = prior_data[prior_spectrum]['tropopause_altitude']
+
+		sys.stdout.write('\rWriting prior data ... DONE')
+
 		# update data with new scale factors and determine flags
 		esf_id = 0
 		nflag = 0
@@ -875,34 +914,10 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 				replace_ids = list(np.where(nc_data[var]==missing_data[var])[0])
 				print('Convert fill value for',var,'from',missing_data[time_period][var],'to',netCDF4.default_fillvals['f4'])
 				for id in replace_ids:
-					nc_data[var][id] = netCDF4.default_fillvals['f4'] 
+					nc_data[var][id] = netCDF4.default_fillvals['f4']
 
-		print('\nWriting prior data:')
-		factor = {'temperature':1.0,'pressure':1.0,'density':1.0,'gravity':1.0,'1h2o':1.0,'1hdo':1.0,'1co2':1e6,'1n2o':1e9,'1co':1e9,'1ch4':1e9,'1hf':1e12,'1o2':1.0}
-		prior_spec_gen = (spectrum for spectrum in prior_data.keys())
-		prior_spectrum = next(prior_spec_gen)
-		next_spectrum = next(prior_spec_gen)
-		for spec_id,spectrum in enumerate(nc_data['spectrum'][:]):
-			if spectrum==next_spectrum:
-				prior_spectrum = next_spectrum
-				try:
-					next_spectrum = next(prior_spec_gen)
-				except StopIteration:
-					pass
+	print('\nFinished writing',private_nc_file)
 
-			for var in ['temperature','pressure','density','gravity','1h2o','1hdo','1co2','1n2o','1co','1ch4','1hf','1o2']:
-				prior_var = 'prior_{}'.format(var.strip('1'))
-
-				nc_data[prior_var][spec_id,0:nlev] = factor[var]*prior_data[prior_spectrum]['data'][var].values
-
-			nc_data['prior_time'][spec_id] = prior_data[prior_spectrum]['time']
-			nc_data['prior_tropopause_altitude'][spec_id] = prior_data[prior_spectrum]['tropopause_altitude']
-
-			progress(spec_id,nspec,word=spectrum)
-
-	print('Created',private_nc_file)
-
-	print('\nWriting public file:')
 	public_nc_file = '{}{}_{}.public.nc'.format(siteID,start_date,end_date)
 	with netCDF4.Dataset(private_nc_file,'r') as private_data, netCDF4.Dataset(public_nc_file,'w') as public_data:
 		## copy all the metadata
@@ -943,4 +958,4 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 					public_data[name][:] = private_data[name][:]
 				# copy variable attributes all at once via dictionary
 				public_data[name].setncatts(private_data[name].__dict__)
-	print('Created',public_nc_file)
+	print('Finished writing',public_nc_file)
