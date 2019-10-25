@@ -224,6 +224,8 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 	
 	parser.add_argument('file',type=lambda file_name:file_choices(('tav'),file_name),help='The .tav file')
 
+	parser.add_argument('-r','--read-only',action='store_true',help="Convenience for python interactive shells; sys.exit() right after reading all the input files")
+
 	args = parser.parse_args()
 
 	# input and output file names
@@ -478,6 +480,10 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 	'prior_hf':'ppt',
 	'prior_o2':'',
 	}
+
+	if args.read_only:
+		print('\nAll inputs read')
+		sys.exit()
 
 	if os.path.exists(private_nc_file):
 		os.remove(private_nc_file)
