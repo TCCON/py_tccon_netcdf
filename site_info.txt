@@ -54,7 +54,7 @@
 		'data_revision':'R1',
 	},
 
-	'pa': {
+	'tj': {
 		'long_name':'tsukuba01',
 		'release_lag':'366',
 		'location':'Tsukuba, Ibaraki, Japan, 120HR',
@@ -65,7 +65,7 @@
 		'data_revision':'R0',
 	},
 
-	'tj': {
+	'tk': {
 		'long_name':'tsukuba02',
 		'release_lag':'366',
 		'location':'Tsukuba, Ibaraki, Japan, 125HR',
