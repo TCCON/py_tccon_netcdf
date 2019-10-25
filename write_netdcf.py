@@ -493,12 +493,13 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		## global attributes
 		
 		# general TCCON
-		nc_data.source = "Atmospheric trace gas concentrations retrieved from solar absorption spectra measured by ground based Fourier Transform Infrared Spectrometers"
+		nc_data.title = "Atmospheric trace gas column-average dry-air mole fractions retrieved from solar absorption spectra measured by ground based Fourier Transform Infrared Spectrometers that are part of the Total Carbon Column Observing Network (TCCON)"
+		nc_data.source = "Products retrieved from solar absorption spectra using the GGG2019 software"
 		nc_data.data_use_policy = "https://tccon-wiki.caltech.edu/Network_Policy/Data_Use_Policy"
 		nc_data.auxiliary_data_description = "https://tccon-wiki.caltech.edu/Network_Policy/Data_Use_Policy/Auxiliary_Data"
 		nc_data.description = '\n'+header_content
 		nc_data.file_creation = "Created with Python {}; the library netCDF4 {}; and the code {}".format(platform.python_version(),netCDF4.__version__,wnc_version)
-		nc_data.flag_info = 'The Vmin and Vmax attributes of some variables indicate the range of values out of which the data would be flagged bad.\n the variable "flag" store the variable index of the flagged variables; the variable "flagged_var_name" store the name of the flagged variables'
+		nc_data.flag_info = 'The Vmin and Vmax attributes of the variables indicate the range of valid values.\nThe values comes from the xx_qc.dat file.\n the variable "flag" stores the index of the variable that contains out of range values.\nThe variable "flagged_var_name" stores the name of that variable'
 		nc_data.more_information = "https://tccon-wiki.caltech.edu"
 		nc_data.tccon_reference = "Wunch, D., G. C. Toon, J.-F. L. Blavier, R. A. Washenfelder, J. Notholt, B. J. Connor, D. W. T. Griffith, V. Sherlock, and P. O. Wennberg (2011), The total carbon column observing network, Philosophical Transactions of the Royal Society - Series A: Mathematical, Physical and Engineering Sciences, 369(1943), 2087-2112, doi:10.1098/rsta.2010.0240. Available from: http://dx.doi.org/10.1098/rsta.2010.0240"
 		
@@ -631,6 +632,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		nc_data['flagged_var_name'].standard_name = 'flagged_variable_name'
 		nc_data['flagged_var_name'].long_name = 'flagged variable name'
 
+		# spectrum file names
 		nc_data.createVariable('spectrum',str,('time',))
 		nc_data['spectrum'].standard_name = 'spectrum_file_name'
 		nc_data['spectrum'].long_name = 'spectrum file name'
@@ -681,13 +683,16 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 			nc_data['vsf_'+var][:] = tav_data[var].values
 			
 			nc_data.createVariable('column_'+var,np.float32,('time',))
-			nc_data['column_'+var].description = var+' molecules per square meter'
+			nc_data['column_'+var].description = var+' column average'
 			nc_data['column_'+var].units = 'molecules.m-2'
 			nc_data['column_'+var][:] = vav_data[var].values
 
 			nc_data.createVariable('ada_x'+var,np.float32,('time',))
-			nc_data['ada_x'+var].description = var+' column-average dry-air mole fraction'
-			nc_data['ada_x'+var].units = qc_data['unit'][qc_id].replace('(','').replace(')','').strip()
+			if 'error' in var:
+				nc_data['ada_x'+var].description = 'uncertainty associated with ada_x{}'.format(var.replace('_error',''))
+			else:
+				nc_data['ada_x'+var].description = var+' column-average dry-air mole fraction computed after airmass dependence is removed, but before scaling to WMO.'
+			nc_data['ada_x'+var].units = ""
 			nc_data['ada_x'+var][:] = ada_data['x'+var].values
 
 		# lse data
@@ -931,7 +936,15 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 	public_nc_file = '{}{}_{}.public.nc'.format(siteID,start_date,end_date)
 	with netCDF4.Dataset(private_nc_file,'r') as private_data, netCDF4.Dataset(public_nc_file,'w') as public_data:
 		## copy all the metadata
-		public_data.setncatts(private_data.__dict__)
+		private_attributes = private_data.__dict__
+		public_attributes = private_attributes.copy()
+		for attr in ['flag_info','release_lag','GGGtip']: # remove attributes that are only meant for private files
+			public_attributes.pop(attr)
+
+		# update the history to indicate that the public file is a subset of the private file
+		public_attributes['history'] = "Created {} (UTC) from the engineering file {}".format(time.asctime(time.gmtime(time.time())),private_nc_file.split(os.sep)[-1])
+
+		public_data.setncatts(public_attributes)
 
 		# get indices of data to copy based on the release_lag
 		release_lag = int(private_data.release_lag.split()[0])
