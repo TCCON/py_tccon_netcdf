@@ -29,11 +29,11 @@
 		'xco2',
 		'xn2o',
 		'xch4',
-		'prior_'
+		'prior_',
+		'ak_',
 	],
 	
 	'endswith':[
-		'_ak',
 		'_version',
 	],
 

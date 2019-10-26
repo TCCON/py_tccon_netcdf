@@ -570,7 +570,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 
 		# averaging kernels
 		for gas in ak_data.keys():
-			var = '{}_ak'.format(gas)
+			var = 'ak_{}'.format(gas)
 			nc_data.createVariable(var,np.float32,('ak_sza','ak_pressure'))
 			nc_data[var].standard_name = '{}_column_averaging_kernel'.format(gas)
 			nc_data[var].long_name = nc_data[var].standard_name.replace('_',' ')
