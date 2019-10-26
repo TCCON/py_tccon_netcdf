@@ -515,7 +515,6 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 			setattr(nc_data,key,val)
 
 		# other
-		nc_data.number_of_species = str(nwin)
 		nc_data.number_of_spectral_windows = str(len(col_file_list))
 		
 		proc = subprocess.Popen(['hg','summary'],cwd=GGGPATH,stdout=subprocess.PIPE)
