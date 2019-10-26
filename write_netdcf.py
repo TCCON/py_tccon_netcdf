@@ -194,7 +194,7 @@ def read_mav(path):
 
 if __name__=='__main__': # execute only when the code is run by itself, and not when it is imported
 
-	wnc_version = 'write_netcdf.py (Version 1.0; 2019-10-18; SR)\n'
+	wnc_version = 'write_netcdf.py (Version 1.0; 2019-10-26; SR)\n'
 	print(wnc_version)
 
 	try:
