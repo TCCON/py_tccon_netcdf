@@ -481,6 +481,13 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 	'prior_o2':'',
 	}
 
+	special_description_dict = {
+		'lco2':' lco2 is the strong CO2 band centered at 4852.87 cm-1 and does not contribute to the xco2 calculation.',
+		'wco2':' wco2 is used for the weak CO2 bands centered at 6073.5 and 6500.4 cm-1 and does not contribute to the xco2 calculation.',
+		'th2o':' th2o is used for temperature dependent H2O windows and does not contribute to the xh2o calculation.',
+		'luft':' luft is used for "dry air"',
+	}
+
 	if args.read_only:
 		print('\nAll inputs read')
 		sys.exit()
@@ -679,11 +686,11 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 			nc_data[xvar].precision = qc_data['format'][qc_id]
 
 			nc_data.createVariable('vsf_'+var,np.float32,('time',))
-			nc_data['vsf_'+var].description = var+" Volume Scale Factor"
+			nc_data['vsf_'+var].description = var+" Volume Scale Factor."
 			nc_data['vsf_'+var][:] = tav_data[var].values
 			
 			nc_data.createVariable('column_'+var,np.float32,('time',))
-			nc_data['column_'+var].description = var+' column average'
+			nc_data['column_'+var].description = var+' column average.'
 			nc_data['column_'+var].units = 'molecules.m-2'
 			nc_data['column_'+var][:] = vav_data[var].values
 
@@ -692,6 +699,10 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 				nc_data['ada_x'+var].description = 'uncertainty associated with ada_x{}'.format(var.replace('_error',''))
 			else:
 				nc_data['ada_x'+var].description = var+' column-average dry-air mole fraction computed after airmass dependence is removed, but before scaling to WMO.'
+			for key in special_description_dict.keys():
+				if key in var:
+					for nc_var in [nc_data[xvar],nc_data['vsf_'+var],nc_data['column_'+var],nc_data['ada_x'+var]]:
+						nc_var.description += special_description_dict[key]
 			nc_data['ada_x'+var].units = ""
 			nc_data['ada_x'+var][:] = ada_data['x'+var].values
 
@@ -885,6 +896,25 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 					nc_data[varname].long_name = long_name_dict[var]
 
 				nc_data[varname][:] = col_data[var].values
+				if '_' in var:
+					nc_data[varname].description = '{} {} retrieved from the {} window centered at {} cm-1.'.format(var.split('_')[1],var.split('_')[0],gas_XXXX.split('_')[0],gas_XXXX.split('_')[1])
+
+					try:
+						iso = int(var.split('_')[1][0])
+					except:
+						pass
+					else:
+						iso_gas = var.split('_')[1]
+						if iso in [1,2,3]:
+							sup = ['st','nd','rd'][iso-1]
+						else:
+							sup = 'th'
+						nc_data[varname].description += "{} is the {}{} isotopolog of {} as listed in GGG's isotopologs.dat file.".format(iso_gas,iso,sup,iso_gas[1:])
+				else:
+					nc_data[varname].description = '{} retrieved from the {} window centered at {} cm-1.'.format(var,gas_XXXX.split('_')[0],gas_XXXX.split('_')[1])
+				for key in special_description_dict.keys():
+					if key in varname:
+						nc_data[varname].description += special_description_dict[key]
 			
 			# add data from the .cbf file
 			ncbf_var = '{}_ncbf'.format(gas_XXXX)
@@ -938,7 +968,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		## copy all the metadata
 		private_attributes = private_data.__dict__
 		public_attributes = private_attributes.copy()
-		for attr in ['flag_info','release_lag','GGGtip']: # remove attributes that are only meant for private files
+		for attr in ['flag_info','release_lag','GGGtip','number_of_spectral_windows']: # remove attributes that are only meant for private files
 			public_attributes.pop(attr)
 
 		# update the history to indicate that the public file is a subset of the private file
