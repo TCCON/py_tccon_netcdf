@@ -151,7 +151,7 @@ def read_mav(path):
 				spectrum = line.strip().split(':')[1]
 		tropalt = float(infile.readline().split(':')[1])
 		oblat = float(infile.readline().split(':')[1])
-		vmr_time = (datetime.strptime(infile.readline().split()[0].split(os.sep)[-1].split('_')[1],'%Y%m%d%H')-datetime(1970,1,1)).total_seconds()
+		vmr_time = (datetime.strptime(infile.readline().split()[0].split(os.sep)[-1].split('_')[1][:-1],'%Y%m%d%H')-datetime(1970,1,1)).total_seconds()
 
 	nhead, ncol, nlev = [int(elem) for elem in line.split()]
 
@@ -176,7 +176,7 @@ def read_mav(path):
 
 		tropalt = float(d['pressure'][block_id+2])
 		oblat = float(d['pressure'][block_id+3])
-		vmr_time = (datetime.strptime(d['altitude'][block_id+4].split(os.sep)[-1].split('_')[1],'%Y%m%d%H')-datetime(1970,1,1)).total_seconds()
+		vmr_time = (datetime.strptime(d['altitude'][block_id+4].split(os.sep)[-1].split('_')[1][:-1],'%Y%m%d%H')-datetime(1970,1,1)).total_seconds()
 		
 		mav_block = d[block_id+7:block_id+7+nlev].apply(pd.to_numeric) # turn all the strings into numbers
 		DATA[spectrum] = {
