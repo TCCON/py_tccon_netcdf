@@ -555,7 +555,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 			nc_data.createDimension('a32',32)
 
 		## create coordinate variables
-		nc_data.createVariable('time',np.float32,('time',))
+		nc_data.createVariable('time',np.float64,('time',))
 		nc_data['time'].standard_name = "time"
 		nc_data['time'].long_name = "time"
 		nc_data['time'].description = 'UTC time'
