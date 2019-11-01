@@ -223,10 +223,14 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		return file_name
 	
 	parser.add_argument('file',type=lambda file_name:file_choices(('tav'),file_name),help='The .tav file')
-
+	parser.add_argument('--format',default='NETCDF4_CLASSIC',choices=['NETCDF4_CLASSIC','NETCDF4'],help='the format of the NETCDF files')
 	parser.add_argument('-r','--read-only',action='store_true',help="Convenience for python interactive shells; sys.exit() right after reading all the input files")
 
 	args = parser.parse_args()
+
+	nc_format = args.format
+	classic = nc_format == 'NETCDF4_CLASSIC'
+	print(nc_format,'format')
 
 	# input and output file names
 	tav_file = args.file
@@ -495,7 +499,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 	if os.path.exists(private_nc_file):
 		os.remove(private_nc_file)
 
-	with netCDF4.Dataset(private_nc_file,'w',format='NETCDF4') as nc_data:
+	with netCDF4.Dataset(private_nc_file,'w',format=nc_format) as nc_data:
 		
 		## global attributes
 		
@@ -535,6 +539,10 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		nc_data.createDimension('prior_altitude',nlev) # used for the prior profiles
 		nc_data.createDimension('ak_pressure',nlev_ak)
 		nc_data.createDimension('ak_sza',nsza_ak)
+
+		if classic:
+			nc_data.createDimension('a20',20)
+			nc_data.createDimension('a32',32)
 
 		## create coordinate variables
 		nc_data.createVariable('time',np.float32,('time',))
@@ -611,7 +619,10 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 
 		# checksums
 		for var in checksum_var_list:
-			checksum_var = nc_data.createVariable(var+'_checksum',str,('time',))
+			if classic:
+				checksum_var = nc_data.createVariable(var+'_checksum','S1',('time','a32'))
+			else:
+				checksum_var = nc_data.createVariable(var+'_checksum',str,('time',))
 			checksum_var.standard_name = standard_name_dict[var+'_checksum']
 			checksum_var.long_name = long_name_dict[var+'_checksum']
 			checksum_var.description = 'hexdigest hash string of the md5 sum of the {} file'.format(var)
@@ -633,18 +644,29 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		nc_data['flag'].standard_name = 'quality_flag'
 		nc_data['flag'].long_name = 'quality flag'
 
-		nc_data.createVariable('flagged_var_name',str,('time',))
+		if classic:
+			nc_data.createVariable('flagged_var_name','S1',('time','a32'))
+		else:
+			nc_data.createVariable('flagged_var_name',str,('time',))
 		nc_data['flagged_var_name'].description = 'name of the variable that caused the data to be flagged; empty string = good'
 		nc_data['flagged_var_name'].standard_name = 'flagged_variable_name'
 		nc_data['flagged_var_name'].long_name = 'flagged variable name'
 
 		# spectrum file names
-		nc_data.createVariable('spectrum',str,('time',))
+		if classic:
+			nc_data.createVariable('spectrum','S1',('time','a20'))
+		else:
+			nc_data.createVariable('spectrum',str,('time',))
 		nc_data['spectrum'].standard_name = 'spectrum_file_name'
 		nc_data['spectrum'].long_name = 'spectrum file name'
 		nc_data['spectrum'].description = 'spectrum file name'
-		for i,specname in enumerate(aia_data['spectrum'].values):
-			nc_data['spectrum'][i] = specname
+
+		if classic:
+			for i,specname in enumerate(aia_data['spectrum'].values):
+				nc_data['spectrum'][i] = netCDF4.stringtoarr(specname,20)			
+		else:
+			for i,specname in enumerate(aia_data['spectrum'].values):
+				nc_data['spectrum'][i] = specname
 
 		# auxiliary variables
 		aux_var_list = [tav_data.columns[i] for i in range(1,naux)]
@@ -813,11 +835,18 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 			nc_data['flag'][start:end] = [int(i) for i in eflag]
 
 			# write the flagged variable name
-			for i in range(start,end):
-				if eflag[i-start] == 0:
-					nc_data['flagged_var_name'][i] = ""
-				else:
-					nc_data['flagged_var_name'][i] = qc_data['variable'][eflag[i-start]-1]
+			if classic:
+				for i in range(start,end):
+					if eflag[i-start] == 0:
+						nc_data['flagged_var_name'][i] = netCDF4.stringtoarr("",32)
+					else:
+						nc_data['flagged_var_name'][i] = netCDF4.stringtoarr(qc_data['variable'][eflag[i-start]-1],32)
+			else:
+				for i in range(start,end):
+					if eflag[i-start] == 0:
+						nc_data['flagged_var_name'][i] = ""
+					else:
+						nc_data['flagged_var_name'][i] = qc_data['variable'][eflag[i-start]-1]
 
 		nflag = np.count_nonzero(nc_data['flag'][:])
 
@@ -863,8 +892,12 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 				nc_data['gsetup_version'][:] = gsetup_version
 				for var in checksum_var_list:
 					checksum_var = var+'_checksum'
-					for i in range(aia_data['spectrum'].size):
-						nc_data[checksum_var][i] = checksum_dict[checksum_var]				
+					if classic:
+						for i in range(aia_data['spectrum'].size):
+							nc_data[checksum_var][i] = netCDF4.stringtoarr(checksum_dict[checksum_var],32)				
+					else:
+						for i in range(aia_data['spectrum'].size):
+							nc_data[checksum_var][i] = checksum_dict[checksum_var]
 
 			# read col_file data
 			with open(col_file,'r') as infile:
@@ -963,7 +996,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 	print('\nFinished writing',private_nc_file)
 
 	public_nc_file = '{}{}_{}.public.nc'.format(siteID,start_date,end_date)
-	with netCDF4.Dataset(private_nc_file,'r') as private_data, netCDF4.Dataset(public_nc_file,'w') as public_data:
+	with netCDF4.Dataset(private_nc_file,'r') as private_data, netCDF4.Dataset(public_nc_file,'w',format=nc_format) as public_data:
 		## copy all the metadata
 		private_attributes = private_data.__dict__
 		public_attributes = private_attributes.copy()
