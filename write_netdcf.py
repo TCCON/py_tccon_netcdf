@@ -247,6 +247,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 	header_file = os.path.join(GGGPATH,'tccon','{}_oof_header.dat'.format(siteID))
 	correction_file =  os.path.join(GGGPATH,'tccon','corrections.dat')
 	lse_file = os.path.join(GGGPATH,'lse','gnd',tav_file.split(os.sep)[-1].replace('.tav','.lse'))
+	pth_file = 'extract_pth.out'
 
 	col_file_list = sorted([i for i in os.listdir(os.getcwd()) if '.col' in i])
 
@@ -290,6 +291,12 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 	# read prior data
 	prior_data, nlev = read_mav(mav_file)
 	nprior = len(prior_data.keys())
+
+	# read pth data
+	nhead,ncol = file_info(pth_file)
+	pth_data = pd.read_csv(pth_file,delim_whitespace=True,skiprows=nhead)
+	pth_data.loc[:,'hout'] = pth_data['hout']*100.0 # convert fractional humidity to percent
+	pth_data.loc[:,'hmod'] = pth_data['hmod']*100.0 # convert fractional humidity to percent
 
 	# header file: it contains general information and comments.
 	with open(header_file,'r') as infile:
@@ -392,6 +399,9 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 	'pins':'instrument_internal_pressure',
 	'pout':'atmospheric_pressure',
 	'hout':'atmospheric_humidity',
+	'tmod':'model_atmospheric_temperature',
+	'pmod':'model_atmospheric_pressure',
+	'hmod':'model_atmospheric_humidity',
 	'sia':'solar_intensity_average',
 	'fvsi':'fractional_variation_in_solar_intensity',
 	'zobs':'observation_altitude',
@@ -689,6 +699,20 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 				nc_data[var].units = units_dict[var] # reset units here for some of the variables in the qc_file using UDUNITS compatible units
 
 		nc_data['hour'].description = 'Fractional UT hours (zero path difference crossing time)'
+
+		# get model surface values from the output of extract_pth.f
+		for key,val in {'tmod':'tout','pmod':'pout','hmod':'hout'}.items(): # use a mapping to the equivalent runlog variables to querry their qc.dat info
+			qc_id = list(qc_data['variable']).index(val)
+			digit = int(qc_data['format'][qc_id].split('.')[-1])
+			var_type = np.float32 
+			nc_data.createVariable(key,var_type,('time'),zlib=True,least_significant_digit=digit)
+			nc_data[key].description = 'model {}'.format(qc_data['description'][qc_id].lower())
+			nc_data[key].vmin = qc_data['vmin'][qc_id]
+			nc_data[key].vmax = qc_data['vmax'][qc_id]
+			if key in standard_name_dict.keys():
+				nc_data[key].standard_name = standard_name_dict[key]
+				nc_data[key].long_name = long_name_dict[key]
+				nc_data[key].units = units_dict[val]
 
 		# averaged variables (from the different windows of each species)
 		main_var_list = [tav_data.columns[i] for i in range(naux,len(tav_data.columns)-1)]  # minus 1 because I added the 'file' column
