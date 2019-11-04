@@ -194,7 +194,7 @@ def read_mav(path):
 
 if __name__=='__main__': # execute only when the code is run by itself, and not when it is imported
 
-	wnc_version = 'write_netcdf.py (Version 1.0; 2019-10-26; SR)\n'
+	wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-04; SR)\n'
 	print(wnc_version)
 
 	try:
@@ -682,12 +682,12 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		aux_var_list = [tav_data.columns[i] for i in range(1,naux)]
 		for var in aux_var_list: 
 			qc_id = list(qc_data['variable']).index(var)
-			digit = int(qc_data['format'][qc_id].split('.')[-1])
+			#digit = int(qc_data['format'][qc_id].split('.')[-1])
 			if var in ['year','day']:
 				var_type = np.int16
 			else:
 				var_type = np.float32 
-			nc_data.createVariable(var,var_type,('time',),zlib=True,least_significant_digit=digit)
+			nc_data.createVariable(var,var_type,('time',))#,zlib=True)#,least_significant_digit=digit)
 			# set attributes using the qc.dat file
 			nc_data[var].description = qc_data['description'][qc_id]
 			nc_data[var].units = qc_data['unit'][qc_id].replace('(','').replace(')','').strip()
@@ -703,9 +703,9 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 		# get model surface values from the output of extract_pth.f
 		for key,val in {'tmod':'tout','pmod':'pout','hmod':'hout'}.items(): # use a mapping to the equivalent runlog variables to querry their qc.dat info
 			qc_id = list(qc_data['variable']).index(val)
-			digit = int(qc_data['format'][qc_id].split('.')[-1])
+			#digit = int(qc_data['format'][qc_id].split('.')[-1])
 			var_type = np.float32 
-			nc_data.createVariable(key,var_type,('time'),zlib=True,least_significant_digit=digit)
+			nc_data.createVariable(key,var_type,('time'))#,zlib=True)#,least_significant_digit=digit)
 			nc_data[key].description = 'model {}'.format(qc_data['description'][qc_id].lower())
 			nc_data[key].vmin = qc_data['vmin'][qc_id]
 			nc_data[key].vmax = qc_data['vmax'][qc_id]
@@ -720,8 +720,8 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 			xvar = 'x'+var
 			qc_id = list(qc_data['variable']).index(xvar)
 
-			digit = int(qc_data['format'][qc_id].split('.')[-1])
-			nc_data.createVariable(xvar,np.float32,('time',),zlib=True,least_significant_digit=digit)
+			#digit = int(qc_data['format'][qc_id].split('.')[-1])
+			nc_data.createVariable(xvar,np.float32,('time',))#,zlib=True)#,least_significant_digit=digit)
 			nc_data[xvar].standard_name = xvar
 			nc_data[xvar].long_name = xvar.replace('_',' ')
 			nc_data[xvar].description = qc_data['description'][qc_id]
@@ -845,8 +845,9 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 					sys.exit()
 
 				qc_id = list(qc_data['variable']).index(var)
+				digit = int(qc_data['format'][qc_id].split('.')[-1])
 				
-				nc_data[var][start:end] = aia_data[var][start:end].values*qc_data['rsc'][qc_id]
+				nc_data[var][start:end] = np.round(aia_data[var][start:end].values*qc_data['rsc'][qc_id],digit)
 
 				dev = abs( (qc_data['rsc'][qc_id]*aia_data[var][start:end].values-qc_data['vmin'][qc_id])/(qc_data['vmax'][qc_id]-qc_data['vmin'][qc_id]) -0.5 )
 				
@@ -1017,7 +1018,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 				for id in replace_ids:
 					nc_data[var][id] = netCDF4.default_fillvals['f4']
 
-	print('\nFinished writing',private_nc_file)
+	print('\nFinished writing',private_nc_file,'{:.2f}'.format(os.path.getsize(private_nc_file)/1e6),'MB')
 
 	public_nc_file = '{}{}_{}.public.nc'.format(siteID,start_date,end_date)
 	with netCDF4.Dataset(private_nc_file,'r') as private_data, netCDF4.Dataset(public_nc_file,'w',format=nc_format) as public_data:
@@ -1079,4 +1080,4 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 					public_data[name][:] = private_data[name][:]
 				# copy variable attributes all at once via dictionary
 				public_data[name].setncatts(private_data[name].__dict__)
-	print('Finished writing',public_nc_file)
+	print('Finished writing',public_nc_file,'{:.2f}'.format(os.path.getsize(public_nc_file)/1e6),'MB')
