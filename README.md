@@ -4,7 +4,7 @@
 Code to compile the outputs of GGG in a netCDF file
 
 ############
-write_netcdf.py (Version 1.0; 2019-10-26; SR)
+write_netcdf.py (Version 1.0; 2019-11-04; SR)
 
 usage: write_netdcf.py [-h] [-r] file
 
