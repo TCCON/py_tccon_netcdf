@@ -538,13 +538,13 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
         # other
         nc_data.number_of_spectral_windows = str(len(col_file_list))
        
-	if os.path.isidr(os.path.join(GGGPATH,'.hg')): 
-        	proc = subprocess.Popen(['hg','summary'],cwd=GGGPATH,stdout=subprocess.PIPE)
-        	out, err = proc.communicate()
-		gggtip = out.decode("utf-8")
-	else:
-		gggtip = "Could not find .hg in the GGG repository"
-		print('\n',gggtip)
+        if os.path.isdir(os.path.join(GGGPATH,'.hg')): 
+            proc = subprocess.Popen(['hg','summary'],cwd=GGGPATH,stdout=subprocess.PIPE)
+            out, err = proc.communicate()
+            gggtip = out.decode("utf-8")
+        else:
+            gggtip = "Could not find .hg in the GGG repository"
+            print('\n',gggtip)
         nc_data.GGGtip = "The output of 'hg summary' from the GGG repository:\n"+gggtip
         nc_data.history = "Created {} (UTC)".format(time.asctime(time.gmtime(time.time())))
 
