@@ -255,7 +255,10 @@ def main():
     lse_file = os.path.join(GGGPATH,'lse','gnd',tav_file.split(os.sep)[-1].replace('.tav','.lse'))
     pth_file = 'extract_pth.out'
 
-    col_file_list = sorted([i for i in os.listdir(os.getcwd()) if '.col' in i])
+    # need to check that the file ends with .col, not just that .col is in it, because
+    # otherwise a .col elsewhere in the file name will cause a problem (e.g. if one is
+    # open in vi)
+    col_file_list = sorted([i for i in os.listdir(os.getcwd()) if i.endswith('.col')])
 
     if not col_file_list: # [] evaluates to False
         print('No .col files !')
