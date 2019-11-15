@@ -16,6 +16,7 @@ import argparse
 from collections import OrderedDict
 import time
 from datetime import datetime, timedelta
+import re
 
 
 def progress(i,tot,bar_length=20,word=''):
@@ -199,10 +200,9 @@ def read_mav(path):
     return DATA, nlev
 
 
-if __name__=='__main__': # execute only when the code is run by itself, and not when it is imported
-
+def main():
     wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-04; SR)\n'
-    print(wnc_version)
+    print(wnc_version, sys.executable)
 
     try:
         GGGPATH = os.environ['GGGPATH']
@@ -256,7 +256,10 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
     lse_file = os.path.join(GGGPATH,'lse','gnd',tav_file.split(os.sep)[-1].replace('.tav','.lse'))
     pth_file = 'extract_pth.out'
 
-    col_file_list = sorted([i for i in os.listdir(os.getcwd()) if '.col' in i])
+    # need to check that the file ends with .col, not just that .col is in it, because
+    # otherwise a .col elsewhere in the file name will cause a problem (e.g. if one is
+    # open in vi)
+    col_file_list = sorted([i for i in os.listdir(os.getcwd()) if i.endswith('.col')])
 
     if not col_file_list: # [] evaluates to False
         print('No .col files !')
@@ -919,7 +922,14 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
             if col_file == col_file_list[0]:
                 # check that the checksums are right for the files listed in the .col file header
                 checksum_dict = OrderedDict((key+'_checksum',None) for key in checksum_var_list)
-                for i,line in enumerate([line for line in content if len(line.split())==2]):
+                # If a line begins with a 32-character MD5 hash, then one or more spaces, then
+                # a non-whitespace character, verify the checksum. That corresponds to a line like:
+                # 
+                #   34136d7d03967a662edc7b0c92b984f1  /home/jlaugh/GGG/ggg-my-devel/config/data_part.lst
+                #
+                # If not, then there's no checksum or no file following it.
+                content_lines = [line for line in content if re.match(r'[a-f0-9]{32}\s+[^\s]', line)]
+                for i,line in enumerate(content_lines):
                     csum,fpath = line.split()
                     checksum(fpath,csum)
 
@@ -1093,3 +1103,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
                 # copy variable attributes all at once via dictionary
                 public_data[name].setncatts(private_data[name].__dict__)
     print('Finished writing',public_nc_file,'{:.2f}'.format(os.path.getsize(public_nc_file)/1e6),'MB')
+
+
+if __name__=='__main__': # execute only when the code is run by itself, and not when it is imported
+    main()
