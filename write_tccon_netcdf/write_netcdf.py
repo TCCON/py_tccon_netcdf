@@ -199,10 +199,9 @@ def read_mav(path):
     return DATA, nlev
 
 
-if __name__=='__main__': # execute only when the code is run by itself, and not when it is imported
-
+def main():
     wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-04; SR)\n'
-    print(wnc_version)
+    print(wnc_version, sys.executable)
 
     try:
         GGGPATH = os.environ['GGGPATH']
@@ -1093,3 +1092,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
                 # copy variable attributes all at once via dictionary
                 public_data[name].setncatts(private_data[name].__dict__)
     print('Finished writing',public_nc_file,'{:.2f}'.format(os.path.getsize(public_nc_file)/1e6),'MB')
+
+
+if __name__=='__main__': # execute only when the code is run by itself, and not when it is imported
+    main()
