@@ -201,7 +201,7 @@ def read_mav(path):
 
 
 def main():
-    wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-04; SR)\n'
+    wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-15; SR)\n'
     print(wnc_version, sys.executable)
 
     try:
