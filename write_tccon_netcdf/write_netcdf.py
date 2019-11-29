@@ -68,7 +68,7 @@ def checksum(file_name,hexdigest):
     check = (md5(file_name) == hexdigest)
 
     if not check:
-        print('/!\\ Checksum mismatch for',fpath)
+        print('/!\\ Checksum mismatch for',file_name)
         print('New:',md5(file_name))
         print('Old:',hexdigest)
 
