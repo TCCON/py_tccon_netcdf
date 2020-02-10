@@ -566,7 +566,8 @@ def main():
         nc_data.createDimension('ak_sza',nsza_ak)
 
         if classic:
-            nc_data.createDimension('a23',23) # dimension for spectrum file names, up to 6 digits extension numbers
+            nc_data.createDimension('specname',len(tav_data['spectrum'][0])) # allow any length for the spectrum file names, assuming they are all the same
+            # if they are not all the same the code should be run with the --NETCDF4 option instead of the --NETCDF4-CLASSIC option
             nc_data.createDimension('a32',32)
 
         ## create coordinate variables
@@ -679,7 +680,7 @@ def main():
 
         # spectrum file names
         if classic:
-            nc_data.createVariable('spectrum','S1',('time','a23'))
+            nc_data.createVariable('spectrum','S1',('time','specname'))
         else:
             nc_data.createVariable('spectrum',str,('time',))
         nc_data['spectrum'].standard_name = 'spectrum_file_name'
