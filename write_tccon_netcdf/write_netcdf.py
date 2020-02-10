@@ -566,8 +566,8 @@ def main():
         nc_data.createDimension('ak_sza',nsza_ak)
 
         if classic:
-            nc_data.createDimension('specname',len(tav_data['spectrum'][0])) # allow any length for the spectrum file names, assuming they are all the same
-            # if they are not all the same the code should be run with the --NETCDF4 option instead of the --NETCDF4-CLASSIC option
+            speclength = 40
+            nc_data.createDimension('specname',speclength) # allow any length for the spectrum file names
             nc_data.createDimension('a32',32)
 
         ## create coordinate variables
@@ -689,7 +689,7 @@ def main():
 
         if classic:
             for i,specname in enumerate(aia_data['spectrum'].values):
-                nc_data['spectrum'][i] = netCDF4.stringtoarr(specname,20)           
+                nc_data['spectrum'][i] = netCDF4.stringtoarr(specname+' '*(speclength-len(tav_data['spectrum'][i])),speclength)           
         else:
             for i,specname in enumerate(aia_data['spectrum'].values):
                 nc_data['spectrum'][i] = specname
@@ -906,7 +906,7 @@ def main():
             nhead,ncol = file_info(cbf_file)
             headers = content[nhead].split()
             #cbf_data = pd.read_csv(cbf_file,delim_whitespace=True,skiprows=nhead)
-            cbf_data = pd.read_fwf(cbf_file,widths=[20,11,9],names=headers,skiprows=nhead+1)
+            cbf_data = pd.read_fwf(cbf_file,widths=[len(tav_data['spetcrum'][0]),11,9],names=headers,skiprows=nhead+1)
             cbf_data.rename(index=str,columns={'Spectrum_Name':'spectrum'},inplace=True)
 
             gas_XXXX = col_file.split('.')[0] # gas_XXXX, suffix for nc_data variable names corresponding to each .col file (i.e. VSF_h2o from the 6220 co2 window becomes co2_6220_VSF_co2)
