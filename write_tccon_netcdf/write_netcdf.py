@@ -566,8 +566,8 @@ def main():
         nc_data.createDimension('ak_sza',nsza_ak)
 
         if classic:
-            speclength = 40
-            nc_data.createDimension('specname',speclength) # allow any length for the spectrum file names
+            speclength = len(tav_data['spectrum'][0])
+            nc_data.createDimension('specname',speclength) # assume all file names have the same size
             nc_data.createDimension('a32',32)
 
         ## create coordinate variables
@@ -689,7 +689,7 @@ def main():
 
         if classic:
             for i,specname in enumerate(aia_data['spectrum'].values):
-                nc_data['spectrum'][i] = netCDF4.stringtoarr(specname+' '*(speclength-len(tav_data['spectrum'][i])),speclength)           
+                nc_data['spectrum'][i] = netCDF4.stringtoarr(specname,speclength)           
         else:
             for i,specname in enumerate(aia_data['spectrum'].values):
                 nc_data['spectrum'][i] = specname
@@ -906,7 +906,7 @@ def main():
             nhead,ncol = file_info(cbf_file)
             headers = content[nhead].split()
             #cbf_data = pd.read_csv(cbf_file,delim_whitespace=True,skiprows=nhead)
-            cbf_data = pd.read_fwf(cbf_file,widths=[len(tav_data['spetcrum'][0]),11,9],names=headers,skiprows=nhead+1)
+            cbf_data = pd.read_fwf(cbf_file,widths=[speclength,11,9],names=headers,skiprows=nhead+1)
             cbf_data.rename(index=str,columns={'Spectrum_Name':'spectrum'},inplace=True)
 
             gas_XXXX = col_file.split('.')[0] # gas_XXXX, suffix for nc_data variable names corresponding to each .col file (i.e. VSF_h2o from the 6220 co2 window becomes co2_6220_VSF_co2)
@@ -952,7 +952,7 @@ def main():
                 content = infile.readlines()
             ggg_line = content[nhead-1]
             ngas = len(ggg_line.split(':')[-1].split())
-            widths = [21,3,6,6,5,6,6,7,7,8]+[7,11,10,8]*ngas # the fixed widths for each variable so we can read with pandas.read_fwf, because sometimes there is no whitespace between numbers
+            widths = [speclength+1,3,6,6,5,6,6,7,7,8]+[7,11,10,8]*ngas # the fixed widths for each variable so we can read with pandas.read_fwf, because sometimes there is no whitespace between numbers
             headers = content[nhead].split()
 
             col_data = pd.read_fwf(col_file,widths=widths,names=headers,skiprows=nhead+1)
