@@ -801,7 +801,7 @@ def main():
         next_spectrum = next(prior_spec_gen)
         prior_index = 0
         
-        if public:
+        if classic:
             spec_list = np.char.strip(netCDF4.chartostring(nc_data['spectrum'][:]))
         else:
             spec_list = nc_data['spectrum'][:]
