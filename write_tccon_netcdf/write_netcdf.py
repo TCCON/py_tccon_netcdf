@@ -345,6 +345,7 @@ def main():
     tav_data = pd.read_csv(tav_file,delim_whitespace=True,skiprows=nhead)
     tav_data['file'] = tav_file
     nwin = int((ncol-naux)/2)
+    speclength = tav_data['spectrum'].map(len).max() # use the longest spectrum file name length for the specname dimension
 
     # vav file: contains column amounts
     nhead, ncol = file_info(vav_file)
@@ -566,8 +567,7 @@ def main():
         nc_data.createDimension('ak_sza',nsza_ak)
 
         if classic:
-            speclength = len(tav_data['spectrum'][0])
-            nc_data.createDimension('specname',speclength) # assume all file names have the same size
+            nc_data.createDimension('specname',speclength)
             nc_data.createDimension('a32',32)
 
         ## create coordinate variables
@@ -689,7 +689,7 @@ def main():
 
         if classic:
             for i,specname in enumerate(aia_data['spectrum'].values):
-                nc_data['spectrum'][i] = netCDF4.stringtoarr(specname,speclength)           
+                nc_data['spectrum'][i] = netCDF4.stringtoarr(specname+' '*(speclength-len(specname)),speclength)           
         else:
             for i,specname in enumerate(aia_data['spectrum'].values):
                 nc_data['spectrum'][i] = specname
@@ -800,7 +800,13 @@ def main():
         prior_spectrum = next(prior_spec_gen)
         next_spectrum = next(prior_spec_gen)
         prior_index = 0
-        for spec_id,spectrum in enumerate(nc_data['spectrum'][:]):
+        
+        if public:
+            spec_list = np.char.strip(netCDF4.chartostring(nc_data['spectrum'][:]))
+        else:
+            spec_list = nc_data['spectrum'][:]
+        
+        for spec_id,spectrum in enumerate(spec_list):
             if spectrum==next_spectrum:
                 prior_spectrum = next_spectrum
                 try:
@@ -906,7 +912,8 @@ def main():
             nhead,ncol = file_info(cbf_file)
             headers = content[nhead].split()
             #cbf_data = pd.read_csv(cbf_file,delim_whitespace=True,skiprows=nhead)
-            cbf_data = pd.read_fwf(cbf_file,widths=[speclength,11,9],names=headers,skiprows=nhead+1)
+            ncbf = len(headers)-2
+            cbf_data = pd.read_fwf(cbf_file,widths=[speclength+2,11]+[9]*ncbf,names=headers,skiprows=nhead+1)
             cbf_data.rename(index=str,columns={'Spectrum_Name':'spectrum'},inplace=True)
 
             gas_XXXX = col_file.split('.')[0] # gas_XXXX, suffix for nc_data variable names corresponding to each .col file (i.e. VSF_h2o from the 6220 co2 window becomes co2_6220_VSF_co2)
