@@ -1029,7 +1029,7 @@ def main():
             missing_data = missing_data[siteID]
             for var in missing_data:
                 replace_ids = list(np.where(nc_data[var]==missing_data[var])[0])
-                print('Convert fill value for',var,'from',missing_data[time_period][var],'to',netCDF4.default_fillvals['f4'])
+                print('Convert fill value for',var,'to',netCDF4.default_fillvals['f4'])
                 for id in replace_ids:
                     nc_data[var][id] = netCDF4.default_fillvals['f4']
 
