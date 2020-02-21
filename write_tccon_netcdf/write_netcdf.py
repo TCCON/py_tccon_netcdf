@@ -647,6 +647,7 @@ def main():
         for var in checksum_var_list:
             if classic:
                 checksum_var = nc_data.createVariable(var+'_checksum','S1',('time','a32'))
+                checksum_var._Encoding = 'ascii'
             else:
                 checksum_var = nc_data.createVariable(var+'_checksum',str,('time',))
             checksum_var.standard_name = standard_name_dict[var+'_checksum']
@@ -671,7 +672,8 @@ def main():
         nc_data['flag'].long_name = 'quality flag'
 
         if classic:
-            nc_data.createVariable('flagged_var_name','S1',('time','a32'))
+            v = nc_data.createVariable('flagged_var_name','S1',('time','a32'))
+            v._Encoding = 'ascii'
         else:
             nc_data.createVariable('flagged_var_name',str,('time',))
         nc_data['flagged_var_name'].description = 'name of the variable that caused the data to be flagged; empty string = good'
@@ -680,19 +682,16 @@ def main():
 
         # spectrum file names
         if classic:
-            nc_data.createVariable('spectrum','S1',('time','specname'))
+            v = nc_data.createVariable('spectrum','S1',('time','specname'))
+            v._Encoding = 'ascii'
         else:
             nc_data.createVariable('spectrum',str,('time',))
         nc_data['spectrum'].standard_name = 'spectrum_file_name'
         nc_data['spectrum'].long_name = 'spectrum file name'
         nc_data['spectrum'].description = 'spectrum file name'
 
-        if classic:
-            for i,specname in enumerate(aia_data['spectrum'].values):
-                nc_data['spectrum'][i] = netCDF4.stringtoarr(specname+' '*(speclength-len(specname)),speclength)           
-        else:
-            for i,specname in enumerate(aia_data['spectrum'].values):
-                nc_data['spectrum'][i] = specname
+        for i,specname in enumerate(aia_data['spectrum'].values):
+            nc_data['spectrum'][i] = specname        
 
         # auxiliary variables
         aux_var_list = [tav_data.columns[i] for i in range(1,naux)]
@@ -801,10 +800,7 @@ def main():
         next_spectrum = next(prior_spec_gen)
         prior_index = 0
         
-        if classic:
-            spec_list = np.char.strip(netCDF4.chartostring(nc_data['spectrum'][:]))
-        else:
-            spec_list = nc_data['spectrum'][:]
+        spec_list = nc_data['spectrum'][:]
         
         for spec_id,spectrum in enumerate(spec_list):
             if spectrum==next_spectrum:
@@ -882,18 +878,11 @@ def main():
             nc_data['flag'][start:end] = [int(i) for i in eflag]
 
             # write the flagged variable name
-            if classic:
-                for i in range(start,end):
-                    if eflag[i-start] == 0:
-                        nc_data['flagged_var_name'][i] = netCDF4.stringtoarr("",32)
-                    else:
-                        nc_data['flagged_var_name'][i] = netCDF4.stringtoarr(qc_data['variable'][eflag[i-start]-1],32)
-            else:
-                for i in range(start,end):
-                    if eflag[i-start] == 0:
-                        nc_data['flagged_var_name'][i] = ""
-                    else:
-                        nc_data['flagged_var_name'][i] = qc_data['variable'][eflag[i-start]-1]
+            for i in range(start,end):
+                if eflag[i-start] == 0:
+                    nc_data['flagged_var_name'][i] = ""
+                else:
+                    nc_data['flagged_var_name'][i] = qc_data['variable'][eflag[i-start]-1]
 
         nflag = np.count_nonzero(nc_data['flag'][:])
 
@@ -947,12 +936,8 @@ def main():
                 nc_data['gsetup_version'][:] = gsetup_version
                 for var in checksum_var_list:
                     checksum_var = var+'_checksum'
-                    if classic:
-                        for i in range(aia_data['spectrum'].size):
-                            nc_data[checksum_var][i] = netCDF4.stringtoarr(checksum_dict[checksum_var],32)              
-                    else:
-                        for i in range(aia_data['spectrum'].size):
-                            nc_data[checksum_var][i] = checksum_dict[checksum_var]
+                    for i in range(aia_data['spectrum'].size):
+                        nc_data[checksum_var][i] = checksum_dict[checksum_var]
 
             # read col_file data
             with open(col_file,'r') as infile:
