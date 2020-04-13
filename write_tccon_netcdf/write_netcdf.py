@@ -16,6 +16,7 @@ import argparse
 from collections import OrderedDict
 import time
 from datetime import datetime, timedelta
+import re
 
 
 def progress(i,tot,bar_length=20,word=''):
@@ -67,7 +68,7 @@ def checksum(file_name,hexdigest):
     check = (md5(file_name) == hexdigest)
 
     if not check:
-        print('/!\\ Checksum mismatch for',fpath)
+        print('/!\\ Checksum mismatch for',file_name)
         print('New:',md5(file_name))
         print('Old:',hexdigest)
 
@@ -199,10 +200,9 @@ def read_mav(path):
     return DATA, nlev
 
 
-if __name__=='__main__': # execute only when the code is run by itself, and not when it is imported
-
-    wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-04; SR)\n'
-    print(wnc_version)
+def main():
+    wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-15; SR)\n'
+    print(wnc_version, sys.executable)
 
     try:
         GGGPATH = os.environ['GGGPATH']
@@ -256,7 +256,10 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
     lse_file = os.path.join(GGGPATH,'lse','gnd',tav_file.split(os.sep)[-1].replace('.tav','.lse'))
     pth_file = 'extract_pth.out'
 
-    col_file_list = sorted([i for i in os.listdir(os.getcwd()) if '.col' in i])
+    # need to check that the file ends with .col, not just that .col is in it, because
+    # otherwise a .col elsewhere in the file name will cause a problem (e.g. if one is
+    # open in vi)
+    col_file_list = sorted([i for i in os.listdir(os.getcwd()) if i.endswith('.col')])
 
     if not col_file_list: # [] evaluates to False
         print('No .col files !')
@@ -342,6 +345,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
     tav_data = pd.read_csv(tav_file,delim_whitespace=True,skiprows=nhead)
     tav_data['file'] = tav_file
     nwin = int((ncol-naux)/2)
+    speclength = tav_data['spectrum'].map(len).max() # use the longest spectrum file name length for the specname dimension
 
     # vav file: contains column amounts
     nhead, ncol = file_info(vav_file)
@@ -563,7 +567,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
         nc_data.createDimension('ak_sza',nsza_ak)
 
         if classic:
-            nc_data.createDimension('a20',20)
+            nc_data.createDimension('specname',speclength)
             nc_data.createDimension('a32',32)
 
         ## create coordinate variables
@@ -643,6 +647,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
         for var in checksum_var_list:
             if classic:
                 checksum_var = nc_data.createVariable(var+'_checksum','S1',('time','a32'))
+                checksum_var._Encoding = 'ascii'
             else:
                 checksum_var = nc_data.createVariable(var+'_checksum',str,('time',))
             checksum_var.standard_name = standard_name_dict[var+'_checksum']
@@ -667,7 +672,8 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
         nc_data['flag'].long_name = 'quality flag'
 
         if classic:
-            nc_data.createVariable('flagged_var_name','S1',('time','a32'))
+            v = nc_data.createVariable('flagged_var_name','S1',('time','a32'))
+            v._Encoding = 'ascii'
         else:
             nc_data.createVariable('flagged_var_name',str,('time',))
         nc_data['flagged_var_name'].description = 'name of the variable that caused the data to be flagged; empty string = good'
@@ -676,19 +682,16 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
 
         # spectrum file names
         if classic:
-            nc_data.createVariable('spectrum','S1',('time','a20'))
+            v = nc_data.createVariable('spectrum','S1',('time','specname'))
+            v._Encoding = 'ascii'
         else:
             nc_data.createVariable('spectrum',str,('time',))
         nc_data['spectrum'].standard_name = 'spectrum_file_name'
         nc_data['spectrum'].long_name = 'spectrum file name'
         nc_data['spectrum'].description = 'spectrum file name'
 
-        if classic:
-            for i,specname in enumerate(aia_data['spectrum'].values):
-                nc_data['spectrum'][i] = netCDF4.stringtoarr(specname,20)           
-        else:
-            for i,specname in enumerate(aia_data['spectrum'].values):
-                nc_data['spectrum'][i] = specname
+        for i,specname in enumerate(aia_data['spectrum'].values):
+            nc_data['spectrum'][i] = specname        
 
         # auxiliary variables
         aux_var_list = [tav_data.columns[i] for i in range(1,naux)]
@@ -796,7 +799,10 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
         prior_spectrum = next(prior_spec_gen)
         next_spectrum = next(prior_spec_gen)
         prior_index = 0
-        for spec_id,spectrum in enumerate(nc_data['spectrum'][:]):
+        
+        spec_list = nc_data['spectrum'][:]
+        
+        for spec_id,spectrum in enumerate(spec_list):
             if spectrum==next_spectrum:
                 prior_spectrum = next_spectrum
                 try:
@@ -872,18 +878,11 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
             nc_data['flag'][start:end] = [int(i) for i in eflag]
 
             # write the flagged variable name
-            if classic:
-                for i in range(start,end):
-                    if eflag[i-start] == 0:
-                        nc_data['flagged_var_name'][i] = netCDF4.stringtoarr("",32)
-                    else:
-                        nc_data['flagged_var_name'][i] = netCDF4.stringtoarr(qc_data['variable'][eflag[i-start]-1],32)
-            else:
-                for i in range(start,end):
-                    if eflag[i-start] == 0:
-                        nc_data['flagged_var_name'][i] = ""
-                    else:
-                        nc_data['flagged_var_name'][i] = qc_data['variable'][eflag[i-start]-1]
+            for i in range(start,end):
+                if eflag[i-start] == 0:
+                    nc_data['flagged_var_name'][i] = ""
+                else:
+                    nc_data['flagged_var_name'][i] = qc_data['variable'][eflag[i-start]-1]
 
         nflag = np.count_nonzero(nc_data['flag'][:])
 
@@ -902,7 +901,8 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
             nhead,ncol = file_info(cbf_file)
             headers = content[nhead].split()
             #cbf_data = pd.read_csv(cbf_file,delim_whitespace=True,skiprows=nhead)
-            cbf_data = pd.read_fwf(cbf_file,widths=[20,11,9],names=headers,skiprows=nhead+1)
+            ncbf = len(headers)-2
+            cbf_data = pd.read_fwf(cbf_file,widths=[speclength+2,11]+[9]*ncbf,names=headers,skiprows=nhead+1)
             cbf_data.rename(index=str,columns={'Spectrum_Name':'spectrum'},inplace=True)
 
             gas_XXXX = col_file.split('.')[0] # gas_XXXX, suffix for nc_data variable names corresponding to each .col file (i.e. VSF_h2o from the 6220 co2 window becomes co2_6220_VSF_co2)
@@ -919,7 +919,14 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
             if col_file == col_file_list[0]:
                 # check that the checksums are right for the files listed in the .col file header
                 checksum_dict = OrderedDict((key+'_checksum',None) for key in checksum_var_list)
-                for i,line in enumerate([line for line in content if len(line.split())==2]):
+                # If a line begins with a 32-character MD5 hash, then one or more spaces, then
+                # a non-whitespace character, verify the checksum. That corresponds to a line like:
+                # 
+                #   34136d7d03967a662edc7b0c92b984f1  /home/jlaugh/GGG/ggg-my-devel/config/data_part.lst
+                #
+                # If not, then there's no checksum or no file following it.
+                content_lines = [line for line in content if re.match(r'[a-f0-9]{32}\s+[^\s]', line)]
+                for i,line in enumerate(content_lines):
                     csum,fpath = line.split()
                     checksum(fpath,csum)
 
@@ -929,19 +936,15 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
                 nc_data['gsetup_version'][:] = gsetup_version
                 for var in checksum_var_list:
                     checksum_var = var+'_checksum'
-                    if classic:
-                        for i in range(aia_data['spectrum'].size):
-                            nc_data[checksum_var][i] = netCDF4.stringtoarr(checksum_dict[checksum_var],32)              
-                    else:
-                        for i in range(aia_data['spectrum'].size):
-                            nc_data[checksum_var][i] = checksum_dict[checksum_var]
+                    for i in range(aia_data['spectrum'].size):
+                        nc_data[checksum_var][i] = checksum_dict[checksum_var]
 
             # read col_file data
             with open(col_file,'r') as infile:
                 content = infile.readlines()
             ggg_line = content[nhead-1]
             ngas = len(ggg_line.split(':')[-1].split())
-            widths = [21,3,6,6,5,6,6,7,7,8]+[7,11,10,8]*ngas # the fixed widths for each variable so we can read with pandas.read_fwf, because sometimes there is no whitespace between numbers
+            widths = [speclength+1,3,6,6,5,6,6,7,7,8]+[7,11,10,8]*ngas # the fixed widths for each variable so we can read with pandas.read_fwf, because sometimes there is no whitespace between numbers
             headers = content[nhead].split()
 
             col_data = pd.read_fwf(col_file,widths=widths,names=headers,skiprows=nhead+1)
@@ -1026,7 +1029,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
             missing_data = missing_data[siteID]
             for var in missing_data:
                 replace_ids = list(np.where(nc_data[var]==missing_data[var])[0])
-                print('Convert fill value for',var,'from',missing_data[time_period][var],'to',netCDF4.default_fillvals['f4'])
+                print('Convert fill value for',var,'to',netCDF4.default_fillvals['f4'])
                 for id in replace_ids:
                     nc_data[var][id] = netCDF4.default_fillvals['f4']
 
@@ -1093,3 +1096,7 @@ if __name__=='__main__': # execute only when the code is run by itself, and not 
                 # copy variable attributes all at once via dictionary
                 public_data[name].setncatts(private_data[name].__dict__)
     print('Finished writing',public_nc_file,'{:.2f}'.format(os.path.getsize(public_nc_file)/1e6),'MB')
+
+
+if __name__=='__main__': # execute only when the code is run by itself, and not when it is imported
+    main()
