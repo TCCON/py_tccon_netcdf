@@ -432,6 +432,9 @@ def main():
     'fovi':'internal_field_of_view',
     'opd':'maximum_optical_path_difference',
     'rmsocl':'fit_rms_over_continuum_level',
+    'cfampocl':'channel_fringe_amplitude_over_continuum_level',
+    'cfperiod':'channel_fringe_period',
+    'cfphase':'channel_fringe_phase',
     'nit':'number_of_iterations',
     'cl':'continuum_level',
     'ct':'continuum_tilt',
@@ -489,6 +492,9 @@ def main():
     'fovi':'radians',
     'opd':'cm',
     'rmsocl':'%',
+    'cfampocl':'',
+    'cfperiod':'cm-1',
+    'cfphase':'radians',
     'nit':'',
     'cl':'',
     'ct':'',
@@ -922,10 +928,15 @@ def main():
                 content = infile.readlines()
             nhead,ncol = file_info(cbf_file)
             headers = content[nhead].split()
-            #cbf_data = pd.read_csv(cbf_file,delim_whitespace=True,skiprows=nhead)
-            ncbf = len(headers)-2
-            cbf_data = pd.read_fwf(cbf_file,widths=[speclength+2,11]+[9]*ncbf,names=headers,skiprows=nhead+1)
-            cbf_data.rename(index=str,columns={'Spectrum_Name':'spectrum'},inplace=True)
+            ncbf = len(headers)-4
+            if ncbf>0:
+                widths = [speclength+2,8,9,7,12]+[9]*(ncbf-1)
+            else:
+                widths = [speclength+2,8,9,7]
+            cbf_data = pd.read_fwf(cbf_file,widths=widths,names=headers,skiprows=nhead+1)
+            cbf_data.rename(str.lower,axis='columns',inplace=True)
+            cbf_data.rename(index=str,columns={'cfamp/cl':'cfampocl'},inplace=True)
+            cbf_data.rename(index=str,columns={'spectrum_name':'spectrum'},inplace=True)
 
             gas_XXXX = col_file.split('.')[0] # gas_XXXX, suffix for nc_data variable names corresponding to each .col file (i.e. VSF_h2o from the 6220 co2 window becomes co2_6220_VSF_co2)
 
@@ -1017,9 +1028,13 @@ def main():
             for var in cbf_data.columns[1:]: # don't use the 'Spectrum' column
                 varname = '_'.join([gas_XXXX,var])
                 nc_data.createVariable(varname,np.float32,('time',))
-                nc_data[varname].standard_name = standard_name_dict[var.split('_')[0]].format(var.split('_')[1])
-                nc_data[varname].long_name = long_name_dict[var.split('_')[0]].format(var.split('_')[1])
-                
+                if '_' in var:
+                    nc_data[varname].standard_name = standard_name_dict[var.split('_')[0]].format(var.split('_')[1])
+                    nc_data[varname].long_name = long_name_dict[var.split('_')[0]].format(var.split('_')[1])
+                else:
+                    nc_data[varname].standard_name = standard_name_dict[var]
+                    nc_data[varname].long_name = long_name_dict[var]
+                    nc_data[varname].units = units_dict[var]
                 nc_data[varname][:] = cbf_data[var].values
 
             progress(col_id,len(col_file_list),word=col_file)
