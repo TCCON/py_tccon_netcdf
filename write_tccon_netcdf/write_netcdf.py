@@ -252,7 +252,9 @@ def main():
     siteID = tav_file.split(os.sep)[-1][:2] # two letter site abbreviation
     qc_file = os.path.join(GGGPATH,'tccon','{}_qc.dat'.format(siteID))
     header_file = os.path.join(GGGPATH,'tccon','{}_oof_header.dat'.format(siteID))
-    correction_file =  os.path.join(GGGPATH,'tccon','corrections.dat')
+    preavg_correction_file =  os.path.join(GGGPATH,'tccon','corrections_airmass_preavg.dat')
+    postavg_correction_file =  os.path.join(GGGPATH,'tccon','corrections_airmass_postavg.dat')
+    insitu_correction_file =  os.path.join(GGGPATH,'tccon','corrections_insitu_postavg.dat')
     lse_file = os.path.join(GGGPATH,'lse','gnd',tav_file.split(os.sep)[-1].replace('.tav','.lse'))
     pth_file = 'extract_pth.out'
 
@@ -312,9 +314,16 @@ def main():
     with open(header_file,'r') as infile:
         header_content = infile.read()
 
-    # correction file: it contains the airmass dependent and independent correction factors for main target gases
-    nhead, ncol = file_info(correction_file)
-    correction_data = pd.read_csv(correction_file,delim_whitespace=True,skiprows=nhead)
+    # correction files: it contains the airmass dependent and independent correction factors for main target gases
+    # there are three, two for airmass dependent correction, one before and average averaging. And one for airmass independent corrections
+    nhead, ncol = file_info(preavg_correction_file)
+    preavg_correction_data = pd.read_csv(preavg_correction_file,delim_whitespace=True,skiprows=nhead)
+
+    nhead, ncol = file_info(postavg_correction_file)
+    postavg_correction_data = pd.read_csv(postavg_correction_file,delim_whitespace=True,skiprows=nhead)
+
+    nhead, ncol = file_info(insitu_correction_file)
+    insitu_correction_data = pd.read_csv(insitu_correction_file,delim_whitespace=True,skiprows=nhead)
 
     # qc file: it contains information on some variables as well as their flag limits
     nhead, ncol = file_info(qc_file)
@@ -377,7 +386,7 @@ def main():
     private_nc_file = '{}{}_{}.private.nc'.format(siteID,start_date,end_date) # the final output file
 
     # make all the column names consistent between the different files
-    for dataframe in [correction_data,qc_data,esf_data,oof_data,lse_data,vav_data,ada_data,aia_data]:
+    for dataframe in [preavg_correction_data,postavg_correction_data,insitu_correction_data,qc_data,esf_data,oof_data,lse_data,vav_data,ada_data,aia_data]:
         dataframe.rename(str.lower,axis='columns',inplace=True) # all lower case
         if 'doy' in dataframe.columns: # all use 'day' and not 'doy'
             dataframe.rename(index=str,columns={'doy':'day'},inplace=True)
@@ -783,12 +792,25 @@ def main():
             nc_data[var].description = lse_description[var]
             nc_data[var][:] = lse_data[var][common_spec].values
 
-        # corrections
-        for var in correction_data['gas']:
-            for key in correction_data.columns[1:]:
-                varname = var+'_'+key
+        # preavg corrections
+        for var in preavg_correction_data['gas']:
+            for key in preavg_correction_data.columns[1:]:
+                varname = 'preavg_{}_{}'.format(var,key)
                 nc_data.createVariable(varname,np.float32,('time',))
-                nc_data[varname][:] = correction_data[key][list(correction_data['gas']).index(var)] # write directly
+                nc_data[varname][:] = preavg_correction_data[key][list(preavg_correction_data['gas']).index(var)] # write directly
+        # postavg corrections
+        for var in postavg_correction_data['gas']:
+            for key in postavg_correction_data.columns[1:]:
+                varname = 'postavg_{}_{}'.format(var,key)
+                nc_data.createVariable(varname,np.float32,('time',))
+                nc_data[varname][:] = postavg_correction_data[key][list(postavg_correction_data['gas']).index(var)] # write directly
+
+        # insitu corrections
+        for var in insitu_correction_data['gas']:
+            for key in insitu_correction_data.columns[1:]:
+                varname = 'postavg_{}_{}'.format(var,key)
+                nc_data.createVariable(varname,np.float32,('time',))
+                nc_data[varname][:] = insitu_correction_data[key][list(insitu_correction_data['gas']).index(var)] # write directly
 
         ## write data
         sys.stdout.write('\nWriting prior data ...')
