@@ -11,6 +11,7 @@ import subprocess
 import netCDF4
 import pandas as pd
 import numpy as np
+import csv
 import hashlib
 import argparse
 from collections import OrderedDict
@@ -18,6 +19,7 @@ import time
 from datetime import datetime, timedelta
 import re
 
+wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-15; SR)\n'
 
 def progress(i,tot,bar_length=20,word=''):
     """
@@ -202,9 +204,70 @@ def read_mav(path):
     sys.stdout.write(' DONE')
     return DATA, nlev
 
+def write_eof(private_nc_file,eof_file,qc_file,nc_var_list):
+    """
+    Convert the private netcdf file into an eof.csv file
+
+    the columns won't be in order of the flag number, but there wil be a "flagged_var_name" column with the name of the flagged variable
+    """
+    print('\nWriting eof.csv file ...')
+
+    nhead, ncol = file_info(qc_file)
+    with open(qc_file,'r') as f:
+        qc_content = f.readlines()[nhead:]
+    for i,line in enumerate(qc_content[1:]):
+        qc_content[i+1] = '{} {}'.format(i,line)
+
+    with netCDF4.Dataset(private_nc_file,'r') as nc, open(eof_file,'w',newline='') as eof:
+        writer = csv.writer(eof,delimiter=',')
+
+        nhead = len(qc_content)+3
+        ncol = len(nc_var_list)
+        nrow = nc['time'].size
+
+        writer.writerow([nhead,ncol,nrow])
+        eof.write(wnc_version)
+        eof.writelines(qc_content)
+
+        eof_var_list = [] # make a new list of variables for the eof file, including units
+        for var in nc_var_list:
+            if hasattr(nc[var],'units') and nc[var].units and var not in ['year','day','hour']: # True when the units attribute exists and is different from an empty string
+                eof_var_list += ['{}_{}'.format(var,nc[var].units)]
+            else:
+                eof_var_list += [var]
+        writer.writerow(eof_var_list)
+        for i in range(nrow):
+            writer.writerow([nc[var][i] for var in nc_var_list])
+            progress(i,nrow)
+    print('Finished writing',eof_file,'{:.2f}'.format(os.path.getsize(eof_file)/1e6),'MB')
+
+    check_eof(private_nc_file,eof_file,nc_var_list,eof_var_list)
+
+def check_eof(private_nc_file,eof_file,nc_var_list,eof_var_list):
+    """
+    check that the private netcdf file and eof.csv file contents are equal
+    """
+    print('\nChecking EOF and NC file contents ...')
+    nhead, ncol = file_info(eof_file,delimiter=',')
+    eof = pd.read_csv(eof_file,header=nhead)
+    checks = []
+    with netCDF4.Dataset(private_nc_file,'r') as nc:
+        for i,var in enumerate(nc_var_list):
+            if (var=='spectrum') or ('checksum' in var):
+                checks += [np.array_equal(nc[var][:],eof[eof_var_list[i]][:])]
+            elif var=='flagged_var_name':
+                checks += [np.array_equal(nc[var][:],eof[eof_var_list[i]][:].replace(np.nan,''))]
+            else:
+                checks += [np.array_equal(nc[var][:],eof[eof_var_list[i]][:].astype(nc[var].dtype))]
+    if False in checks:
+        print(ncol-np.count_nonzero(checks),'/',ncol,'different columns')
+        for i,var in enumerate(nc_var_list):
+            if not checks[i]:
+                print(var,'is not identical !')
+    else:
+        print('Contents are identical')
 
 def main():
-    wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-15; SR)\n'
     print(wnc_version, sys.executable)
 
     try:
@@ -251,6 +314,7 @@ def main():
     aia_file = ada_file+'.aia'
     esf_file = aia_file+'.daily_error.out'
     oof_file = aia_file+'.oof'
+    eof_file = aia_file+'.eof.csv'
     
     siteID = tav_file.split(os.sep)[-1][:2] # two letter site abbreviation
     qc_file = os.path.join(GGGPATH,'tccon','{}_qc.dat'.format(siteID))
@@ -627,6 +691,7 @@ def main():
         ## create variables
 
         # averaging kernels
+        ak_var_list = ['ak_{}'.format(gas) for gas in ak_data.keys()]
         for gas in ak_data.keys():
             var = 'ak_{}'.format(gas)
             nc_data.createVariable(var,np.float32,('ak_sza','ak_pressure'))
@@ -645,9 +710,10 @@ def main():
         nc_data['prior_index'].units = ''
         nc_data['prior_index'].description = 'Index of the prior profile associated with each measurement, it can be used to sample the prior_ variables along the prior_time dimension'
 
-        for var in ['temperature','pressure','density','gravity','h2o','hdo','co2','n2o','co','ch4','hf','o2']:
+        prior_var_list = ['temperature','pressure','density','gravity','h2o','hdo','co2','n2o','co','ch4','hf','o2']
+        for var in prior_var_list:
             prior_var = 'prior_{}'.format(var)
-
+            
             nc_data.createVariable(prior_var,np.float32,('prior_time','prior_altitude'))
 
             nc_data[prior_var].standard_name = '{}_profile'.format(prior_var)
@@ -655,6 +721,7 @@ def main():
             nc_data[prior_var].description = nc_data[prior_var].long_name
             nc_data[prior_var].units = units_dict[prior_var]
         
+        prior_var_list += ['tropopause_altitude']
         nc_data.createVariable('prior_tropopause_altitude',np.float32,('time'))
         nc_data['prior_tropopause_altitude'].standard_name = 'prior_tropopause_altitude'
         nc_data['prior_tropopause_altitude'].long_name = 'prior tropopause altitude'
@@ -924,6 +991,7 @@ def main():
 
         # write data from .col and .cbf files
         print('\n\nWriting data:')
+        col_var_list = []
         for col_id,col_file in enumerate(col_file_list):
 
             cbf_file = col_file.replace('.col','.cbf')
@@ -998,6 +1066,7 @@ def main():
             # create window specific variables
             for var in col_data.columns[1:]: # skip the first one ("spectrum")
                 varname = '_'.join([gas_XXXX,var])
+                col_var_list += [varname]
                 nc_data.createVariable(varname,np.float32,('time',))
                 if var in standard_name_dict.keys():
                     nc_data[varname].standard_name = standard_name_dict[var]
@@ -1026,6 +1095,7 @@ def main():
             
             # add data from the .cbf file
             ncbf_var = '{}_ncbf'.format(gas_XXXX)
+            col_var_list += [ncbf_var]
             nc_data.createVariable(ncbf_var,np.int32,('time',))
             nc_data[ncbf_var][:] = len(cbf_data.columns)-1 # minus 1 because of the spectrum name column
             for var in cbf_data.columns[1:]: # don't use the 'Spectrum' column
@@ -1135,8 +1205,22 @@ def main():
                     public_data[name][:] = private_data[name][:]
                 # copy variable attributes all at once via dictionary
                 public_data[name].setncatts(private_data[name].__dict__)
+        private_var_list = [v for v in private_data.variables]
     print('Finished writing',public_nc_file,'{:.2f}'.format(os.path.getsize(public_nc_file)/1e6),'MB')
 
+    ordered_var_list = ['flag','flagged_var_name','spectrum'] # list of variables for writing the eof file
+    ordered_var_list += aux_var_list
+    ordered_var_list += list(lse_description.keys())
+    ordered_var_list += ['x'+var for var in main_var_list]+['vsf_'+var for var in main_var_list]+['column_'+var for var in main_var_list]
+    ordered_var_list += col_var_list
+    ordered_var_list += ['gfit_version','gsetup_version']
+    ordered_var_list += [var+'_checksum' for var in checksum_var_list]
+
+    missing_var_list = [var for var in ordered_var_list if var not in private_var_list]
+    if missing_var_list:
+        print('{}/{} variables will not be in the eof.csv file:\n'.format(len(missing_var_list),len(private_var_list)),missing_var_list)
+
+    write_eof(private_nc_file,eof_file,qc_file,ordered_var_list)
 
 if __name__=='__main__': # execute only when the code is run by itself, and not when it is imported
     main()
