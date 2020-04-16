@@ -73,14 +73,17 @@ def checksum(file_name,hexdigest):
         print('Old:',hexdigest)
 
 
-def file_info(file_name):
+def file_info(file_name,delimiter=''):
     """
     Read the first line of a file and get the number of header lines and number of data columns
 
     file_name: full path to the file
     """
     with open(file_name,'r') as infile:
-        nhead,ncol = [int(i) for i in infile.readline().strip().split()[:2]]
+        if delimiter:
+            nhead,ncol = [int(i) for i in infile.readline().strip().split(delimiter)[:2]]
+        else:
+            nhead,ncol = [int(i) for i in infile.readline().strip().split()[:2]]
     nhead = nhead-1
 
     return nhead,ncol
