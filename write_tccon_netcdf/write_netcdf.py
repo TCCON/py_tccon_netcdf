@@ -216,7 +216,7 @@ def write_eof(private_nc_file,eof_file,qc_file,nc_var_list):
     with open(qc_file,'r') as f:
         qc_content = f.readlines()[nhead:]
     for i,line in enumerate(qc_content[1:]):
-        qc_content[i+1] = '{} {}'.format(i,line)
+        qc_content[i+1] = '{:2d} {}'.format(i+1,line)
 
     with netCDF4.Dataset(private_nc_file,'r') as nc, open(eof_file,'w',newline='') as eof:
         writer = csv.writer(eof,delimiter=',')
@@ -237,7 +237,10 @@ def write_eof(private_nc_file,eof_file,qc_file,nc_var_list):
                 eof_var_list += [var]
         writer.writerow(eof_var_list)
         for i in range(nrow):
-            writer.writerow([nc[var][i] for var in nc_var_list])
+            row = [nc[var][i] if not hasattr(nc[var],'precision') else '{:fmt}'.replace('fmt',nc[var].precision[1:]+nc[var].precision[0]).format(nc[var][i]).strip() for var in nc_var_list]
+            if row[1]:
+                row[1] = eof_var_list[nc_var_list.index(row[1])]
+            writer.writerow(row)
             progress(i,nrow)
     print('Finished writing',eof_file,'{:.2f}'.format(os.path.getsize(eof_file)/1e6),'MB')
 
@@ -256,7 +259,8 @@ def check_eof(private_nc_file,eof_file,nc_var_list,eof_var_list):
             if (var=='spectrum') or ('checksum' in var):
                 checks += [np.array_equal(nc[var][:],eof[eof_var_list[i]][:])]
             elif var=='flagged_var_name':
-                checks += [np.array_equal(nc[var][:],eof[eof_var_list[i]][:].replace(np.nan,''))]
+                #checks += [np.array_equal(nc[var][:],eof[eof_var_list[i]][:].replace(np.nan,''))]
+                pass # these are actually different becaus the units are in the variable names for the eof.csv file
             else:
                 checks += [np.array_equal(nc[var][:],eof[eof_var_list[i]][:].astype(nc[var].dtype))]
     if False in checks:
@@ -310,6 +314,7 @@ def main():
     mav_file = tav_file.replace('.tav','.mav')
     vav_file = tav_file.replace('.tav','.vav')
     asw_file = tav_file.replace('.tav','.asw')
+    vsw_file = tav_file.replace('.tav','.vsw')
     ada_file = vav_file+'.ada'
     aia_file = ada_file+'.aia'
     esf_file = aia_file+'.daily_error.out'
@@ -438,11 +443,17 @@ def main():
     aia_data = pd.read_csv(aia_file,delim_whitespace=True,skiprows=nhead)
     aia_data['file'] = aia_file
 
+    # vsw file
+    nhead,ncol = file_info(vsw_file)
+    vsw_data = pd.read_csv(vsw_file,delim_whitespace=True,skiprows=nhead)
+    vsw_data['file'] = vsw_file
+
     ## check all files have the same spectrum lists
-    check_spec = np.array([(data['spectrum']==vav_data['spectrum']).all() for data in [tav_data,ada_data,aia_data,oof_data]])
+    data_list = [tav_data,ada_data,aia_data,oof_data,vsw_data]
+    check_spec = np.array([(data['spectrum']==vav_data['spectrum']).all() for data in data_list])
     if not check_spec.all():
         print('Files have inconsistent spectrum lists !')
-        for data in [tav_data,ada_data,aia_data,oof_data]:
+        for data in data_list:
             print(len(data['spectrum']),'spectra in',data['file'][0])
         sys.exit()
 
@@ -793,6 +804,7 @@ def main():
             nc_data[var].units = qc_data['unit'][qc_id].replace('(','').replace(')','').strip()
             nc_data[var].vmin = qc_data['vmin'][qc_id]
             nc_data[var].vmax = qc_data['vmax'][qc_id]
+            nc_data[var].precision = qc_data['format'][qc_id]
             if var in standard_name_dict.keys():
                 nc_data[var].standard_name = standard_name_dict[var]
                 nc_data[var].long_name = long_name_dict[var]
@@ -809,10 +821,26 @@ def main():
             nc_data[key].description = 'model {}'.format(qc_data['description'][qc_id].lower())
             nc_data[key].vmin = qc_data['vmin'][qc_id]
             nc_data[key].vmax = qc_data['vmax'][qc_id]
+            nc_data[key].precision = 'f10.4'
             if key in standard_name_dict.keys():
                 nc_data[key].standard_name = standard_name_dict[key]
                 nc_data[key].long_name = long_name_dict[key]
                 nc_data[key].units = units_dict[val]
+
+        # write variables from the vsw file
+        vsw_var_list = [vsw_data.columns[i] for i in range(naux,len(vsw_data.columns)-1)]  # minus 1 because I added the 'file' column
+        for var in vsw_var_list:
+            varname = 'vsw_'+var
+            nc_data.createVariable(varname,np.float32,('time',))
+            nc_data[varname].standard_name = varname
+            nc_data[varname].long_name = varname.replace('_',' ')
+            nc_data[varname].units = ''
+            nc_data[varname].precision = 'e12.4'
+            if 'error' in varname:
+                nc_data[varname].description = "{0} scale factor {2} from the {1} window before temperature correction".format(*var.split('_'))
+            else:
+                nc_data[varname].description = "{} scale factor from the window centered at {} cm-1 before temperature correction".format(*var.split('_'))
+            nc_data[varname][:] = np.array(vsw_data[var]).astype(np.float32)
 
         # averaged variables (from the different windows of each species)
         main_var_list = [tav_data.columns[i] for i in range(naux,len(tav_data.columns)-1)]  # minus 1 because I added the 'file' column
@@ -832,11 +860,13 @@ def main():
 
             nc_data.createVariable('vsf_'+var,np.float32,('time',))
             nc_data['vsf_'+var].description = var+" Volume Scale Factor."
+            nc_data['vsf_'+var].precision = 'e12.4'
             nc_data['vsf_'+var][:] = tav_data[var].values
             
             nc_data.createVariable('column_'+var,np.float32,('time',))
             nc_data['column_'+var].description = var+' column average.'
             nc_data['column_'+var].units = 'molecules.m-2'
+            nc_data['column_'+var].precision = 'e12.4'
             nc_data['column_'+var][:] = vav_data[var].values
 
             nc_data.createVariable('ada_x'+var,np.float32,('time',))
@@ -849,23 +879,32 @@ def main():
                     for nc_var in [nc_data[xvar],nc_data['vsf_'+var],nc_data['column_'+var],nc_data['ada_x'+var]]:
                         nc_var.description += special_description_dict[key]
             nc_data['ada_x'+var].units = ""
+            nc_data['ada_x'+var].precision = 'e12.4'
             nc_data['ada_x'+var][:] = ada_data['x'+var].values
 
         # lse data
-        lse_description = {
-                    'lst':'The type of LSE correction applied (0=none; 1=InGaAs (disabled); 2=Si; 3=Dohe et al. (disabled); 4=Other (disabled))',
-                    'lse':'Laser sampling error (shift)',
-                    'lsu':'Laser sampling error uncertainty',
-                    'lsf':'laser sampling fraction',
-                    'dip':'A proxy for nonlinearity - the dip at ZPD in the smoothed low-resolution interferogram',
-                    'mvd':'Maximum velocity displacement - a measure of how smoothly the scanner is running',
+        lse_dict = {
+                    'lst':{'description':'The type of LSE correction applied (0=none; 1=InGaAs (disabled); 2=Si; 3=Dohe et al. (disabled); 4=Other (disabled))',
+                            'precision':'e12.4',},
+                    'lse':{'description':'Laser sampling error (shift)',
+                            'precision':'e12.4',},
+                    'lsu':{'description':'Laser sampling error uncertainty',
+                            'precision':'e12.4',},
+                    'lsf':{'description':'laser sampling fraction',
+                            'precision':'e12.4',},
+                    'dip':{'description':'A proxy for nonlinearity - the dip at ZPD in the smoothed low-resolution interferogram',
+                            'precision':'e12.4',},
+                    'mvd':{'description':'Maximum velocity displacement - a measure of how smoothly the scanner is running',
+                            'precision':'f9.4',},
                     }
+
         common_spec = np.intersect1d(aia_data['spectrum'],lse_data['spectrum'],return_indices=True)[2]
-        for var in lse_description.keys():
+        for var in lse_dict.keys():
             nc_data.createVariable(var,np.float32,('time',))
             nc_data[var].standard_name = standard_name_dict[var]
             nc_data[var].long_name = long_name_dict[var]
-            nc_data[var].description = lse_description[var]
+            nc_data[var].description = lse_dict[var]['description']
+            nc_data[var].precision = lse_dict[var]['precision']
             nc_data[var][:] = lse_data[var][common_spec].values
 
         # preavg corrections
@@ -873,12 +912,14 @@ def main():
             for key in preavg_correction_data.columns[1:]:
                 varname = 'preavg_{}_{}'.format(var,key)
                 nc_data.createVariable(varname,np.float32,('time',))
+                nc_data[varname].precision = 'f9.5'
                 nc_data[varname][:] = preavg_correction_data[key][list(preavg_correction_data['gas']).index(var)] # write directly
         # postavg corrections
         for var in postavg_correction_data['gas']:
             for key in postavg_correction_data.columns[1:]:
                 varname = 'postavg_{}_{}'.format(var,key)
                 nc_data.createVariable(varname,np.float32,('time',))
+                nc_data[varname].precision = 'f9.5'
                 nc_data[varname][:] = postavg_correction_data[key][list(postavg_correction_data['gas']).index(var)] # write directly
 
         # insitu corrections
@@ -886,6 +927,7 @@ def main():
             for key in insitu_correction_data.columns[1:]:
                 varname = 'postavg_{}_{}'.format(var,key)
                 nc_data.createVariable(varname,np.float32,('time',))
+                nc_data[varname].precision = 'f9.5'
                 nc_data[varname][:] = insitu_correction_data[key][list(insitu_correction_data['gas']).index(var)] # write directly
 
         ## write data
@@ -1210,9 +1252,10 @@ def main():
 
     ordered_var_list = ['flag','flagged_var_name','spectrum'] # list of variables for writing the eof file
     ordered_var_list += aux_var_list
-    ordered_var_list += list(lse_description.keys())
+    ordered_var_list += list(lse_dict.keys())
     ordered_var_list += ['x'+var for var in main_var_list]+['vsf_'+var for var in main_var_list]+['column_'+var for var in main_var_list]
     ordered_var_list += col_var_list
+    ordered_var_list += ['vsw_'+var for var in vsw_var_list]
     ordered_var_list += ['gfit_version','gsetup_version']
     ordered_var_list += [var+'_checksum' for var in checksum_var_list]
 
