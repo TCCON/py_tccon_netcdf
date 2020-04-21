@@ -1102,13 +1102,14 @@ def main():
             headers = content[nhead].split()
             ncbf = len(headers)-4
             if ncbf>0:
-                widths = [speclength+2,8,9,7,12]+[9]*(ncbf-1)
+                widths = [speclength+2,9,9,7,12]+[9]*(ncbf-1)
             else:
-                widths = [speclength+2,8,9,7]
+                widths = [speclength+2,9,9,7]
             cbf_data = pd.read_fwf(cbf_file,widths=widths,names=headers,skiprows=nhead+1)
             cbf_data.rename(str.lower,axis='columns',inplace=True)
             cbf_data.rename(index=str,columns={'cfamp/cl':'cfampocl'},inplace=True)
             cbf_data.rename(index=str,columns={'spectrum_name':'spectrum'},inplace=True)
+            cbf_data['spectrum'] = cbf_data['spectrum'].map(lambda x: x.strip('"')) # remove quotes from the spectrum filenames
 
             gas_XXXX = col_file.split('.')[0] # gas_XXXX, suffix for nc_data variable names corresponding to each .col file (i.e. VSF_h2o from the 6220 co2 window becomes co2_6220_VSF_co2)
 
