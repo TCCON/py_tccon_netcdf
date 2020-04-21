@@ -204,6 +204,7 @@ def read_mav(path):
     sys.stdout.write(' DONE')
     return DATA, nlev
 
+
 def write_eof(private_nc_file,eof_file,qc_file,nc_var_list):
     """
     Convert the private netcdf file into an eof.csv file
@@ -246,6 +247,7 @@ def write_eof(private_nc_file,eof_file,qc_file,nc_var_list):
 
     check_eof(private_nc_file,eof_file,nc_var_list,eof_var_list)
 
+
 def check_eof(private_nc_file,eof_file,nc_var_list,eof_var_list):
     """
     check that the private netcdf file and eof.csv file contents are equal
@@ -270,6 +272,7 @@ def check_eof(private_nc_file,eof_file,nc_var_list,eof_var_list):
                 print(var,'is not identical !')
     else:
         print('Contents are identical')
+
 
 def main():
     print(wnc_version, sys.executable)
@@ -315,6 +318,7 @@ def main():
     vav_file = tav_file.replace('.tav','.vav')
     asw_file = tav_file.replace('.tav','.asw')
     vsw_file = tav_file.replace('.tav','.vsw')
+    vsw_ada_file = vsw_file+'.ada'
     ada_file = vav_file+'.ada'
     aia_file = ada_file+'.aia'
     esf_file = aia_file+'.daily_error.out'
@@ -324,9 +328,10 @@ def main():
     siteID = tav_file.split(os.sep)[-1][:2] # two letter site abbreviation
     qc_file = os.path.join(GGGPATH,'tccon','{}_qc.dat'.format(siteID))
     header_file = os.path.join(GGGPATH,'tccon','{}_oof_header.dat'.format(siteID))
-    preavg_correction_file =  os.path.join(GGGPATH,'tccon','corrections_airmass_preavg.dat')
-    postavg_correction_file =  os.path.join(GGGPATH,'tccon','corrections_airmass_postavg.dat')
-    insitu_correction_file =  os.path.join(GGGPATH,'tccon','corrections_insitu_postavg.dat')
+    # coomented out reading the corrections factor for the .dat files in favor or reading them from the header of the .aia files
+    #preavg_correction_file =  os.path.join(GGGPATH,'tccon','corrections_airmass_preavg.dat')
+    #postavg_correction_file =  os.path.join(GGGPATH,'tccon','corrections_airmass_postavg.dat')
+    #insitu_correction_file =  os.path.join(GGGPATH,'tccon','corrections_insitu_postavg.dat')
     lse_file = os.path.join(GGGPATH,'lse','gnd',tav_file.split(os.sep)[-1].replace('.tav','.lse'))
     pth_file = 'extract_pth.out'
 
@@ -388,14 +393,14 @@ def main():
 
     # correction files: it contains the airmass dependent and independent correction factors for main target gases
     # there are three, two for airmass dependent correction, one before and average averaging. And one for airmass independent corrections
-    nhead, ncol = file_info(preavg_correction_file)
-    preavg_correction_data = pd.read_csv(preavg_correction_file,delim_whitespace=True,skiprows=nhead)
+    #nhead, ncol = file_info(preavg_correction_file)
+    #preavg_correction_data = pd.read_csv(preavg_correction_file,delim_whitespace=True,skiprows=nhead)
 
-    nhead, ncol = file_info(postavg_correction_file)
-    postavg_correction_data = pd.read_csv(postavg_correction_file,delim_whitespace=True,skiprows=nhead)
+    #nhead, ncol = file_info(postavg_correction_file)
+    #postavg_correction_data = pd.read_csv(postavg_correction_file,delim_whitespace=True,skiprows=nhead)
 
-    nhead, ncol = file_info(insitu_correction_file)
-    insitu_correction_data = pd.read_csv(insitu_correction_file,delim_whitespace=True,skiprows=nhead)
+    #nhead, ncol = file_info(insitu_correction_file)
+    #insitu_correction_data = pd.read_csv(insitu_correction_file,delim_whitespace=True,skiprows=nhead)
 
     # qc file: it contains information on some variables as well as their flag limits
     nhead, ncol = file_info(qc_file)
@@ -442,14 +447,20 @@ def main():
     nhead, ncol = file_info(aia_file)
     aia_data = pd.read_csv(aia_file,delim_whitespace=True,skiprows=nhead)
     aia_data['file'] = aia_file
+    adcf_data = pd.read_csv(aia_file,delim_whitespace=True,skiprows=8,nrows=6,names=['xgas','adcf','adcf_error'])
+    aicf_data = pd.read_csv(aia_file,delim_whitespace=True,skiprows=15,nrows=6,names=['xgas','aicf','aicf_error'])
 
     # vsw file
     nhead,ncol = file_info(vsw_file)
     vsw_data = pd.read_csv(vsw_file,delim_whitespace=True,skiprows=nhead)
     vsw_data['file'] = vsw_file
+    # vsw.ada file
+    nhead,ncol = file_info(vsw_ada_file)
+    vsw_ada_data = pd.read_csv(vsw_ada_file,delim_whitespace=True,skiprows=nhead)
+    vsw_ada_data['file'] = vsw_ada_file    
 
     ## check all files have the same spectrum lists
-    data_list = [tav_data,ada_data,aia_data,oof_data,vsw_data]
+    data_list = [tav_data,ada_data,aia_data,oof_data,vsw_data,vsw_ada_data]
     check_spec = np.array([(data['spectrum']==vav_data['spectrum']).all() for data in data_list])
     if not check_spec.all():
         print('Files have inconsistent spectrum lists !')
@@ -464,7 +475,7 @@ def main():
     private_nc_file = '{}{}_{}.private.nc'.format(siteID,start_date,end_date) # the final output file
 
     # make all the column names consistent between the different files
-    for dataframe in [preavg_correction_data,postavg_correction_data,insitu_correction_data,qc_data,esf_data,oof_data,lse_data,vav_data,ada_data,aia_data]:
+    for dataframe in [qc_data,esf_data,oof_data,lse_data,vav_data,ada_data,aia_data]: #preavg_correction_data,postavg_correction_data,insitu_correction_data,
         dataframe.rename(str.lower,axis='columns',inplace=True) # all lower case
         if 'doy' in dataframe.columns: # all use 'day' and not 'doy'
             dataframe.rename(index=str,columns={'doy':'day'},inplace=True)
@@ -827,9 +838,10 @@ def main():
                 nc_data[key].long_name = long_name_dict[key]
                 nc_data[key].units = units_dict[val]
 
-        # write variables from the vsw file
+        # write variables from the .vsw and .vsw.ada files
         vsw_var_list = [vsw_data.columns[i] for i in range(naux,len(vsw_data.columns)-1)]  # minus 1 because I added the 'file' column
         for var in vsw_var_list:
+            # .vsw file
             varname = 'vsw_'+var
             nc_data.createVariable(varname,np.float32,('time',))
             nc_data[varname].standard_name = varname
@@ -837,10 +849,24 @@ def main():
             nc_data[varname].units = ''
             nc_data[varname].precision = 'e12.4'
             if 'error' in varname:
-                nc_data[varname].description = "{0} scale factor {2} from the {1} window before temperature correction".format(*var.split('_'))
+                nc_data[varname].description = "{0} scale factor {2} from the window centered at {1} cm-1.".format(*var.split('_'))
             else:
-                nc_data[varname].description = "{} scale factor from the window centered at {} cm-1 before temperature correction".format(*var.split('_'))
+                nc_data[varname].description = "{} scale factor from the window centered at {} cm-1".format(*var.split('_'))
             nc_data[varname][:] = np.array(vsw_data[var]).astype(np.float32)
+
+            # .vsw.ada file
+            var = 'x'+var
+            varname = 'vsw_ada_'+var
+            nc_data.createVariable(varname,np.float32,('time',))
+            nc_data[varname].standard_name = varname
+            nc_data[varname].long_name = varname.replace('_',' ')
+            nc_data[varname].units = ''
+            nc_data[varname].precision = 'e12.4'
+            if 'error' in varname:
+                nc_data[varname].description = "{0} scale factor {2} from the window centered at {1} cm-1, after airmass dependence is removed, but before scaling to WMO.".format(*var.split('_'))
+            else:
+                nc_data[varname].description = "{} scale factor from the window centered at {} cm-1, after airmass dependence is removed, but before scaling to WMO.".format(*var.split('_'))
+            nc_data[varname][:] = np.array(vsw_ada_data[var]).astype(np.float32)
 
         # averaged variables (from the different windows of each species)
         main_var_list = [tav_data.columns[i] for i in range(naux,len(tav_data.columns)-1)]  # minus 1 because I added the 'file' column
@@ -907,6 +933,7 @@ def main():
             nc_data[var].precision = lse_dict[var]['precision']
             nc_data[var][:] = lse_data[var][common_spec].values
 
+        """
         # preavg corrections
         for var in preavg_correction_data['gas']:
             for key in preavg_correction_data.columns[1:]:
@@ -929,6 +956,36 @@ def main():
                 nc_data.createVariable(varname,np.float32,('time',))
                 nc_data[varname].precision = 'f9.5'
                 nc_data[varname][:] = insitu_correction_data[key][list(insitu_correction_data['gas']).index(var)] # write directly
+        """
+        # airmass-dependent corrections (from the .aia file header)
+        correction_var_list = []
+        for i,xgas in enumerate(adcf_data['xgas']):
+            for var in ['adcf','adcf_error']:
+                varname = '{}_{}'.format(xgas,var)
+                correction_var_list += [varname]
+                nc_data.createVariable(varname,np.float32,('time',))
+                nc_data[varname].standard_name = varname
+                nc_data[varname].long_name = varname.replace('_',' ')
+                nc_data[varname].precision = 'f9.4'
+                if 'error' in var:
+                    nc_data[varname].description = 'Error of the {} airmass-dependent correction factor'.format(xgas)
+                else:
+                    nc_data[varname].description = '{} airmass-dependent correction factor'.format(xgas)
+                nc_data[varname][:] = adcf_data[var][i]
+        # airmass-independent corrections (from the .aia file header)
+        for i,xgas in enumerate(aicf_data['xgas']):
+            for var in ['aicf','aicf_error']:
+                varname = '{}_{}'.format(xgas,var)
+                correction_var_list += [varname]
+                nc_data.createVariable(varname,np.float32,('time',))
+                nc_data[varname].standard_name = varname
+                nc_data[varname].long_name = varname.replace('_',' ')
+                nc_data[varname].precision = 'f9.4'
+                if 'error' in var:
+                    nc_data[varname].description = 'Error of the {} airmass-independent correction factor'.format(xgas)
+                else:
+                    nc_data[varname].description = '{} airmass-independent correction factor'.format(xgas)
+                nc_data[varname][:] = aicf_data[var][i]
 
         ## write data
         sys.stdout.write('\nWriting prior data ...')
