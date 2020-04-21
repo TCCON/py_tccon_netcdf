@@ -238,8 +238,8 @@ def write_eof(private_nc_file,eof_file,qc_file,nc_var_list):
         writer.writerow(eof_var_list)
         for i in range(nrow):
             row = [nc[var][i] if not hasattr(nc[var],'precision') else '{:fmt}'.replace('fmt',nc[var].precision[1:]+nc[var].precision[0]).format(nc[var][i]).strip() for var in nc_var_list]
-            if row[1]:
-                row[1] = eof_var_list[nc_var_list.index(row[1])]
+            if row[1]: # if flagged_var_name is not an empty string
+                row[1] = eof_var_list[nc_var_list.index(row[1])] # replace the netcdf variable name with the eof variable name
             writer.writerow(row)
             progress(i,nrow)
     print('Finished writing',eof_file,'{:.2f}'.format(os.path.getsize(eof_file)/1e6),'MB')
