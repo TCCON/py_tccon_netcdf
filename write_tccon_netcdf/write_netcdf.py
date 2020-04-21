@@ -305,6 +305,7 @@ def main():
     parser.add_argument('file',type=lambda file_name:file_choices(('tav'),file_name),help='The .tav file')
     parser.add_argument('--format',default='NETCDF4_CLASSIC',choices=['NETCDF4_CLASSIC','NETCDF4'],help='the format of the NETCDF files')
     parser.add_argument('-r','--read-only',action='store_true',help="Convenience for python interactive shells; sys.exit() right after reading all the input files")
+    parser.add_argument('--eof',action='store_true',help='If given, will also write the .eof.csv file')
 
     args = parser.parse_args()
 
@@ -824,7 +825,8 @@ def main():
         nc_data['hour'].description = 'Fractional UT hours (zero path difference crossing time)'
 
         # get model surface values from the output of extract_pth.f
-        for key,val in {'tmod':'tout','pmod':'pout','hmod':'hout'}.items(): # use a mapping to the equivalent runlog variables to querry their qc.dat info
+        mod_var_dict = {'tmod':'tout','pmod':'pout','hmod':'hout'}
+        for key,val in mod_var_dict.items(): # use a mapping to the equivalent runlog variables to querry their qc.dat info
             qc_id = list(qc_data['variable']).index(val)
             #digit = int(qc_data['format'][qc_id].split('.')[-1])
             var_type = np.float32 
@@ -1199,6 +1201,7 @@ def main():
             nc_data[ncbf_var][:] = len(cbf_data.columns)-1 # minus 1 because of the spectrum name column
             for var in cbf_data.columns[1:]: # don't use the 'Spectrum' column
                 varname = '_'.join([gas_XXXX,var])
+                col_var_list += [varname]
                 nc_data.createVariable(varname,np.float32,('time',))
                 if '_' in var:
                     nc_data[varname].standard_name = standard_name_dict[var.split('_')[0]].format(var.split('_')[1])
@@ -1307,20 +1310,26 @@ def main():
         private_var_list = [v for v in private_data.variables]
     print('Finished writing',public_nc_file,'{:.2f}'.format(os.path.getsize(public_nc_file)/1e6),'MB')
 
-    ordered_var_list = ['flag','flagged_var_name','spectrum'] # list of variables for writing the eof file
-    ordered_var_list += aux_var_list
-    ordered_var_list += list(lse_dict.keys())
-    ordered_var_list += ['x'+var for var in main_var_list]+['vsf_'+var for var in main_var_list]+['column_'+var for var in main_var_list]
-    ordered_var_list += col_var_list
-    ordered_var_list += ['vsw_'+var for var in vsw_var_list]
-    ordered_var_list += ['gfit_version','gsetup_version']
-    ordered_var_list += [var+'_checksum' for var in checksum_var_list]
+    if args.eof:
+        ordered_var_list = ['flag','flagged_var_name','spectrum'] # list of variables for writing the eof file
+        ordered_var_list += aux_var_list
+        ordered_var_list += list(lse_dict.keys())
+        ordered_var_list += ['x'+var for var in main_var_list]+['vsf_'+var for var in main_var_list]+['column_'+var for var in main_var_list]+['ada_x'+var for var in main_var_list]
+        ordered_var_list += correction_var_list
+        ordered_var_list += col_var_list
+        ordered_var_list += ['vsw_'+var for var in vsw_var_list] + ['vsw_ada_x'+var for var in vsw_var_list]
+        ordered_var_list += ['gfit_version','gsetup_version']
+        ordered_var_list += [var+'_checksum' for var in checksum_var_list]
 
-    missing_var_list = [var for var in ordered_var_list if var not in private_var_list]
-    if missing_var_list:
-        print('{}/{} variables will not be in the eof.csv file:\n'.format(len(missing_var_list),len(private_var_list)),missing_var_list)
+        # check that we have all the variables we want
+        # the mod_var_dict keys read data from the extract_pth file, these duplicate variables from the aux_var_list
+        # the prior_ and ak_ variable are along a different dimensions and can be 2D so we can't include them in the eof.csv file
+        # we also don't include "time" as it is split into year/day/hour
+        missing_var_list = [var for var in private_var_list if var!='time' and (var not in ordered_var_list) and ('prior_' not in var and 'ak_' not in var) and (var not in mod_var_dict.keys())]
+        if missing_var_list:
+            print('{}/{} variables will not be in the eof.csv file:\n'.format(len(missing_var_list),len(private_var_list)),missing_var_list)
 
-    write_eof(private_nc_file,eof_file,qc_file,ordered_var_list)
+        write_eof(private_nc_file,eof_file,qc_file,ordered_var_list)
 
 if __name__=='__main__': # execute only when the code is run by itself, and not when it is imported
     main()
