@@ -219,7 +219,7 @@ def write_eof(private_nc_file,eof_file,qc_file,nc_var_list):
         qc_content[i+1] = '{:2d} {}'.format(i+1,line)
 
     with netCDF4.Dataset(private_nc_file,'r') as nc, open(eof_file,'w',newline='') as eof:
-        writer = csv.writer(eof,delimiter=',')
+        writer = csv.writer(eof,delimiter=',',lineterminator=os.linesep)
 
         nhead = len(qc_content)+3
         ncol = len(nc_var_list)
