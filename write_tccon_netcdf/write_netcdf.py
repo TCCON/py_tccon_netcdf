@@ -205,7 +205,7 @@ def read_mav(path):
     return DATA, nlev
 
 
-def write_eof(private_nc_file,eof_file,qc_file,nc_var_list):
+def write_eof(private_nc_file,eof_file,qc_file,nc_var_list,show_progress):
     """
     Convert the private netcdf file into an eof.csv file
 
@@ -238,11 +238,13 @@ def write_eof(private_nc_file,eof_file,qc_file,nc_var_list):
                 eof_var_list += [var]
         writer.writerow(eof_var_list)
         for i in range(nrow):
+            if show_progress:
+                progress(i,nrow)
             row = [nc[var][i] if not hasattr(nc[var],'precision') else '{:fmt}'.replace('fmt',nc[var].precision[1:]+nc[var].precision[0]).format(nc[var][i]).strip() for var in nc_var_list]
             if row[1]: # if flagged_var_name is not an empty string
                 row[1] = eof_var_list[nc_var_list.index(row[1])] # replace the netcdf variable name with the eof variable name
             writer.writerow(row)
-            progress(i,nrow)
+           
     logging.info('Finished writing {} {:.2f} MB'.format(eof_file,os.path.getsize(eof_file)/1e6))
 
     check_eof(private_nc_file,eof_file,nc_var_list,eof_var_list)
@@ -319,7 +321,7 @@ def main():
     parser.add_argument('--format',default='NETCDF4_CLASSIC',choices=['NETCDF4_CLASSIC','NETCDF4'],help='the format of the NETCDF files')
     parser.add_argument('-r','--read-only',action='store_true',help="Convenience for python interactive shells; sys.exit() right after reading all the input files")
     parser.add_argument('--eof',action='store_true',help='If given, will also write the .eof.csv file')
-    parser.add_argument('--log-level',default='INFO',type=lambda x: x.upper(),help="Log level",choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL'])
+    parser.add_argument('--log-level',default='INFO',type=lambda x: x.upper(),help="Log level for the screen (it is always DEBUG for the log file)",choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL'])
     parser.add_argument(
         '--log-file',
         default='write_netcdf.log',
@@ -328,9 +330,21 @@ def main():
         )
 
     args = parser.parse_args()
-    
+
+    LEVELS = {  'DEBUG': logging.DEBUG,
+                'INFO': logging.INFO,
+                'wWARNING': logging.WARNING,
+                'ERROR': logging.ERROR,
+                'CRITICAL': logging.CRITICAL,
+              }
+    # will only display the progress bar for log levels below ERROR
+    if LEVELS[args.log_level] >= 40:
+        show_progress = False
+    else:
+        show_progress = True
     logger = logging.getLogger()
-    logging.basicConfig(handlers=[logging.FileHandler(args.log_file),logging.StreamHandler()],level=args.log_level,format='\n%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
+    logging.basicConfig(handlers=[logging.FileHandler(args.log_file),logging.StreamHandler()],level="DEBUG",format='\n%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
+    logger.handlers[1].setLevel(LEVELS[args.log_level])
     logging.info('New write_netcdf log session')
     for handler in logger.handlers:
         handler.setFormatter(logging.Formatter('[%(levelname)s]: %(message)s'))
@@ -1130,8 +1144,8 @@ def main():
         logging.info('Writing data:')
         col_var_list = []
         for col_id,col_file in enumerate(col_file_list):
-            
-            progress(col_id,len(col_file_list),word=col_file)
+            if show_progress:
+                progress(col_id,len(col_file_list),word=col_file)
 
             cbf_file = col_file.replace('.col','.cbf')
             with open(cbf_file,'r') as infile:
@@ -1374,7 +1388,7 @@ def main():
             for var in missing_var_list:
                 logging.warning(var)
 
-        write_eof(private_nc_file,eof_file,qc_file,ordered_var_list)
+        write_eof(private_nc_file,eof_file,qc_file,ordered_var_list,show_progress)
     for handler in logger.handlers:
         handler.setFormatter(logging.Formatter('[%(levelname)s]: %(message)s at %(asctime)s',datefmt='%m/%d/%Y %I:%M:%S %p'))
     logging.info('Finished write_eof log session')
