@@ -286,6 +286,7 @@ def write_values(nc_data,var,values):
                 nc_data[var][i] = netCDF4.default_fillvals['f4']
             else:
                 nc_data[var][i] = test[0]
+        logging.warning('All faulty values have been replaced by the default netcdf fill value for floats: {}'.format(netCDF4.default_fillvals['f4']))
 
 
 def main():
@@ -1058,6 +1059,7 @@ def main():
         logging.info('Finished writing prior data')
 
         # update data with new scale factors and determine flags
+        logging.info('Writing scaled aia data and determining qc flags')
         esf_id = 0
         nflag = 0
         for esf_id in range(esf_data['year'].size):
@@ -1117,6 +1119,7 @@ def main():
                     nc_data['flagged_var_name'][i] = qc_data['variable'][eflag[i-start]-1]
 
         nflag = np.count_nonzero(nc_data['flag'][:])
+        logging.info('{} / {} spectra are flagged'.format(nflag,nc_data['time'].size))
 
         # time      
         write_values(nc_data,'year',np.round(aia_data['year'][:].values-aia_data['day'][:].values/365.25))
