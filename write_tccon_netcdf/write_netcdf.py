@@ -18,6 +18,7 @@ from collections import OrderedDict
 import time
 from datetime import datetime, timedelta
 import re
+import logging
 
 wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-15; SR)\n'
 
@@ -70,9 +71,9 @@ def checksum(file_name,hexdigest):
     check = (md5(file_name) == hexdigest)
 
     if not check:
-        print('/!\\ Checksum mismatch for',file_name)
-        print('New:',md5(file_name))
-        print('Old:',hexdigest)
+        logging.warning('Checksum mismatch for %s',file_name)
+        logging.warning('New: %s',md5(file_name))
+        logging.warning('Old: %s',hexdigest)
 
 
 def file_info(file_name,delimiter=''):
@@ -151,8 +152,7 @@ def read_mav(path):
     read .mav files into a dictionary with spectrum filnames as keys (from each "Next spectrum" block in the .mav file)
     values are dataframes with the prior data
     """
-    sys.stdout.write('Reading MAV file ...')
-    sys.stdout.flush()
+    logging.info('Reading MAV file ...')
     DATA = OrderedDict()
 
     with open(path,'r') as infile:
@@ -201,7 +201,7 @@ def read_mav(path):
         ispec += 1
 
     nlev = DATA[spectrum]['data']['altitude'].size # get nlev again without the cell levels
-    sys.stdout.write(' DONE')
+    logging.info('Finished reading MAV file')
     return DATA, nlev
 
 
@@ -211,7 +211,7 @@ def write_eof(private_nc_file,eof_file,qc_file,nc_var_list):
 
     the columns won't be in order of the flag number, but there wil be a "flagged_var_name" column with the name of the flagged variable
     """
-    print('\nWriting eof.csv file ...')
+    logging.info('Writing eof.csv file ...')
 
     nhead, ncol = file_info(qc_file)
     with open(qc_file,'r') as f:
@@ -243,7 +243,7 @@ def write_eof(private_nc_file,eof_file,qc_file,nc_var_list):
                 row[1] = eof_var_list[nc_var_list.index(row[1])] # replace the netcdf variable name with the eof variable name
             writer.writerow(row)
             progress(i,nrow)
-    print('Finished writing',eof_file,'{:.2f}'.format(os.path.getsize(eof_file)/1e6),'MB')
+    logging.info('Finished writing {} {:.2f} MB'.format(eof_file,os.path.getsize(eof_file)/1e6))
 
     check_eof(private_nc_file,eof_file,nc_var_list,eof_var_list)
 
@@ -252,7 +252,7 @@ def check_eof(private_nc_file,eof_file,nc_var_list,eof_var_list):
     """
     check that the private netcdf file and eof.csv file contents are equal
     """
-    print('\nChecking EOF and NC file contents ...')
+    logging.info('Checking EOF and NC file contents ...')
     nhead, ncol = file_info(eof_file,delimiter=',')
     eof = pd.read_csv(eof_file,header=nhead)
     checks = []
@@ -266,17 +266,29 @@ def check_eof(private_nc_file,eof_file,nc_var_list,eof_var_list):
             else:
                 checks += [np.array_equal(nc[var][:],eof[eof_var_list[i]][:].astype(nc[var].dtype))]
     if False in checks:
-        print(ncol-np.count_nonzero(checks),'/',ncol,'different columns')
+        logging.warning('{} / {} different columns:'.format(ncol-np.count_nonzero(checks),ncol))
         for i,var in enumerate(nc_var_list):
             if not checks[i]:
-                print(var,'is not identical !')
+                logging.warning('%s is not identical !',var)
     else:
-        print('Contents are identical')
+        logging.info('Contents are identical')
+
+def write_values(nc_data,var,values):
+    try:
+        nc_data[var][:] = np.array(values).astype(nc_data[var].dtype)
+    except ValueError:
+        logging.warning('ValueError when writing {} with expected type {} for the following spectra:'.format(var,nc_data[var].dtype))
+        for i,val in enumerate(values):
+            try:
+                test = np.array([val]).astype(nc_data[var].dtype)
+            except ValueError:
+                logging.warning('{} {} = {}'.format(nc_data['spectrum'][i],var,values[i]))
+                nc_data[var][i] = netCDF4.default_fillvals['f4']
+            else:
+                nc_data[var][i] = test[0]
 
 
 def main():
-    print(wnc_version, sys.executable)
-
     try:
         GGGPATH = os.environ['GGGPATH']
     except:
@@ -306,12 +318,32 @@ def main():
     parser.add_argument('--format',default='NETCDF4_CLASSIC',choices=['NETCDF4_CLASSIC','NETCDF4'],help='the format of the NETCDF files')
     parser.add_argument('-r','--read-only',action='store_true',help="Convenience for python interactive shells; sys.exit() right after reading all the input files")
     parser.add_argument('--eof',action='store_true',help='If given, will also write the .eof.csv file')
+    parser.add_argument('--log-level',default='INFO',type=lambda x: x.upper(),help="Log level",choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL'])
+    parser.add_argument(
+        '--log-file',
+        default='write_netcdf.log',
+        help="""Full path to the log file, by default write_netcdf.log is written to in append mode in the current working directory.
+        If you want to write the logs of all your write_netcdf.py runs to a signle file, you can use this argument to specify the path.""",
+        )
 
     args = parser.parse_args()
+    
+    logger = logging.getLogger()
+    logging.basicConfig(handlers=[logging.FileHandler(args.log_file),logging.StreamHandler()],level=args.log_level,format='\n%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
+    logging.info('New write_netcdf log session')
+    for handler in logger.handlers:
+        handler.setFormatter(logging.Formatter('[%(levelname)s]: %(message)s'))
+    logging.info('Running %s',wnc_version)
+    logging.info('Python executable used: %s',sys.executable)
+    logging.info('GGGPATH=%s',GGGPATH)
+    logging.info('cwd=%s',os.getcwd())
 
     nc_format = args.format
     classic = nc_format == 'NETCDF4_CLASSIC'
-    print(nc_format,'format')
+    logging.info('netCDF file format: %s',nc_format)
+    if args.eof:
+        logging.info('A eof.csv file will be written')
+    logging.info('Input file: %s',args.file)
 
     # input and output file names
     tav_file = args.file
@@ -342,7 +374,7 @@ def main():
     col_file_list = sorted([i for i in os.listdir(os.getcwd()) if i.endswith('.col')])
 
     if not col_file_list: # [] evaluates to False
-        print('No .col files !')
+        logging.critical('No .col files in',os.getcwd())
         sys.exit()
 
     ## read data, I add the file_name to the data dictionaries for some of them
@@ -360,7 +392,7 @@ def main():
         content = [line for line in infile.readlines() if line[0]!=':' or line.strip()!=''] # the the file without blank lines or commented out lines starting with ':'
     ncol = len(content)
     if ncol!=len(col_file_list):
-        print('/!\\ multiggg.sh has {} command lines but there are {} .col files'.format(ncol,len(col_file_list)))
+        logging.critical('/!\\ multiggg.sh has {} command lines but there are {} .col files'.format(ncol,len(col_file_list)))
         sys.exit()
 
     # averaging kernels
@@ -373,7 +405,7 @@ def main():
     # check all pressure levels are the same
     check_ak_pres = np.array([(ak_data['co2']['P_hPa']==ak_data[gas]['P_hPa']).all() for gas in ak_data.keys()]).all()
     if not check_ak_pres:
-        print('AK files have inconsistent pressure levels !')
+        logging.critical('AK files have inconsistent pressure levels !')
         sys.exit()
     nlev_ak = ak_data['co2']['P_hPa'].size
     nsza_ak = ak_data['co2'].columns.size -1 # minus one because of the pressure column
@@ -464,9 +496,9 @@ def main():
     data_list = [tav_data,ada_data,aia_data,oof_data,vsw_data,vsw_ada_data]
     check_spec = np.array([(data['spectrum']==vav_data['spectrum']).all() for data in data_list])
     if not check_spec.all():
-        print('Files have inconsistent spectrum lists !')
+        logging.critical('Files have inconsistent spectrum lists !')
         for data in data_list:
-            print(len(data['spectrum']),'spectra in',data['file'][0])
+            logging.critical(len(data['spectrum']),'spectra in',data['file'][0])
         sys.exit()
 
     specdates = np.array([datetime(int(aia_data['year'][i]),1,1)+timedelta(days=aia_data['day'][i]-1) for i in range(nspec)])
@@ -619,7 +651,7 @@ def main():
     }
 
     if args.read_only:
-        print('\nAll inputs read')
+        logging.critical('Code was run in READ ONLY mode, all inputs read, exiting now.')
         sys.exit()
 
     if os.path.exists(private_nc_file):
@@ -651,9 +683,10 @@ def main():
             proc = subprocess.Popen(['hg','summary'],cwd=GGGPATH,stdout=subprocess.PIPE)
             out, err = proc.communicate()
             gggtip = out.decode("utf-8")
+            logging.info('The output of "hg summary" from the GGG repository:\n %s',gggtip)
         else:
             gggtip = "Could not find .hg in the GGG repository"
-            print('\n',gggtip)
+            logging.warning('GGGtip %s',gggtip)
         nc_data.GGGtip = "The output of 'hg summary' from the GGG repository:\n"+gggtip
         nc_data.history = "Created {} (UTC)".format(time.asctime(time.gmtime(time.time())))
 
@@ -854,7 +887,7 @@ def main():
                 nc_data[varname].description = "{0} scale factor {2} from the window centered at {1} cm-1.".format(*var.split('_'))
             else:
                 nc_data[varname].description = "{} scale factor from the window centered at {} cm-1".format(*var.split('_'))
-            nc_data[varname][:] = np.array(vsw_data[var]).astype(np.float32)
+            write_values(nc_data,varname,vsw_data[var])
 
             # .vsw.ada file
             var = 'x'+var
@@ -868,7 +901,7 @@ def main():
                 nc_data[varname].description = "{0} scale factor {2} from the window centered at {1} cm-1, after airmass dependence is removed, but before scaling to WMO.".format(*var.split('_'))
             else:
                 nc_data[varname].description = "{} scale factor from the window centered at {} cm-1, after airmass dependence is removed, but before scaling to WMO.".format(*var.split('_'))
-            nc_data[varname][:] = np.array(vsw_ada_data[var]).astype(np.float32)
+            write_values(nc_data,varname,vsw_ada_data[var])
 
         # averaged variables (from the different windows of each species)
         main_var_list = [tav_data.columns[i] for i in range(naux,len(tav_data.columns)-1)]  # minus 1 because I added the 'file' column
@@ -885,30 +918,31 @@ def main():
             nc_data[xvar].vmin = qc_data['vmin'][qc_id]
             nc_data[xvar].vmax = qc_data['vmax'][qc_id]
             nc_data[xvar].precision = qc_data['format'][qc_id]
+            #nc_data[xvar] will be written from the .aia data further below, not in this loop
 
             nc_data.createVariable('vsf_'+var,np.float32,('time',))
             nc_data['vsf_'+var].description = var+" Volume Scale Factor."
             nc_data['vsf_'+var].precision = 'e12.4'
-            nc_data['vsf_'+var][:] = tav_data[var].values
+            write_values(nc_data,'vsf_'+var,tav_data[var].values)
             
             nc_data.createVariable('column_'+var,np.float32,('time',))
             nc_data['column_'+var].description = var+' column average.'
             nc_data['column_'+var].units = 'molecules.m-2'
             nc_data['column_'+var].precision = 'e12.4'
-            nc_data['column_'+var][:] = vav_data[var].values
+            write_values(nc_data,'column_'+var,vav_data[var].values)
 
-            nc_data.createVariable('ada_x'+var,np.float32,('time',))
+            nc_data.createVariable('ada_'+xvar,np.float32,('time',))
             if 'error' in var:
-                nc_data['ada_x'+var].description = 'uncertainty associated with ada_x{}'.format(var.replace('_error',''))
+                nc_data['ada_'+xvar].description = 'uncertainty associated with ada_x{}'.format(var.replace('_error',''))
             else:
-                nc_data['ada_x'+var].description = var+' column-average dry-air mole fraction computed after airmass dependence is removed, but before scaling to WMO.'
+                nc_data['ada_'+xvar].description = var+' column-average dry-air mole fraction computed after airmass dependence is removed, but before scaling to WMO.'
             for key in special_description_dict.keys():
                 if key in var:
-                    for nc_var in [nc_data[xvar],nc_data['vsf_'+var],nc_data['column_'+var],nc_data['ada_x'+var]]:
+                    for nc_var in [nc_data[xvar],nc_data['vsf_'+var],nc_data['column_'+var],nc_data['ada_'+xvar]]:
                         nc_var.description += special_description_dict[key]
-            nc_data['ada_x'+var].units = ""
-            nc_data['ada_x'+var].precision = 'e12.4'
-            nc_data['ada_x'+var][:] = ada_data['x'+var].values
+            nc_data['ada_'+xvar].units = ""
+            nc_data['ada_'+xvar].precision = 'e12.4'
+            write_values(nc_data,'ada_'+xvar,ada_data[xvar].values)
 
         # lse data
         lse_dict = {
@@ -933,7 +967,7 @@ def main():
             nc_data[var].long_name = long_name_dict[var]
             nc_data[var].description = lse_dict[var]['description']
             nc_data[var].precision = lse_dict[var]['precision']
-            nc_data[var][:] = lse_data[var][common_spec].values
+            write_values(nc_data,var,lse_data[var][common_spec].values)
 
         """
         # preavg corrections
@@ -990,8 +1024,7 @@ def main():
                 nc_data[varname][:] = aicf_data[var][i]
 
         ## write data
-        sys.stdout.write('\nWriting prior data ...')
-        sys.stdout.flush()
+        logging.info('Writing prior data ...')
         factor = {'temperature':1.0,'pressure':1.0,'density':1.0,'gravity':1.0,'1h2o':1.0,'1hdo':1.0,'1co2':1e6,'1n2o':1e9,'1co':1e9,'1ch4':1e9,'1hf':1e12,'1o2':1.0}
         prior_spec_list = list(prior_data.keys())
         prior_spec_gen = (spectrum for spectrum in prior_spec_list)
@@ -1022,7 +1055,7 @@ def main():
             nc_data['prior_time'][prior_spec_id] = prior_data[prior_spectrum]['time']
             nc_data['prior_tropopause_altitude'][prior_spec_id] = prior_data[prior_spectrum]['tropopause_altitude']
 
-        sys.stdout.write('\rWriting prior data ... DONE')
+        logging.info('Finished writing prior data')
 
         # update data with new scale factors and determine flags
         esf_id = 0
@@ -1057,8 +1090,8 @@ def main():
             for var_id,var in enumerate(aia_data.columns[mchar:-1]):
 
                 if len(aia_data[var][aia_data[var]>=9e29]) >= 1:
-                    print('Missing value found (>=9e29) for variable {}.\nEnding Program'.format(var))
-                    print('You may need to remove missing .col files from multiggg.sh and rerun post_processing.sh')
+                    logging.critical('Missing value found (>=9e29) for variable {}.\nEnding Program'.format(var))
+                    logging.critical('You may need to remove missing .col files from multiggg.sh and rerun post_processing.sh')
                     sys.exit()
 
                 qc_id = list(qc_data['variable']).index(var)
@@ -1086,14 +1119,16 @@ def main():
         nflag = np.count_nonzero(nc_data['flag'][:])
 
         # time      
-        nc_data['year'][:] = np.round(aia_data['year'][:].values-aia_data['day'][:].values/365.25)
-        nc_data['day'][:] = np.round(aia_data['day'][:].values-aia_data['hour'][:].values/24.0)
-        nc_data['time'][:] = np.array([elem.total_seconds() for elem in (specdates-datetime(1970,1,1))])
+        write_values(nc_data,'year',np.round(aia_data['year'][:].values-aia_data['day'][:].values/365.25))
+        write_values(nc_data,'day',np.round(aia_data['day'][:].values-aia_data['hour'][:].values/24.0))
+        write_values(nc_data,'time',np.array([elem.total_seconds() for elem in (specdates-datetime(1970,1,1))]))
 
         # write data from .col and .cbf files
-        print('\n\nWriting data:')
+        logging.info('Writing data:')
         col_var_list = []
         for col_id,col_file in enumerate(col_file_list):
+            
+            progress(col_id,len(col_file_list),word=col_file)
 
             cbf_file = col_file.replace('.col','.cbf')
             with open(cbf_file,'r') as infile:
@@ -1157,12 +1192,10 @@ def main():
             col_data.rename(str.lower,axis='columns',inplace=True)
             col_data.rename(index=str,columns={'rms/cl':'rmsocl'},inplace=True)
             if not all(col_data['spectrum'].values == vav_data['spectrum'].values):
-                print('\nMismatch between .col file spectra and .vav spectra')
-                print('col file:',col_file)
+                logging.warning('Mismatch between .col file spectra and .vav spectra; col_file=%s',col_file)
                 continue # contine or exit here ? Might not need to exit if we can add in the results from the faulty col file afterwards
             if not all(col_data['spectrum'].values == cbf_data['spectrum'].values) and 'luft' not in col_file: # luft has no cbfs
-                print('\nMismatch between .col file spectra and .cbf spectra')
-                print('col file:',col_file)
+                logging.warning('Mismatch between .col file spectra and .cbf spectra; col_file=%s',col_file)
                 continue # contine or exit here ? Might not need to exit if we can add in the results from the faulty col file afterwards
 
             # create window specific variables
@@ -1174,7 +1207,7 @@ def main():
                     nc_data[varname].standard_name = standard_name_dict[var]
                     nc_data[varname].long_name = long_name_dict[var]
 
-                nc_data[varname][:] = col_data[var].values
+                write_values(nc_data,varname,col_data[var].values)
                 if '_' in var:
                     nc_data[varname].description = '{} {} retrieved from the {} window centered at {} cm-1.'.format(var.split('_')[1],var.split('_')[0],gas_XXXX.split('_')[0],gas_XXXX.split('_')[1])
 
@@ -1211,9 +1244,7 @@ def main():
                     nc_data[varname].standard_name = standard_name_dict[var]
                     nc_data[varname].long_name = long_name_dict[var]
                     nc_data[varname].units = units_dict[var]
-                nc_data[varname][:] = cbf_data[var].values
-
-            progress(col_id,len(col_file_list),word=col_file)
+                write_values(nc_data,varname,cbf_data[var].values)
 
 
         # read the data from missing_data.txt and update data with fill values to the netCDF4 default fill value
@@ -1235,18 +1266,26 @@ def main():
                 for var in missing_data[time_period]:
                     replace_val_ids = set(np.where(nc_data[var]==missing_data[time_period][var])[0])
                     replace_ids = replace_time_ids.intersection(replace_val_ids) # indices for data equal to the fill value in the given time period
-                    print('Convert fill value for',var,'from',missing_data[time_period][var],'to',netCDF4.default_fillvals['f4'],'between',str(netCDF4.num2date(start,units=nc_data['time'].units,calendar=nc_data['time'].calendar)),'and',str(netCDF4.num2date(end,units=nc_data['time'].units,calendar=nc_data['time'].calendar)))
+                    logging.info(
+                        'Convert file value for {} from {} to {} between {} and {}'.format(
+                            var,
+                            missing_data[time_period][var],
+                            netCDF4.default_fillvals['f4'],
+                            str(netCDF4.num2date(start,units=nc_data['time'].units,calendar=nc_data['time'].calendar)),
+                            str(netCDF4.num2date(end,units=nc_data['time'].units,calendar=nc_data['time'].calendar)),
+                            )
+                        )
                     for id in replace_ids:
                         nc_data[var][id] = netCDF4.default_fillvals['f4'] 
         elif len(missing_data.keys())==1:
             missing_data = missing_data[siteID]
             for var in missing_data:
                 replace_ids = list(np.where(nc_data[var]==missing_data[var])[0])
-                print('Convert fill value for',var,'to',netCDF4.default_fillvals['f4'])
+                logging.info('Convert fill value for {} to {}'.format(var,netCDF4.default_fillvals['f4']))
                 for id in replace_ids:
                     nc_data[var][id] = netCDF4.default_fillvals['f4']
 
-    print('\nFinished writing',private_nc_file,'{:.2f}'.format(os.path.getsize(private_nc_file)/1e6),'MB')
+    logging.info('Finished writing {} {:.2f} MB'.format(private_nc_file,os.path.getsize(private_nc_file)/1e6))
 
     public_nc_file = '{}{}_{}.public.nc'.format(siteID,start_date,end_date)
     with netCDF4.Dataset(private_nc_file,'r') as private_data, netCDF4.Dataset(public_nc_file,'w',format=nc_format) as public_data:
@@ -1309,7 +1348,7 @@ def main():
                 # copy variable attributes all at once via dictionary
                 public_data[name].setncatts(private_data[name].__dict__)
         private_var_list = [v for v in private_data.variables]
-    print('Finished writing',public_nc_file,'{:.2f}'.format(os.path.getsize(public_nc_file)/1e6),'MB')
+    logging.info('Finished writing {} {:.2f} MB'.format(public_nc_file,os.path.getsize(public_nc_file)/1e6))
 
     if args.eof:
         ordered_var_list = ['flag','flagged_var_name','spectrum'] # list of variables for writing the eof file
@@ -1328,9 +1367,14 @@ def main():
         # we also don't include "time" as it is split into year/day/hour
         missing_var_list = [var for var in private_var_list if var!='time' and (var not in ordered_var_list) and ('prior_' not in var and 'ak_' not in var) and (var not in mod_var_dict.keys())]
         if missing_var_list:
-            print('{}/{} variables will not be in the eof.csv file:\n'.format(len(missing_var_list),len(private_var_list)),missing_var_list)
+            logging.warning('{}/{} variables will not be in the eof.csv file'.format(len(missing_var_list),len(private_var_list)))
+            for var in missing_var_list:
+                logging.warning(var)
 
         write_eof(private_nc_file,eof_file,qc_file,ordered_var_list)
+    for handler in logger.handlers:
+        handler.setFormatter(logging.Formatter('[%(levelname)s]: %(message)s at %(asctime)s',datefmt='%m/%d/%Y %I:%M:%S %p'))
+    logging.info('Finished write_eof log session')
 
 if __name__=='__main__': # execute only when the code is run by itself, and not when it is imported
     main()
