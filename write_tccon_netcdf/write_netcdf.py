@@ -455,6 +455,10 @@ def main():
     qc_data = pd.read_fwf(qc_file,widths=[15,3,8,7,10,9,10,45],skiprows=nhead+1,names='Variable Output Scale Format Unit Vmin Vmax Description'.split())
     for key in ['Variable','Format','Unit']:
         qc_data[key] = [i.replace('"','') for i in qc_data[key]]
+    len_list = len(list(qc_data['Variable']))
+    len_set = len(list(set(qc_data['Variable'])))
+    if len_list!=len_set:
+        logging.warning('There are {} duplicate variables in the qc.dat file, flags will be determined based on the first occurence of each duplicate.'.format(len_list-len_set))
 
     # error scale factors: 
     nhead, ncol = file_info(esf_file)
