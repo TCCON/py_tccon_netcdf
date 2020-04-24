@@ -495,8 +495,20 @@ def main():
     nhead, ncol = file_info(aia_file)
     aia_data = pd.read_csv(aia_file,delim_whitespace=True,skiprows=nhead)
     aia_data['file'] = aia_file
-    adcf_data = pd.read_csv(aia_file,delim_whitespace=True,skiprows=8,nrows=6,names=['xgas','adcf','adcf_error'])
-    aicf_data = pd.read_csv(aia_file,delim_whitespace=True,skiprows=15,nrows=6,names=['xgas','aicf','aicf_error'])
+    with open(aia_file,'r') as f:
+        i = 0
+        while True:
+            line = f.readline()
+            if 'Airmass-Dependent' in line:
+                adcf_id = i+1
+                nrow_adcf = int(line.split(':')[1].split()[0])
+            elif 'Airmass-Independent' in line:
+                aicf_id = i+1
+                nrow_aicf = int(line.split(':')[1].split()[0])
+                break 
+            i = i+1   
+    adcf_data = pd.read_csv(aia_file,delim_whitespace=True,skiprows=adcf_id,nrows=nrow_adcf,names=['xgas','adcf','adcf_error'])
+    aicf_data = pd.read_csv(aia_file,delim_whitespace=True,skiprows=aicf_id,nrows=nrow_aicf,names=['xgas','aicf','aicf_error'])
 
     # vsw file
     nhead,ncol = file_info(vsw_file)
