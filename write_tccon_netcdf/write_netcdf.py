@@ -1097,14 +1097,14 @@ def main():
             """
             If new day, read in the daily error scale factors and compute
             new scale factors (RSC) as weighted averages of the a priori
-            ESF factors from the pa_qc.dat file, and the daily values.
+            ESF factors from the qc.dat file, and the daily values.
             A priori ESF values are the ratio of the xx_error/xxa scale factors
-            read in from the pa_qc.dat file, with 100% uncertainties assumed.
+            read in from the qc.dat file, with 100% uncertainties assumed.
             """     
             for gas in gas_list:
                 xgas = 'x'+gas
                 qc_id = list(qc_data['variable']).index(xgas)
-                apesf = qc_data['scale'][qc_id+1]/qc_data['scale'][qc_id]
+                apesf = qc_data['scale'][qc_id+1]/qc_data['scale'][qc_id] # xx_error/xx
                 qc_data.loc[qc_data.index==qc_id+1,'rsc'] = qc_data['scale'][qc_id]*(1.0/apesf+esf_data[xgas][esf_id]/esf_data[xgas+'_error'][esf_id]**2)/(1.0/apesf**2+1.0/esf_data[xgas+'_error'][esf_id]**2)
 
             """
@@ -1127,7 +1127,7 @@ def main():
                 
                 nc_data[var][start:end] = np.round(aia_data[var][start:end].values*qc_data['rsc'][qc_id],digit)
 
-                dev = abs( (qc_data['rsc'][qc_id]*aia_data[var][start:end].values-qc_data['vmin'][qc_id])/(qc_data['vmax'][qc_id]-qc_data['vmin'][qc_id]) -0.5 )
+                dev = np.abs( (qc_data['rsc'][qc_id]*aia_data[var][start:end].values-qc_data['vmin'][qc_id])/(qc_data['vmax'][qc_id]-qc_data['vmin'][qc_id]) -0.5 )
                 
                 kmax[dev>dmax] = qc_id+1 # add 1 here, otherwise qc_id starts at 0 for 'year'
                 dmax[dev>dmax] = dev[dev>dmax]
@@ -1144,8 +1144,17 @@ def main():
                 else:
                     nc_data['flagged_var_name'][i] = qc_data['variable'][eflag[i-start]-1]
 
+        flag_list = [i for i in set(nc_data['flag'][:]) if i!=0]
         nflag = np.count_nonzero(nc_data['flag'][:])
-        logging.info('{} / {} spectra are flagged'.format(nflag,nc_data['time'].size))
+        logging.info('Summary of flags:')
+        logging.info('  #  Parameter              N_flag      %')
+        kflag_list = [nc_data['flag'][nc_data['flag']==flag].size for flag in flag_list]
+        sorted_kflags_id = np.argsort(kflag_list)[::-1]
+        for i in sorted_kflags_id:
+            kflag = kflag_list[i]
+            flag = flag_list[i]
+            logging.info('{:>3}  {:<20} {:>6}   {:>8.3f}'.format(flag,qc_data['variable'][flag-1],kflag,100*kflag/nc_data['time'].size))
+        logging.info('     {:<20} {:>6}   {:>8.3f}'.format('TOTAL',nflag,100*nflag/nc_data['time'].size))
 
         # time      
         write_values(nc_data,'year',np.round(aia_data['year'][:].values-aia_data['day'][:].values/365.25))
