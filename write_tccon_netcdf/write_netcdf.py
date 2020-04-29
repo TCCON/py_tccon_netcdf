@@ -484,9 +484,17 @@ def main():
     with open('multiggg.sh','r') as infile:
         content = [line for line in infile.readlines() if line[0]!=':' or line.strip()!=''] # the the file without blank lines or commented out lines starting with ':'
     ncol = len(content)
+    multiggg_list = [line.split()[1].split('.ggg')[0]+'.col' for line in content]
     if ncol!=len(col_file_list):
-        logging.critical('/!\\ multiggg.sh has {} command lines but there are {} .col files'.format(ncol,len(col_file_list)))
-        sys.exit()
+        logging.warning('multiggg.sh has {} command lines but there are {} .col files'.format(ncol,len(col_file_list)))
+        logging.warning('only the data from .col files with a corresponding command in the multiggg.sh file will be written')
+        for elem in multiggg_list:
+            if elem not in col_file_list:
+                logging.critical('{} does not exist'.format(elem))
+                sys.exit()
+    col_file_list = multiggg_list
+    if 'luft' in col_file_list[0]: # the luft .col file has no checksum for the solar linelist, so if its the first window listed in multiggg.sh, rotate the list for the checksum checks to work
+        col_file_list = np.roll(col_file_list,-1)
 
     # averaging kernels
     ak_file_list = os.listdir(os.path.join(code_dir,'lamont_averaging_kernels'))
