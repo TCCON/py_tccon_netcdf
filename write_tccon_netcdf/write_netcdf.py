@@ -290,8 +290,78 @@ def write_values(nc_data,var,values):
                 nc_data[var][i] = test[0]
         logging.warning('All faulty values have been replaced by the default netcdf fill value for floats: {}'.format(netCDF4.default_fillvals['f4']))
 
+def write_public_nc(private_nc_file,code_dir,nc_format):
+    """
+    Take a private netcdf file and write the public file using the public_variables.txt file
+    """
+    public_nc_file = private_nc_file.replace('private','public')
+    logging.info('Writting {}'.format(public_nc_file))
+    with netCDF4.Dataset(private_nc_file,'r') as private_data, netCDF4.Dataset(public_nc_file,'w',format=nc_format) as public_data:
+        ## copy all the metadata
+        private_attributes = private_data.__dict__
+        public_attributes = private_attributes.copy()
+        for attr in ['flag_info','release_lag','GGGtip','number_of_spectral_windows']: # remove attributes that are only meant for private files
+            public_attributes.pop(attr)
+
+        # update the history to indicate that the public file is a subset of the private file
+        public_attributes['history'] = "Created {} (UTC) from the engineering file {}".format(time.asctime(time.gmtime(time.time())),private_nc_file.split(os.sep)[-1])
+
+        public_data.setncatts(public_attributes)
+
+        # get indices of data to copy based on the release_lag
+        release_lag = int(private_data.release_lag.split()[0])
+        last_public_time = (datetime.utcnow()-datetime(1970,1,1)).total_seconds() - timedelta(days=release_lag).total_seconds()
+        release_ids = np.where(private_data['time'][:]<last_public_time)[0]
+
+        # get indices of data with flag = 0
+        no_flag_ids = np.where(private_data['flag'][:]==0)[0]
+        
+        # get the intersection of release_lag and flag constrained indices
+        public_ids = list(set(release_ids).intersection(set(no_flag_ids)))
+
+        nspec = private_data['time'].size
+        public_slice = np.array([i in public_ids for i in np.arange(nspec) ]) # boolean array to slice the private variables on the public ids
+
+        nspec_public = len(public_ids)
+
+        ## copy dimensions
+        for name, dimension in private_data.dimensions.items():
+            if name == 'time':
+                public_data.createDimension(name, nspec_public)
+            else:
+                public_data.createDimension(name, (len(dimension) if not dimension.isunlimited() else None))
+
+        ## copy variables based on the info in public_variables.txt
+        with open(os.path.join(code_dir,'public_variables.txt')) as f:
+            c = f.read()
+        public_variables = eval(c)
+
+        for name,variable in private_data.variables.items():
+            
+            contain_check = np.array([elem in name for elem in public_variables['contains']]).any()
+            startswith_check = np.array([name.startswith(elem) for elem in public_variables['startswith']]).any()
+            endswith_check = np.array([name.endswith(elem) for elem in public_variables['endswith']]).any()
+            isequalto_check = np.array([name==elem for elem in public_variables['isequalto']]).any()
+
+            excluded = np.array([elem in name for elem in public_variables['exclude']]).any()
+
+            public = np.array([contain_check,isequalto_check,startswith_check,endswith_check]).any() and not excluded
+            
+            if public:
+                if 'time' in variable.dimensions: # only the variables along the 'time' dimension need to be sampled with public_ids
+                    public_data.createVariable(name, variable.datatype, variable.dimensions)
+                    public_data[name][:] = private_data[name][public_slice]
+                else:
+                    public_data.createVariable(name, variable.datatype, variable.dimensions)
+                    public_data[name][:] = private_data[name][:]
+                # copy variable attributes all at once via dictionary
+                public_data[name].setncatts(private_data[name].__dict__)
+        private_var_list = [v for v in private_data.variables]
+    logging.info('Finished writing {} {:.2f} MB'.format(public_nc_file,os.path.getsize(public_nc_file)/1e6))
+
 
 def main():
+    code_dir = os.path.dirname(__file__) # path to the tccon_netcdf repository
     try:
         GGGPATH = os.environ['GGGPATH']
     except:
@@ -315,12 +385,15 @@ def main():
         ext = os.path.splitext(file_name)[1][1:]
         if ext not in choices:
             parser.error("file doesn't end with one of {}".format(choices))
+        if ext == 'nc' and 'private' not in file_name:
+            parser.error('The .private.nc file is needed to write the .public.nc file')
         return file_name
     
-    parser.add_argument('file',type=lambda file_name:file_choices(('tav'),file_name),help='The .tav file')
+    parser.add_argument('file',type=lambda file_name:file_choices(('tav','nc'),file_name),help='The .tav file or private.nc file')
     parser.add_argument('--format',default='NETCDF4_CLASSIC',choices=['NETCDF4_CLASSIC','NETCDF4'],help='the format of the NETCDF files')
     parser.add_argument('-r','--read-only',action='store_true',help="Convenience for python interactive shells; sys.exit() right after reading all the input files")
     parser.add_argument('--eof',action='store_true',help='If given, will also write the .eof.csv file')
+    parser.add_argument('--public',action='store_true',help='if given, will write a .public.nc file from the .private.nc')
     parser.add_argument('--log-level',default='INFO',type=lambda x: x.upper(),help="Log level for the screen (it is always DEBUG for the log file)",choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL'])
     parser.add_argument(
         '--log-file',
@@ -360,6 +433,12 @@ def main():
         logging.info('A eof.csv file will be written')
     logging.info('Input file: %s',args.file)
 
+    if '.nc' in args.file:
+        logging.info('Writting .public.nc file from the input .private.nc file')
+        private_nc_file = args.file
+        write_public_nc(private_nc_file,code_dir,nc_format)
+        sys.exit()
+
     # input and output file names
     tav_file = args.file
     mav_file = tav_file.replace('.tav','.mav')
@@ -395,8 +474,7 @@ def main():
     ## read data, I add the file_name to the data dictionaries for some of them
 
     # read site specific data from the tccon_netcdf repository
-    code_dir = os.path.dirname(__file__) # path to the tccon_netcdf repository
-    # the .apply and .rename bits just strip the columns from leading and tailing white spaces
+    # the .apply and .rename bits are just strip the columns from leading and tailing white spaces
     with open(os.path.join(code_dir,'site_info.txt'),'r') as f:
         c = f.read()
     site_data = eval(c)[siteID]
@@ -1090,8 +1168,6 @@ def main():
 
         # update data with new scale factors and determine flags
         logging.info('Writing scaled aia data and determining qc flags')
-        esf_id = 0
-        nflag = 0
         for esf_id in range(esf_data['year'].size):
                     
             # indices to slice the data for the concerned spectra
@@ -1329,68 +1405,8 @@ def main():
 
     logging.info('Finished writing {} {:.2f} MB'.format(private_nc_file,os.path.getsize(private_nc_file)/1e6))
 
-    public_nc_file = '{}{}_{}.public.nc'.format(siteID,start_date,end_date)
-    with netCDF4.Dataset(private_nc_file,'r') as private_data, netCDF4.Dataset(public_nc_file,'w',format=nc_format) as public_data:
-        ## copy all the metadata
-        private_attributes = private_data.__dict__
-        public_attributes = private_attributes.copy()
-        for attr in ['flag_info','release_lag','GGGtip','number_of_spectral_windows']: # remove attributes that are only meant for private files
-            public_attributes.pop(attr)
-
-        # update the history to indicate that the public file is a subset of the private file
-        public_attributes['history'] = "Created {} (UTC) from the engineering file {}".format(time.asctime(time.gmtime(time.time())),private_nc_file.split(os.sep)[-1])
-
-        public_data.setncatts(public_attributes)
-
-        # get indices of data to copy based on the release_lag
-        release_lag = int(private_data.release_lag.split()[0])
-        last_public_time = (datetime.utcnow()-datetime(1970,1,1)).total_seconds() - timedelta(days=release_lag).total_seconds()
-        release_ids = np.where(private_data['time'][:]<last_public_time)[0]
-
-        # get indices of data with flag = 0
-        no_flag_ids = np.where(private_data['flag'][:]==0)[0]
-        
-        # get the intersection of release_lag and flag constrained indices
-        public_ids = list(set(release_ids).intersection(set(no_flag_ids)))
-
-        public_slice = np.array([i in public_ids for i in np.arange(nspec) ]) # boolean array to slice the private variables on the public ids
-
-        nspec_public = len(public_ids)
-
-        ## copy dimensions
-        for name, dimension in private_data.dimensions.items():
-            if name == 'time':
-                public_data.createDimension(name, nspec_public)
-            else:
-                public_data.createDimension(name, (len(dimension) if not dimension.isunlimited() else None))
-
-        ## copy variables based on the info in public_variables.txt
-        with open(os.path.join(code_dir,'public_variables.txt')) as f:
-            c = f.read()
-        public_variables = eval(c)
-
-        for name,variable in private_data.variables.items():
-            
-            contain_check = np.array([elem in name for elem in public_variables['contains']]).any()
-            startswith_check = np.array([name.startswith(elem) for elem in public_variables['startswith']]).any()
-            endswith_check = np.array([name.endswith(elem) for elem in public_variables['endswith']]).any()
-            isequalto_check = np.array([name==elem for elem in public_variables['isequalto']]).any()
-
-            excluded = np.array([elem in name for elem in public_variables['exclude']]).any()
-
-            public = np.array([contain_check,isequalto_check,startswith_check,endswith_check]).any() and not excluded
-            
-            if public:
-                if 'time' in variable.dimensions: # only the variables along the 'time' dimension need to be sampled with public_ids
-                    public_data.createVariable(name, variable.datatype, variable.dimensions)
-                    public_data[name][:] = private_data[name][public_slice]
-                else:
-                    public_data.createVariable(name, variable.datatype, variable.dimensions)
-                    public_data[name][:] = private_data[name][:]
-                # copy variable attributes all at once via dictionary
-                public_data[name].setncatts(private_data[name].__dict__)
-        private_var_list = [v for v in private_data.variables]
-    logging.info('Finished writing {} {:.2f} MB'.format(public_nc_file,os.path.getsize(public_nc_file)/1e6))
+    if args.public:
+        write_public_nc(private_nc_file,code_dir,nc_format)
 
     if args.eof:
         ordered_var_list = ['flag','flagged_var_name','spectrum'] # list of variables for writing the eof file
