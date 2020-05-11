@@ -743,6 +743,16 @@ def main():
 
     # vsw file
     nhead,ncol = file_info(vsw_file)
+    vsw_sf_check = False
+    with open(vsw_file,'r') as infile:
+        i = 0
+        while i<nhead:
+            line = infile.readline()
+            if 'sf=' in line:
+                vsw_sf_check = True
+                vsw_sf = (j for j in np.array(line.split()[1:]).astype(np.float))
+                break
+            i += 1
     vsw_data = pd.read_csv(vsw_file,delim_whitespace=True,skiprows=nhead)
     vsw_data['file'] = vsw_file
     # vsw.ada file
@@ -1030,7 +1040,7 @@ def main():
         vsw_var_list = [vsw_data.columns[i] for i in range(naux,len(vsw_data.columns)-1)]  # minus 1 because I added the 'file' column
         for var in vsw_var_list:
             # .vsw file
-            varname = 'vsw_'+var
+            varname = 'vsw_{}'.format(var)
             nc_data.createVariable(varname,np.float32,('time',))
             nc_data[varname].standard_name = varname
             nc_data[varname].long_name = varname.replace('_',' ')
@@ -1040,6 +1050,15 @@ def main():
                 nc_data[varname].description = "{0} scale factor {2} from the window centered at {1} cm-1.".format(*var.split('_'))
             else:
                 nc_data[varname].description = "{} scale factor from the window centered at {} cm-1".format(*var.split('_'))
+                if vsw_sf_check:
+                    # write the data from the vsf= line ine the header of the vsw file
+                    sf_var = 'vsw_sf_{}'.format(var)
+                    nc_data.createVariable(sf_var,np.float32,('time',))
+                    nc_data[sf_var].standard_name = sf_var
+                    nc_data[sf_var].long_name = sf_var.replace('_',' ')
+                    nc_data[sf_var].description = "{} correction factor from the window centered at {} cm-1".format(*var.split('_'))
+                    nc_data[sf_var].units = ''
+                    nc_data[sf_var][:] = next(vsw_sf)
             write_values(nc_data,varname,vsw_data[var])
 
             # .vsw.ada file
