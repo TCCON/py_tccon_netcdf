@@ -22,6 +22,133 @@ import logging
 
 wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-15; SR)\n'
 
+# Let's try to be CF compliant: http://cfconventions.org/Data/cf-conventions/cf-conventions-1.7/cf-conventions.pdf
+standard_name_dict = {
+'year':'year',
+'run':'run_number',
+'lat':'latitude',
+'long':'longitude',
+'hour':'decimal_hour',
+'azim':'solar_azimuth_angle',
+'asza':'astronomical_solar_zenith_angle',
+'day':'day_of_year',
+'wspd':'wind_speed',
+'wdir':'wind_direction',
+'graw':'spectrum_spectral_point_spacing',
+'tins':'instrument_internal_temperature',
+'tout':'atmospheric_temperature',
+'pins':'instrument_internal_pressure',
+'pout':'atmospheric_pressure',
+'hout':'atmospheric_humidity',
+'tmod':'model_atmospheric_temperature',
+'pmod':'model_atmospheric_pressure',
+'hmod':'model_atmospheric_humidity',
+'sia':'solar_intensity_average',
+'fvsi':'fractional_variation_in_solar_intensity',
+'zobs':'observation_altitude',
+'zmin':'pressure_altitude',
+'osds':'observer_sun_doppler_stretch',
+'gfit_version':'gfit_version',
+'gsetup_version':'gsetup_version',
+'fovi':'internal_field_of_view',
+'opd':'maximum_optical_path_difference',
+'rmsocl':'fit_rms_over_continuum_level',
+'cfampocl':'channel_fringe_amplitude_over_continuum_level',
+'cfperiod':'channel_fringe_period',
+'cfphase':'channel_fringe_phase',
+'nit':'number_of_iterations',
+'cl':'continuum_level',
+'ct':'continuum_tilt',
+'cc':'continuum_curvature',
+'fs':'frequency_shift',
+'sg':'solar_gas_shift',
+'zo':'zero_level_offset',
+'zpres':'pressure_altitude',
+'cbf':'continuum_basis_function_coefficient_{}',
+'ncbf':'number of continuum basis functions',
+'lsf':'laser_sampling_fraction',
+'lse':'laser_sampling_error',
+'lsu':'laser_sampling_error_uncertainty',
+'lst':'laser_sampling_error_correction_type',
+'dip':'dip',
+'mvd':'maximum_velocity_displacement',
+}
+
+checksum_var_list = ['config','apriori','runlog','levels','mav','ray','isotopologs','windows','telluric_linelists','solar']
+
+standard_name_dict.update({var+'_checksum':var+'_checksum' for var in checksum_var_list})
+
+long_name_dict = {key:val.replace('_',' ') for key,val in standard_name_dict.items()} # standard names without underscores
+
+"""
+dimensionless and unspecified units will have empty strings
+we could use "1" for dimensionless units instead
+both empty string and 1 are recognized as dimensionless units by udunits
+but using 1 would differentiate actual dimensionless variables and variables with unspecified units
+"""
+units_dict = {
+'year':'years',
+'run':'',
+'lat':'degrees_north',
+'long':'degrees_east',
+'hour':'hours',
+'azim':'degrees',
+'asza':'degrees',
+'day':'days',
+'wspd':'m.s-1',
+'wdir':'degrees',
+'graw':'cm-1',
+'tins':'degrees_Celsius',
+'tout':'degrees_Celsius',
+'pins':'hPa',
+'pout':'hPa',
+'hout':'%',
+'sia':'',
+'fvsi':'%',
+'zobs':'km',
+'zmin':'km',
+'osds':'ppm',
+'gfit_version':'',
+'gsetup_version':'',
+'fovi':'radians',
+'opd':'cm',
+'rmsocl':'%',
+'cfampocl':'',
+'cfperiod':'cm-1',
+'cfphase':'radians',
+'nit':'',
+'cl':'',
+'ct':'',
+'cc':'',
+'fs':'mK',
+'sg':'ppm',
+'zo':'%',
+'zpres':'km',
+'cbf':'',
+'ncbf':'',
+'prior_temperature':'degrees_Kelvin',
+'prior_density':'molecules.cm-3',
+'prior_pressure':'atm',
+'prior_altitude':'km',
+'prior_tropopause_altitude':'km',
+'prior_gravity':'m.s-2',
+'prior_h2o':'',
+'prior_hdo':'',
+'prior_co2':'ppm',
+'prior_n2o':'ppb',
+'prior_co':'ppb',
+'prior_ch4':'ppb',
+'prior_hf':'ppt',
+'prior_o2':'',
+}
+
+special_description_dict = {
+    'lco2':' lco2 is the strong CO2 band centered at 4852.87 cm-1 and does not contribute to the xco2 calculation.',
+    'wco2':' wco2 is used for the weak CO2 bands centered at 6073.5 and 6500.4 cm-1 and does not contribute to the xco2 calculation.',
+    'th2o':' th2o is used for temperature dependent H2O windows and does not contribute to the xh2o calculation.',
+    'luft':' luft is used for "dry air"',
+}
+
 def progress(i,tot,bar_length=20,word=''):
     """
     a fancy loadbar to be displayed in the prompt while executing a time consuming loop
@@ -175,9 +302,10 @@ def read_mav(path):
                         'data':mav_block[mav_block['altitude']>=0].copy(deep=True), # don't keep cell levels
                         'time':vmr_time,
                         'tropopause_altitude':tropalt,
+                        'cell_data':mav_block[mav_block['altitude']<0].copy(deep=True),
     }
     DATA[spectrum]['data']['gravity'] = DATA[spectrum]['data']['altitude'].apply(lambda z: gravity(oblat,z))
-    
+        
     ispec = 1
     while True:
         block_id = ispec*nlev+(ispec-1)*7
