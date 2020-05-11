@@ -323,14 +323,16 @@ def read_mav(path):
                             'data':mav_block[mav_block['altitude']>=0].copy(deep=True), # don't keep cell levels
                             'time':vmr_time,
                             'tropopause_altitude':tropalt,
+                            'cell_data':mav_block[mav_block['altitude']<0].copy(deep=True),
         }
         DATA[spectrum]['data']['gravity'] = DATA[spectrum]['data']['altitude'].apply(lambda z: gravity(oblat,z))
 
         ispec += 1
 
     nlev = DATA[spectrum]['data']['altitude'].size # get nlev again without the cell levels
+    ncell = DATA[spectrum]['cell_data']['altitude'].size
     logging.info('Finished reading MAV file')
-    return DATA, nlev
+    return DATA, nlev, ncell
 
 
 def write_eof(private_nc_file,eof_file,qc_file,nc_var_list,show_progress):
@@ -422,6 +424,9 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
     """
     Take a private netcdf file and write the public file using the public_variables.txt file
     """
+    # factor to convert the prior fields of the public archive into more intuitive units
+    factor = {'temperature':1.0,'pressure':1.0,'density':1.0,'gravity':1.0,'1h2o':1.0,'1hdo':1.0,'1co2':1e6,'1n2o':1e9,'1co':1e9,'1ch4':1e9,'1hf':1e12,'1o2':1.0}
+
     public_nc_file = private_nc_file.replace('private','public')
     logging.info('Writting {}'.format(public_nc_file))
     with netCDF4.Dataset(private_nc_file,'r') as private_data, netCDF4.Dataset(public_nc_file,'w',format=nc_format) as public_data:
@@ -474,7 +479,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
             excluded = np.array([elem in name for elem in public_variables['exclude']]).any()
 
             public = np.array([contain_check,isequalto_check,startswith_check,endswith_check]).any() and not excluded
-            
+
             if public:
                 if 'time' in variable.dimensions: # only the variables along the 'time' dimension need to be sampled with public_ids
                     public_data.createVariable(name, variable.datatype, variable.dimensions)
@@ -484,6 +489,14 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
                     public_data[name][:] = private_data[name][:]
                 # copy variable attributes all at once via dictionary
                 public_data[name].setncatts(private_data[name].__dict__)
+            elif name in ['prior_{}'.format(var) for var in factor.keys()]: # for the a priori profile, only the ones listed in the "factor" dictionary make it to the public file
+                public_name = name.replace('_1','_')
+                public_data.createVariable(public_name,variable.datatype,variable.dimensions)
+                public_data[public_name][:] = private_data[name][:]
+                public_data[public_name].setncatts(private_data[name].__dict__)
+                public_data[public_name].description = "a priori profile of {}".format(public_name.replace('prior_',''))
+                public_data[public_name].units = units_dict[public_name]
+
         private_var_list = [v for v in private_data.variables]
     logging.info('Finished writing {} {:.2f} MB'.format(public_nc_file,os.path.getsize(public_nc_file)/1e6))
 
@@ -640,7 +653,7 @@ def main():
     nsza_ak = ak_data['co2'].columns.size -1 # minus one because of the pressure column
 
     # read prior data
-    prior_data, nlev = read_mav(mav_file)
+    prior_data, nlev, ncell = read_mav(mav_file)
     nprior = len(prior_data.keys())
 
     # read pth data
@@ -768,133 +781,6 @@ def main():
     if 'spectrum' in tav_data.columns:
         mchar = 1
 
-    # Let's try to be CF compliant: http://cfconventions.org/Data/cf-conventions/cf-conventions-1.7/cf-conventions.pdf
-    standard_name_dict = {
-    'year':'year',
-    'run':'run_number',
-    'lat':'latitude',
-    'long':'longitude',
-    'hour':'decimal_hour',
-    'azim':'solar_azimuth_angle',
-    'asza':'astronomical_solar_zenith_angle',
-    'day':'day_of_year',
-    'wspd':'wind_speed',
-    'wdir':'wind_direction',
-    'graw':'spectrum_spectral_point_spacing',
-    'tins':'instrument_internal_temperature',
-    'tout':'atmospheric_temperature',
-    'pins':'instrument_internal_pressure',
-    'pout':'atmospheric_pressure',
-    'hout':'atmospheric_humidity',
-    'tmod':'model_atmospheric_temperature',
-    'pmod':'model_atmospheric_pressure',
-    'hmod':'model_atmospheric_humidity',
-    'sia':'solar_intensity_average',
-    'fvsi':'fractional_variation_in_solar_intensity',
-    'zobs':'observation_altitude',
-    'zmin':'pressure_altitude',
-    'osds':'observer_sun_doppler_stretch',
-    'gfit_version':'gfit_version',
-    'gsetup_version':'gsetup_version',
-    'fovi':'internal_field_of_view',
-    'opd':'maximum_optical_path_difference',
-    'rmsocl':'fit_rms_over_continuum_level',
-    'cfampocl':'channel_fringe_amplitude_over_continuum_level',
-    'cfperiod':'channel_fringe_period',
-    'cfphase':'channel_fringe_phase',
-    'nit':'number_of_iterations',
-    'cl':'continuum_level',
-    'ct':'continuum_tilt',
-    'cc':'continuum_curvature',
-    'fs':'frequency_shift',
-    'sg':'solar_gas_shift',
-    'zo':'zero_level_offset',
-    'zpres':'pressure_altitude',
-    'cbf':'continuum_basis_function_coefficient_{}',
-    'ncbf':'number of continuum basis functions',
-    'lsf':'laser_sampling_fraction',
-    'lse':'laser_sampling_error',
-    'lsu':'laser_sampling_error_uncertainty',
-    'lst':'laser_sampling_error_correction_type',
-    'dip':'dip',
-    'mvd':'maximum_velocity_displacement',
-    }
-
-    checksum_var_list = ['config','apriori','runlog','levels','mav','ray','isotopologs','windows','telluric_linelists','solar']
-
-    standard_name_dict.update({var+'_checksum':var+'_checksum' for var in checksum_var_list})
-
-    long_name_dict = {key:val.replace('_',' ') for key,val in standard_name_dict.items()} # standard names without underscores
-    
-    """
-    dimensionless and unspecified units will have empty strings
-    we could use "1" for dimensionless units instead
-    both empty string and 1 are recognized as dimensionless units by udunits
-    but using 1 would differentiate actual dimensionless variables and variables with unspecified units
-    """
-    units_dict = {
-    'year':'years',
-    'run':'',
-    'lat':'degrees_north',
-    'long':'degrees_east',
-    'hour':'hours',
-    'azim':'degrees',
-    'asza':'degrees',
-    'day':'days',
-    'wspd':'m.s-1',
-    'wdir':'degrees',
-    'graw':'cm-1',
-    'tins':'degrees_Celsius',
-    'tout':'degrees_Celsius',
-    'pins':'hPa',
-    'pout':'hPa',
-    'hout':'%',
-    'sia':'',
-    'fvsi':'%',
-    'zobs':'km',
-    'zmin':'km',
-    'osds':'ppm',
-    'gfit_version':'',
-    'gsetup_version':'',
-    'fovi':'radians',
-    'opd':'cm',
-    'rmsocl':'%',
-    'cfampocl':'',
-    'cfperiod':'cm-1',
-    'cfphase':'radians',
-    'nit':'',
-    'cl':'',
-    'ct':'',
-    'cc':'',
-    'fs':'mK',
-    'sg':'ppm',
-    'zo':'%',
-    'zpres':'km',
-    'cbf':'',
-    'ncbf':'',
-    'prior_temperature':'degrees_Kelvin',
-    'prior_density':'molecules.cm-3',
-    'prior_pressure':'atm',
-    'prior_altitude':'km',
-    'prior_tropopause_altitude':'km',
-    'prior_gravity':'m.s-2',
-    'prior_h2o':'',
-    'prior_hdo':'',
-    'prior_co2':'ppm',
-    'prior_n2o':'ppb',
-    'prior_co':'ppb',
-    'prior_ch4':'ppb',
-    'prior_hf':'ppt',
-    'prior_o2':'',
-    }
-
-    special_description_dict = {
-        'lco2':' lco2 is the strong CO2 band centered at 4852.87 cm-1 and does not contribute to the xco2 calculation.',
-        'wco2':' wco2 is used for the weak CO2 bands centered at 6073.5 and 6500.4 cm-1 and does not contribute to the xco2 calculation.',
-        'th2o':' th2o is used for temperature dependent H2O windows and does not contribute to the xh2o calculation.',
-        'luft':' luft is used for "dry air"',
-    }
-
     if args.read_only:
         logging.critical('Code was run in READ ONLY mode, all inputs read, exiting now.')
         sys.exit()
@@ -948,6 +834,7 @@ def main():
         nc_data.createDimension('prior_altitude',nlev) # used for the prior profiles
         nc_data.createDimension('ak_pressure',nlev_ak)
         nc_data.createDimension('ak_sza',nsza_ak)
+        nc_data.createDimension('cell_index',ncell)
 
         if classic:
             nc_data.createDimension('specname',speclength)
@@ -967,6 +854,12 @@ def main():
         nc_data['prior_time'].description = 'UTC time for the prior profiles, corresponds to GEOS5 times every 3 hours from 0 to 21'
         nc_data['prior_time'].units = 'seconds since 1970-01-01 00:00:00'
         nc_data['prior_time'].calendar = 'gregorian'
+
+        nc_data.createVariable('cell_index',np.int16,('cell_index'))
+        nc_data['cell_index'].standard_name = "cell_index"
+        nc_data['cell_index'].long_name = "cell_index"
+        nc_data['cell_index'].description = "variables with names including 'cell_' will be along dimensions (prior_time,cell_index)"
+        nc_data['cell_index'][:] = np.arange(ncell)
 
         nc_data.createVariable('prior_altitude',np.float32,('prior_altitude')) # this one doesn't change between priors
         nc_data['prior_altitude'].standard_name = '{}_profile'.format('prior_altitude')
@@ -1004,23 +897,38 @@ def main():
             for i,sza in enumerate(ak_data[gas].columns[1:]):
                 nc_data[var][i,0:nlev_ak] = ak_data[gas][sza].values
  
-        # priors
+        # priors and cell variables
         nc_data.createVariable('prior_index',np.int16,('time',))
         nc_data['prior_index'].standard_name = 'prior_index'
         nc_data['prior_index'].long_name = 'prior index'
         nc_data['prior_index'].units = ''
-        nc_data['prior_index'].description = 'Index of the prior profile associated with each measurement, it can be used to sample the prior_ variables along the prior_time dimension'
+        nc_data['prior_index'].description = 'Index of the prior profile associated with each measurement, it can be used to sample the prior_ and cell_ variables along the prior_time dimension'
 
-        prior_var_list = ['temperature','pressure','density','gravity','h2o','hdo','co2','n2o','co','ch4','hf','o2']
+        prior_var_list = [ i for i in list(prior_data[list(prior_data.keys())[0]]['data'].keys()) if i!='altitude']
+        units_dict.update({'prior_{}'.format(var):'' for var in prior_var_list})
         for var in prior_var_list:
             prior_var = 'prior_{}'.format(var)
-            
             nc_data.createVariable(prior_var,np.float32,('prior_time','prior_altitude'))
-
             nc_data[prior_var].standard_name = '{}_profile'.format(prior_var)
             nc_data[prior_var].long_name = nc_data[prior_var].standard_name.replace('_',' ')
-            nc_data[prior_var].description = nc_data[prior_var].long_name
+            if var not in ['temperature','density','pressure','gravity']:
+                nc_data[prior_var].description = nc_data[prior_var].long_name
+            else:
+                nc_data[prior_var].description = 'a priori concentration profile of {}, in parts'.format(var)
             nc_data[prior_var].units = units_dict[prior_var]
+
+            if var == 'gravity':
+                continue
+            cell_var = 'cell_{}'.format(var)
+            nc_data.createVariable(cell_var,np.float32,('prior_time','cell_index'))
+            nc_data[cell_var].standard_name = cell_var
+            nc_data[cell_var].long_name = nc_data[cell_var].standard_name.replace('_',' ')
+            if var in ['temperature','density','pressure']:
+                nc_data[cell_var].description = '{} in gas cell'.format(var)
+            else:
+                nc_data[cell_var].description = 'concentration of {} in gas cell, in parts'.format(var)
+            nc_data[cell_var].units = units_dict[prior_var]
+
         
         prior_var_list += ['tropopause_altitude']
         nc_data.createVariable('prior_tropopause_altitude',np.float32,('time'))
@@ -1270,7 +1178,6 @@ def main():
 
         ## write data
         logging.info('Writing prior data ...')
-        factor = {'temperature':1.0,'pressure':1.0,'density':1.0,'gravity':1.0,'1h2o':1.0,'1hdo':1.0,'1co2':1e6,'1n2o':1e9,'1co':1e9,'1ch4':1e9,'1hf':1e12,'1o2':1.0}
         prior_spec_list = list(prior_data.keys())
         prior_spec_gen = (spectrum for spectrum in prior_spec_list)
         prior_spectrum = next(prior_spec_gen)
@@ -1291,11 +1198,17 @@ def main():
 
             nc_data['prior_index'][spec_id] = prior_index
 
+        # write prior and cell data
         for prior_spec_id, prior_spectrum in enumerate(prior_spec_list):
-            for var in ['temperature','pressure','density','gravity','1h2o','1hdo','1co2','1n2o','1co','1ch4','1hf','1o2']:
-                prior_var = 'prior_{}'.format(var.strip('1'))
+            #for var in ['temperature','pressure','density','gravity','1h2o','1hdo','1co2','1n2o','1co','1ch4','1hf','1o2']:
+            for var in prior_var_list:
+                if var != 'tropopause_altitude':
+                    prior_var = 'prior_{}'.format(var)
+                    nc_data[prior_var][prior_spec_id,0:nlev] = prior_data[prior_spectrum]['data'][var].values
 
-                nc_data[prior_var][prior_spec_id,0:nlev] = factor[var]*prior_data[prior_spectrum]['data'][var].values
+                    if var != 'gravity':
+                        cell_var = 'cell_{}'.format(var)
+                        nc_data[cell_var][prior_spec_id,0:ncell] = prior_data[prior_spectrum]['cell_data'][var].values
 
             nc_data['prior_time'][prior_spec_id] = prior_data[prior_spectrum]['time']
             nc_data['prior_tropopause_altitude'][prior_spec_id] = prior_data[prior_spectrum]['tropopause_altitude']
