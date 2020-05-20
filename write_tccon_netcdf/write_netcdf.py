@@ -1447,7 +1447,7 @@ def main():
         if len(missing_data.keys())>1: # if there are different null values for different time periods
             time_period_list = sorted(missing_data.keys())
             for time_period in time_period_list:
-                start,end = [(datetime.strptime(elem,'%Y%m%d')-datetime(1970,1,1)).total_seconds for elem in time_period.split('_')[2:]]
+                start,end = [(datetime.strptime(elem,'%Y%m%d')-datetime(1970,1,1)).total_seconds() for elem in time_period.split('_')[2:]]
                 replace_time_ids = set(np.where((start<nc_data['time']) & (nc_data['time']<end))[0])
                 for var in missing_data[time_period]:
                     replace_val_ids = set(np.where(nc_data[var]==missing_data[time_period][var])[0])
