@@ -1448,9 +1448,14 @@ def main():
             time_period_list = sorted(missing_data.keys())
             for time_period in time_period_list:
                 start,end = [(datetime.strptime(elem,'%Y%m%d')-datetime(1970,1,1)).total_seconds() for elem in time_period.split('_')[2:]]
-                replace_time_ids = set(np.where((start<nc_data['time']) & (nc_data['time']<end))[0])
+
+                # must index netCDF datasets for the < comparison to work: comparison between netCDF4.Variable and float not allowed
+                # indexing with a tuple() rather than : slightly more robust: a colon won't work for a scalar variable
+                # use a set to allow us to compute the intersection between the time indices and the fill indices
+                replace_time_ids = set(np.where((start < nc_data['time'][tuple()]) & (nc_data['time'][tuple()] < end))[0])
                 for var in missing_data[time_period]:
-                    replace_val_ids = set(np.where(nc_data[var]==missing_data[time_period][var])[0])
+                    # isclose is more robust for floating point comparisons than ==
+                    replace_val_ids = set(np.where(np.isclose(nc_data[var][tuple()], missing_data[time_period][var]))[0])
                     replace_ids = replace_time_ids.intersection(replace_val_ids) # indices for data equal to the fill value in the given time period
                     logging.info(
                         'Convert file value for {} from {} to {} between {} and {}'.format(
@@ -1466,7 +1471,8 @@ def main():
         elif len(missing_data.keys())==1:
             missing_data = missing_data[siteID]
             for var in missing_data:
-                replace_ids = list(np.where(nc_data[var]==missing_data[var])[0])
+                # isclose is more robust for floating point comparisons than ==
+                replace_ids = list(np.where(np.isclose(nc_data[var][:], missing_data[var]))[0])
                 logging.info('Convert fill value for {} to {}'.format(var,netCDF4.default_fillvals['f4']))
                 for id in replace_ids:
                     nc_data[var][id] = netCDF4.default_fillvals['f4']
