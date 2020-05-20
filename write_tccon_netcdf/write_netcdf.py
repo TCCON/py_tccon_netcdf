@@ -1377,6 +1377,14 @@ def main():
             col_data = pd.read_fwf(col_file,widths=widths,names=headers,skiprows=nhead+1)
             col_data.rename(str.lower,axis='columns',inplace=True)
             col_data.rename(index=str,columns={'rms/cl':'rmsocl'},inplace=True)
+
+            # JLL 2020-05-19: need to check that the shapes are equal first, or get a very confusing error
+            if col_data.shape[0] != vav_data.shape[0]:
+                logging.warning('Different number of spectra in %s and %s, recommend checking this col/vav file', col_file, vav_file)
+                continue
+            if col_data.shape[0] != cbf_data.shape[0]:
+                logging.warning('Different number of spectra in %s and %s, recommend checking this col/cbf pair', col_file, cbf_file)
+                continue
             if not all(col_data['spectrum'].values == vav_data['spectrum'].values):
                 logging.warning('Mismatch between .col file spectra and .vav spectra; col_file=%s',col_file)
                 continue # contine or exit here ? Might not need to exit if we can add in the results from the faulty col file afterwards
