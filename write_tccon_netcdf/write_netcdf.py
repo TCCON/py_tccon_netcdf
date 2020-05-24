@@ -916,7 +916,7 @@ def main():
         nc_data['prior_index'].description = 'Index of the prior profile associated with each measurement, it can be used to sample the prior_ and cell_ variables along the prior_time dimension'
 
         prior_var_list = [ i for i in list(prior_data[list(prior_data.keys())[0]]['data'].keys()) if i!='altitude']
-        units_dict.update({'prior_{}'.format(var):'' for var in prior_var_list})
+        units_dict.update({'prior_{}'.format(var):'' for var in prior_var_list if 'prior_{}'.format(var) not in units_dict})
         for var in prior_var_list:
             prior_var = 'prior_{}'.format(var)
             nc_data.createVariable(prior_var,np.float32,('prior_time','prior_altitude'))
