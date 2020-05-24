@@ -57,5 +57,7 @@
 		'prior_14',
 		'prior_15',
 		'cell_',
+		'_modfile',
+		'_vmrfile',
 	],
 }

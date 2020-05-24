@@ -126,6 +126,7 @@ units_dict = {
 'zpres':'km',
 'cbf':'',
 'ncbf':'',
+'prior_equivalent_latitude':'degrees_north',
 'prior_temperature':'degrees_Kelvin',
 'prior_density':'molecules.cm-3',
 'prior_pressure':'atm',
@@ -273,24 +274,52 @@ def gravity(gdlat,altit):
 
     return gravity
 
+def get_eqlat(mod_file,levels):
+    """
+    Input:
+        - mod_file: full path to a .mod file
+        - levels: array of altitude levels from the .mav file
+    Output:
+        - eqlat: equivalent latitude profile interpolate from the altitude in the .mod file to the 'levels' altitudes 
+    """
+    try:
+        nhead,ncol = file_info(mod_file)
+    except FileNotFoundError:
+        logging.warning('Could not find model file %s; the equivalent latitude profile will use fill values',mod_file)
+        return np.ones(len(levels))*netCDF4.default_fillvals['f4']
 
-def read_mav(path):
+    mod_data = pd.read_csv(mod_file,header=nhead,delim_whitespace=True)
+
+    eqlat = np.interp(levels,mod_data['Height'],mod_data['EqL'])
+
+    return eqlat
+
+def read_mav(path,GGGPATH):
     """
     read .mav files into a dictionary with spectrum filnames as keys (from each "Next spectrum" block in the .mav file)
     values are dataframes with the prior data
+
+    Inputs:
+        - path: full path to the .mav file
+        - GGGPATH: full path to GGG
+    Outputs:
+        - DATA: dataframe with data from the .mav file and the eqlat profile from the .mod files
+        - nlev: number of altitudes levels
+        - ncell: number of cell levels
     """
     logging.info('Reading MAV file ...')
     DATA = OrderedDict()
 
     with open(path,'r') as infile:
         for i in range(3): # line[0] is gsetup version and line[1] is a "next spectrum" line
-
             line = infile.readline()
             if i == 1:
                 spectrum = line.strip().split(':')[1]
         tropalt = float(infile.readline().split(':')[1])
         oblat = float(infile.readline().split(':')[1])
-        vmr_time = (datetime.strptime(infile.readline().split()[0].split(os.sep)[-1].split('_')[1][:-1],'%Y%m%d%H')-datetime(1970,1,1)).total_seconds()
+        vmr_file = infile.readline().strip().split(os.sep)[-1]
+        mod_file = infile.readline().strip().split(os.sep)[-1]
+        vmr_time = (datetime.strptime(vmr_file.split('_')[1][:-1],'%Y%m%d%H')-datetime(1970,1,1)).total_seconds()
 
     nhead, ncol, nlev = [int(elem) for elem in line.split()]
 
@@ -303,8 +332,11 @@ def read_mav(path):
                         'time':vmr_time,
                         'tropopause_altitude':tropalt,
                         'cell_data':mav_block[mav_block['altitude']<0].copy(deep=True),
+                        'vmr_file':vmr_file,
+                        'mod_file':mod_file,
     }
     DATA[spectrum]['data']['gravity'] = DATA[spectrum]['data']['altitude'].apply(lambda z: gravity(oblat,z))
+    DATA[spectrum]['data']['equivalent_latitude'] = get_eqlat(os.path.join(GGGPATH,'models','gnd',mod_file),DATA[spectrum]['data']['altitude'])
         
     ispec = 1
     while True:
@@ -316,7 +348,9 @@ def read_mav(path):
 
         tropalt = float(d['pressure'][block_id+2])
         oblat = float(d['pressure'][block_id+3])
-        vmr_time = (datetime.strptime(d['altitude'][block_id+4].split(os.sep)[-1].split('_')[1][:-1],'%Y%m%d%H')-datetime(1970,1,1)).total_seconds()
+        vmr_file = d['altitude'][block_id+4].split(os.sep)[-1]
+        mod_file = d['altitude'][block_id+5].split(os.sep)[-1]
+        vmr_time = (datetime.strptime(vmr_file.split('_')[1][:-1],'%Y%m%d%H')-datetime(1970,1,1)).total_seconds()
         
         mav_block = d[block_id+7:block_id+7+nlev].apply(pd.to_numeric) # turn all the strings into numbers
         DATA[spectrum] = {
@@ -324,8 +358,11 @@ def read_mav(path):
                             'time':vmr_time,
                             'tropopause_altitude':tropalt,
                             'cell_data':mav_block[mav_block['altitude']<0].copy(deep=True),
+                            'vmr_file':vmr_file,
+                            'mod_file':mod_file,
         }
         DATA[spectrum]['data']['gravity'] = DATA[spectrum]['data']['altitude'].apply(lambda z: gravity(oblat,z))
+        DATA[spectrum]['data']['equivalent_latitude'] = get_eqlat(os.path.join(GGGPATH,'models','gnd',mod_file),DATA[spectrum]['data']['altitude'])
 
         ispec += 1
 
@@ -654,7 +691,7 @@ def main():
     nsza_ak = ak_data['co2'].columns.size -1 # minus one because of the pressure column
 
     # read prior data
-    prior_data, nlev, ncell = read_mav(mav_file)
+    prior_data, nlev, ncell = read_mav(mav_file,GGGPATH)
     nprior = len(prior_data.keys())
 
     # read pth data
@@ -940,13 +977,30 @@ def main():
                 nc_data[cell_var].description = 'concentration of {} in gas cell, in parts'.format(var)
             nc_data[cell_var].units = units_dict[prior_var]
 
-        
         prior_var_list += ['tropopause_altitude']
         nc_data.createVariable('prior_tropopause_altitude',np.float32,('time'))
         nc_data['prior_tropopause_altitude'].standard_name = 'prior_tropopause_altitude'
         nc_data['prior_tropopause_altitude'].long_name = 'prior tropopause altitude'
         nc_data['prior_tropopause_altitude'].description = 'altitude at which the gradient in the prior temperature profile becomes > -2 degrees per km'
-        nc_data['prior_tropopause_altitude'].units = units_dict[prior_var]
+        nc_data['prior_tropopause_altitude'].units = units_dict[prior_var]       
+
+        prior_var_list += ['modfile','vmrfile']
+        if classic:
+            prior_modfile_var = nc_data.createVariable('prior_modfile','S1',('time','a32'))
+            prior_modfile_var._Encoding = 'ascii'
+            prior_vmrfile_var = nc_data.createVariable('prior_vmrfile','S1',('time','a32'))
+            prior_vmrfile_var._Encoding = 'ascii'            
+        else:
+            prior_modfile_var = nc_data.createVariable('prior_modfile','S1',('time','a32'))
+            prior_vmrfile_var = nc_data.createVariable('prior_vmrfile','S1',('time','a32'))
+        
+        nc_data['prior_modfile'].standard_name = 'prior_modfile'
+        nc_data['prior_modfile'].long_name = 'prior modfile'
+        nc_data['prior_modfile'].description = 'Model file corresponding to a given apriori'
+
+        nc_data['prior_vmrfile'].standard_name = 'prior_vmrfile'
+        nc_data['prior_vmrfile'].long_name = 'prior vmrfile'
+        nc_data['prior_vmrfile'].description = 'VMR file corresponding to a given apriori'
 
         # checksums
         for var in checksum_var_list:
@@ -1222,16 +1276,18 @@ def main():
         for prior_spec_id, prior_spectrum in enumerate(prior_spec_list):
             #for var in ['temperature','pressure','density','gravity','1h2o','1hdo','1co2','1n2o','1co','1ch4','1hf','1o2']:
             for var in prior_var_list:
-                if var != 'tropopause_altitude':
+                if var not in ['tropopause_altitude','modfile','vmrfile']:
                     prior_var = 'prior_{}'.format(var)
                     nc_data[prior_var][prior_spec_id,0:nlev] = prior_data[prior_spectrum]['data'][var].values
 
-                    if var != 'gravity':
+                    if var not in ['gravity','equivalent_latitude']:
                         cell_var = 'cell_{}'.format(var)
                         nc_data[cell_var][prior_spec_id,0:ncell] = prior_data[prior_spectrum]['cell_data'][var].values
 
             nc_data['prior_time'][prior_spec_id] = prior_data[prior_spectrum]['time']
             nc_data['prior_tropopause_altitude'][prior_spec_id] = prior_data[prior_spectrum]['tropopause_altitude']
+            nc_data['prior_modfile'][prior_spec_id] = prior_data[prior_spectrum]['mod_file']
+            nc_data['prior_vmrfile'][prior_spec_id] = prior_data[prior_spectrum]['vmr_file']
 
         logging.info('Finished writing prior data')
 
@@ -1357,7 +1413,7 @@ def main():
                 for i,line in enumerate(content_lines):
                     csum,fpath = line.split()
                     if not args.skip_checksum:
-                    	checksum(fpath,csum)
+                        checksum(fpath,csum)
 
                     checksum_dict[checksum_var_list[i]+'_checksum'] = csum
 
