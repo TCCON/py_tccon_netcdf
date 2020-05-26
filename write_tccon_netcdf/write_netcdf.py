@@ -1,7 +1,9 @@
 from __future__ import print_function
 
 """
-Use the official output files (.oof) to write the actually official output files (.nc)
+Compile data from the input and output files of GFIT into netCDF files.
+
+For usage info run this code with the --help argument.
 """
 
 import os
@@ -628,7 +630,6 @@ def main():
     ada_file = vav_file+'.ada'
     aia_file = ada_file+'.aia'
     esf_file = aia_file+'.daily_error.out'
-    oof_file = aia_file+'.oof'
     eof_file = aia_file+'.eof.csv'
     
     siteID = tav_file.split(os.sep)[-1][:2] # two letter site abbreviation
@@ -729,12 +730,6 @@ def main():
     nhead, ncol = file_info(esf_file)
     esf_data = pd.read_csv(esf_file,delim_whitespace=True,skiprows=nhead)
 
-    # oof file: 'official output file', it contains data from other files, it isn't directly used here
-    nhead, ncol = file_info(oof_file)
-    oof_data = pd.read_csv(oof_file,delim_whitespace=True,skiprows=nhead)
-    oof_data['file'] = oof_file
-    site_info = pd.read_csv(oof_file,delim_whitespace=True,skiprows=lambda x: x in range(nhead-3) or x>=nhead-1) # has keys ['Latitude','Longitude','Altitude','siteID']
-
     # lse file: contains laser sampling error data
     nhead, ncol = file_info(lse_file)
     lse_data = pd.read_csv(lse_file,delim_whitespace=True,skiprows=nhead)
@@ -799,7 +794,7 @@ def main():
     vsw_ada_data['file'] = vsw_ada_file    
 
     ## check all files have the same spectrum lists
-    data_list = [tav_data,ada_data,aia_data,oof_data,vsw_data,vsw_ada_data]
+    data_list = [tav_data,ada_data,aia_data,vsw_data,vsw_ada_data]
     check_spec = np.array([(data['spectrum']==vav_data['spectrum']).all() for data in data_list])
     if not check_spec.all():
         logging.critical('Files have inconsistent spectrum lists !')
@@ -814,7 +809,7 @@ def main():
     private_nc_file = '{}{}_{}.private.nc'.format(siteID,start_date,end_date) # the final output file
 
     # make all the column names consistent between the different files
-    for dataframe in [qc_data,esf_data,oof_data,lse_data,vav_data,ada_data,aia_data]: #preavg_correction_data,postavg_correction_data,insitu_correction_data,
+    for dataframe in [qc_data,esf_data,lse_data,vav_data,ada_data,aia_data]: #preavg_correction_data,postavg_correction_data,insitu_correction_data,
         dataframe.rename(str.lower,axis='columns',inplace=True) # all lower case
         if 'doy' in dataframe.columns: # all use 'day' and not 'doy'
             dataframe.rename(index=str,columns={'doy':'day'},inplace=True)
@@ -1497,7 +1492,6 @@ def main():
                     nc_data[varname].long_name = long_name_dict[var]
                     nc_data[varname].units = units_dict[var]
                 write_values(nc_data,varname,cbf_data[var].values)
-
 
         # read the data from missing_data.txt and update data with fill values to the netCDF4 default fill value
         """
