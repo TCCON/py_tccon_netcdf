@@ -928,7 +928,7 @@ def main():
         nc_data['ak_sza'].long_name = nc_data['ak_sza'].standard_name.replace('_',' ')
         nc_data['ak_sza'].description = "fixed solar zenith angles for the Lamont (OK, USA) column averaging kernels"
         nc_data['ak_sza'].units = 'degrees'
-        nc_data['ak_sza'][0:nsza_ak] = ak_data['co2'].columns[1:].values.astype(np.float32)     
+        nc_data['ak_sza'][0:nsza_ak] = ak_data['co2'].columns[1:].values.astype(np.float32)
 
         ## create variables
 
@@ -991,8 +991,8 @@ def main():
             prior_vmrfile_var = nc_data.createVariable('prior_vmrfile','S1',('prior_time','a32'))
             prior_vmrfile_var._Encoding = 'ascii'            
         else:
-            prior_modfile_var = nc_data.createVariable('prior_modfile','S1',('prior_time','a32'))
-            prior_vmrfile_var = nc_data.createVariable('prior_vmrfile','S1',('prior_time','a32'))
+            prior_modfile_var = nc_data.createVariable('prior_modfile',str,('prior_time',))
+            prior_vmrfile_var = nc_data.createVariable('prior_vmrfile',str,('prior_time',))
         
         nc_data['prior_modfile'].standard_name = 'prior_modfile'
         nc_data['prior_modfile'].long_name = 'prior modfile'
