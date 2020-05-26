@@ -986,13 +986,13 @@ def main():
 
         prior_var_list += ['modfile','vmrfile']
         if classic:
-            prior_modfile_var = nc_data.createVariable('prior_modfile','S1',('time','a32'))
+            prior_modfile_var = nc_data.createVariable('prior_modfile','S1',('prior_time','a32'))
             prior_modfile_var._Encoding = 'ascii'
-            prior_vmrfile_var = nc_data.createVariable('prior_vmrfile','S1',('time','a32'))
+            prior_vmrfile_var = nc_data.createVariable('prior_vmrfile','S1',('prior_time','a32'))
             prior_vmrfile_var._Encoding = 'ascii'            
         else:
-            prior_modfile_var = nc_data.createVariable('prior_modfile','S1',('time','a32'))
-            prior_vmrfile_var = nc_data.createVariable('prior_vmrfile','S1',('time','a32'))
+            prior_modfile_var = nc_data.createVariable('prior_modfile','S1',('prior_time','a32'))
+            prior_vmrfile_var = nc_data.createVariable('prior_vmrfile','S1',('prior_time','a32'))
         
         nc_data['prior_modfile'].standard_name = 'prior_modfile'
         nc_data['prior_modfile'].long_name = 'prior modfile'
