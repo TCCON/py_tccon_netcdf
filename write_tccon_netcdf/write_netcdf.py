@@ -948,6 +948,7 @@ def main():
         nc_data['prior_index'].description = 'Index of the prior profile associated with each measurement, it can be used to sample the prior_ and cell_ variables along the prior_time dimension'
 
         prior_var_list = [ i for i in list(prior_data[list(prior_data.keys())[0]]['data'].keys()) if i!='altitude']
+        cell_var_list = []
         units_dict.update({'prior_{}'.format(var):'' for var in prior_var_list if 'prior_{}'.format(var) not in units_dict})
         for var in prior_var_list:
             prior_var = 'prior_{}'.format(var)
@@ -963,6 +964,7 @@ def main():
             if var == 'gravity':
                 continue
             cell_var = 'cell_{}'.format(var)
+            cell_var_list += [cell_var]
             nc_data.createVariable(cell_var,np.float32,('prior_time','cell_index'))
             nc_data[cell_var].standard_name = cell_var
             nc_data[cell_var].long_name = nc_data[cell_var].standard_name.replace('_',' ')
@@ -1537,6 +1539,10 @@ def main():
                 for id in replace_ids:
                     nc_data[var][id] = netCDF4.default_fillvals['f4']
 
+        # get a list of all the variables written to the private netcdf file, will be used below to check for missing variables before writing an eof.csv file
+        private_var_list = [v for v in nc_data.variables]
+    # end of the "with open(private_nc_file)" statement
+
     logging.info('Finished writing {} {:.2f} MB'.format(private_nc_file,os.path.getsize(private_nc_file)/1e6))
 
     if args.public:
@@ -1549,7 +1555,7 @@ def main():
         ordered_var_list += ['x'+var for var in main_var_list]+['vsf_'+var for var in main_var_list]+['column_'+var for var in main_var_list]+['ada_x'+var for var in main_var_list]
         ordered_var_list += correction_var_list
         ordered_var_list += col_var_list
-        ordered_var_list += ['vsw_'+var for var in vsw_var_list] + ['vsw_ada_x'+var for var in vsw_var_list]
+        ordered_var_list += ['vsw_'+var for var in vsw_var_list] + ['vsw_ada_x'+var for var in vsw_var_list] + ['vsw_sf_'+var for var in vsw_var_list if 'error' not in var]
         ordered_var_list += ['gfit_version','gsetup_version']
         ordered_var_list += [var+'_checksum' for var in checksum_var_list]
 
@@ -1557,11 +1563,11 @@ def main():
         # the mod_var_dict keys read data from the extract_pth file, these duplicate variables from the aux_var_list
         # the prior_ and ak_ variable are along a different dimensions and can be 2D so we can't include them in the eof.csv file
         # we also don't include "time" as it is split into year/day/hour
-        missing_var_list = [var for var in private_var_list if var!='time' and (var not in ordered_var_list) and ('prior_' not in var and 'ak_' not in var) and (var not in mod_var_dict.keys())]
+        missing_var_list = [var for var in private_var_list if var!='time' and (var not in ordered_var_list) and (('prior_' not in var) and ('ak_' not in var) and ('cell_' not in var)) and (var not in mod_var_dict.keys())]
         if missing_var_list:
             logging.warning('{}/{} variables will not be in the eof.csv file'.format(len(missing_var_list),len(private_var_list)))
             for var in missing_var_list:
-                logging.warning(var)
+                logging.warning('Missing {}'.format(var))
 
         write_eof(private_nc_file,eof_file,qc_file,ordered_var_list,show_progress)
     for handler in logger.handlers:
