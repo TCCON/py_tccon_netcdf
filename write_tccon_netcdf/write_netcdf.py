@@ -128,6 +128,8 @@ units_dict = {
 'zpres':'km',
 'cbf':'',
 'ncbf':'',
+'prior_effective_latitude':'degrees_north',
+'prior_mid_tropospheric_potential_temperature':'degrees_Kelvin',
 'prior_equivalent_latitude':'degrees_north',
 'prior_temperature':'degrees_Kelvin',
 'prior_density':'molecules.cm-3',
@@ -296,6 +298,34 @@ def get_eqlat(mod_file,levels):
 
     return eqlat
 
+def get_eflat(vmr_file):
+    """
+    Input:
+        - vmr_file: full path to a .vmr file
+    Output:
+        - eflat: effective latitude
+        - mid_trop_pt: mid troposphere potential temperature, average between 500-700 hPa
+    """
+    try:
+        nhead,ncol = file_info(vmr_file)
+    except FileNotFoundError:
+        logging.warning('Could not find vmr file %s; the prior effective_latitude and mid-tropospheric potential temperature will use fill values',vmr_file)
+        return np.ones(2)*netCDF4.default_fillvals['f4']
+
+
+    with open(vmr_file,'r') as f:
+        while True:
+            line = f.readline().strip()
+            if 'EFF_LAT_TROP' in line:
+                eflat = float(line.split(':')[1])
+            elif 'MIDTROP_THETA' in line:
+                mid_trop_pt = float(line.split(':')[1])
+                break
+
+    return eflat,mid_trop_pt
+
+
+
 def read_mav(path,GGGPATH):
     """
     read .mav files into a dictionary with spectrum filnames as keys (from each "Next spectrum" block in the .mav file)
@@ -339,6 +369,10 @@ def read_mav(path,GGGPATH):
     }
     DATA[spectrum]['data']['gravity'] = DATA[spectrum]['data']['altitude'].apply(lambda z: gravity(oblat,z))
     DATA[spectrum]['data']['equivalent_latitude'] = get_eqlat(os.path.join(GGGPATH,'models','gnd',mod_file),DATA[spectrum]['data']['altitude'])
+    
+    eflat, mid_trop_pt = get_eflat(os.path.join(GGGPATH,'vmrs','gnd',vmr_file))
+    DATA[spectrum]['effective_latitude'] = eflat
+    DATA[spectrum]['mid_tropospheric_potential_temperature'] = mid_trop_pt
         
     ispec = 1
     while True:
@@ -365,6 +399,10 @@ def read_mav(path,GGGPATH):
         }
         DATA[spectrum]['data']['gravity'] = DATA[spectrum]['data']['altitude'].apply(lambda z: gravity(oblat,z))
         DATA[spectrum]['data']['equivalent_latitude'] = get_eqlat(os.path.join(GGGPATH,'models','gnd',mod_file),DATA[spectrum]['data']['altitude'])
+        
+        eflat, mid_trop_pt = get_eflat(os.path.join(GGGPATH,'vmrs','gnd',vmr_file))
+        DATA[spectrum]['effective_latitude'] = eflat
+        DATA[spectrum]['mid_tropospheric_potential_temperature'] = mid_trop_pt
 
         ispec += 1
 
@@ -975,7 +1013,7 @@ def main():
             nc_data[cell_var].units = units_dict[prior_var]
 
         prior_var_list += ['tropopause_altitude']
-        nc_data.createVariable('prior_tropopause_altitude',np.float32,('time'))
+        nc_data.createVariable('prior_tropopause_altitude',np.float32,('prior_time'))
         nc_data['prior_tropopause_altitude'].standard_name = 'prior_tropopause_altitude'
         nc_data['prior_tropopause_altitude'].long_name = 'prior tropopause altitude'
         nc_data['prior_tropopause_altitude'].description = 'altitude at which the gradient in the prior temperature profile becomes > -2 degrees per km'
@@ -998,6 +1036,19 @@ def main():
         nc_data['prior_vmrfile'].standard_name = 'prior_vmrfile'
         nc_data['prior_vmrfile'].long_name = 'prior vmrfile'
         nc_data['prior_vmrfile'].description = 'VMR file corresponding to a given apriori'
+
+        prior_var_list += ['effective_latitude','mid_tropospheric_potential_temperature']
+        nc_data.createVariable('prior_effective_latitude',np.float32,('prior_time',))
+        nc_data['prior_effective_latitude'].standard_name = 'prior_effective_latitude'
+        nc_data['prior_effective_latitude'].long_name = 'prior effective latitude'
+        nc_data['prior_effective_latitude'].description = "latitude at which the mid-tropospheric potential temperature agrees with that from the corresponding 2-week period in a GEOS-FPIT climatology"
+        nc_data['prior_effective_latitude'].units = units_dict['prior_effective_latitude']
+
+        nc_data.createVariable('prior_mid_tropospheric_potential_temperature',np.float32,('prior_time',))
+        nc_data['prior_mid_tropospheric_potential_temperature'].standard_name = 'prior_mid_tropospheric_potential_temperature'
+        nc_data['prior_mid_tropospheric_potential_temperature'].long_name = 'prior mid-tropospheric potential temperature'
+        nc_data['prior_mid_tropospheric_potential_temperature'].description = "average potential temperature between 700-500 hPa"
+        nc_data['prior_mid_tropospheric_potential_temperature'].units = units_dict['prior_mid_tropospheric_potential_temperature']
 
         # checksums
         for var in checksum_var_list:
@@ -1273,7 +1324,7 @@ def main():
         for prior_spec_id, prior_spectrum in enumerate(prior_spec_list):
             #for var in ['temperature','pressure','density','gravity','1h2o','1hdo','1co2','1n2o','1co','1ch4','1hf','1o2']:
             for var in prior_var_list:
-                if var not in ['tropopause_altitude','modfile','vmrfile']:
+                if var not in ['tropopause_altitude','modfile','vmrfile','mid_tropospheric_potential_temperature','effective_latitude']:
                     prior_var = 'prior_{}'.format(var)
                     nc_data[prior_var][prior_spec_id,0:nlev] = prior_data[prior_spectrum]['data'][var].values
 
@@ -1285,6 +1336,8 @@ def main():
             nc_data['prior_tropopause_altitude'][prior_spec_id] = prior_data[prior_spectrum]['tropopause_altitude']
             nc_data['prior_modfile'][prior_spec_id] = prior_data[prior_spectrum]['mod_file']
             nc_data['prior_vmrfile'][prior_spec_id] = prior_data[prior_spectrum]['vmr_file']
+            nc_data['prior_effective_latitude'][prior_spec_id] = prior_data[prior_spectrum]['effective_latitude']
+            nc_data['prior_mid_tropospheric_potential_temperature'][prior_spec_id] = prior_data[prior_spectrum]['mid_tropospheric_potential_temperature']
 
         logging.info('Finished writing prior data')
 
