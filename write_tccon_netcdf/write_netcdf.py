@@ -1466,8 +1466,10 @@ def main():
                 for i,line in enumerate(content_lines):
                     csum,fpath = line.split()
                     if not args.skip_checksum:
-                        checksum(fpath,csum)
-
+                        try:
+                            checksum(fpath,csum)
+                        except FileNotFoundError:
+                            logging.warning('Could not find %s. Skip the checksum check ! To silence this, run with the --skip-checksum argument',fpath)
                     checksum_dict[checksum_var_list[i]+'_checksum'] = csum
 
                 nc_data['gfit_version'][:] = gfit_version
