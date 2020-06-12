@@ -457,23 +457,60 @@ def write_eof(private_nc_file,eof_file,qc_file,nc_var_list,show_progress):
     check_eof(private_nc_file,eof_file,nc_var_list,eof_var_list)
 
 
-def check_eof(private_nc_file,eof_file,nc_var_list,eof_var_list):
+def check_eof(private_nc_file, eof_file, nc_var_list, eof_var_list, other_is_nc=False):
     """
     check that the private netcdf file and eof.csv file contents are equal
+
+    :param private_nc_file: the netCDF file to compare against
+    :type private_nc_file: str
+
+    :param eof_file: the .eof.csv file to compare against the netCDF file. Alternatively, a second netCDF file (if
+     `other_is_nc` is `True`)
+    :type eof_file: str
+
+    :param nc_var_list: sequence of variable names in the private netCDF file to compare against variables in the eof/
+     second netCDF file.
+
+    :param eof_var_list: sequence of variable names in the .eof.csv or second netCDF file to compare against the
+     original netCDF file. Must match `nc_var_list`, i.e. `nc_var_list[i]` and `eof_var_list[i]` must be the variables
+     to compare.
+
+    :param other_is_nc: set to `True` if the second file is a netCDF, rather than .eof.csv file.
+    :type other_is_nc: bool
+
+    :return: list of booleans indicating if each variable in the two files matches or not
     """
     logging.info('Checking EOF and NC file contents ...')
-    nhead, ncol = file_info(eof_file,delimiter=',')
-    eof = pd.read_csv(eof_file,header=nhead)
+    if not other_is_nc:
+        nhead, ncol = file_info(eof_file,delimiter=',')
+        eof = pd.read_csv(eof_file,header=nhead)
+        close_eof = False
+    else:
+        eof = netCDF4.Dataset(eof_file, 'r')
+        ncol = len(eof_var_list)
+        close_eof = True
+
+    nc = netCDF4.Dataset(private_nc_file, 'r')
     checks = []
-    with netCDF4.Dataset(private_nc_file,'r') as nc:
+    try:
         for i,var in enumerate(nc_var_list):
             if (var=='spectrum') or ('checksum' in var):
                 checks += [np.array_equal(nc[var][:],eof[eof_var_list[i]][:])]
             elif var=='flagged_var_name':
                 #checks += [np.array_equal(nc[var][:],eof[eof_var_list[i]][:].replace(np.nan,''))]
-                pass # these are actually different becaus the units are in the variable names for the eof.csv file
+                # these are actually different becaus the units are in the variable names for the eof.csv file
+                # however, we need an entry, otherwise checks gets out of sync with nc_var_list
+                checks += [True]
+            elif np.issubdtype(nc[var].dtype, np.floating):
+                # For floating point values, better to allow for small differences between the two values
+                checks += [np.ma.allclose(nc[var][:], eof[eof_var_list[i]][:].astype(nc[var].dtype))]
             else:
                 checks += [np.array_equal(nc[var][:],eof[eof_var_list[i]][:].astype(nc[var].dtype))]
+    finally:
+        nc.close()
+        if close_eof:
+            eof.close()
+
     if False in checks:
         logging.warning('{} / {} different columns:'.format(ncol-np.count_nonzero(checks),ncol))
         for i,var in enumerate(nc_var_list):
@@ -481,6 +518,9 @@ def check_eof(private_nc_file,eof_file,nc_var_list,eof_var_list):
                 logging.warning('%s is not identical !',var)
     else:
         logging.info('Contents are identical')
+
+    return checks
+
 
 def write_values(nc_data,var,values):
     try:
@@ -578,16 +618,74 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
     logging.info('Finished writing {} {:.2f} MB'.format(public_nc_file,os.path.getsize(public_nc_file)/1e6))
 
 
-def main():
-    code_dir = os.path.dirname(__file__) # path to the tccon_netcdf repository
+def get_ggg_path():
+    """
+    Get the path to GGG based on the GGGPATH or gggpath environmental variable.
+
+    :return: path to GGG. If both GGGPATH and gggpath are defined in the environment, GGGPATH is preferred.
+    :raises: EnvironmentError if neither GGGPATH nor gggpath are defined.
+    """
     try:
         GGGPATH = os.environ['GGGPATH']
     except:
         try:
             GGGPATH = os.environ['gggpath']
         except:
-            print('You need to set a GGGPATH (or gggpath) environment variable')
-            sys.exit()
+            raise EnvironmentError('You need to set a GGGPATH (or gggpath) environment variable')
+    return GGGPATH
+
+
+def setup_logging(log_level, log_file, message=''):
+    """
+    Set up the logger to use for this program
+
+    :param log_level: one of the strings "DEBUG", "INFO", "WARNING", "ERROR", or "CRITICAL" specifying the minimum
+     level a message must have to be printed
+    :type log_level: str
+
+    :param log_file: file to write all log messages to. This receives all messages, regardless of `log_level`. If this
+     is falsey, no log file will be written.
+    :type log_file: str or None
+
+    :param message: additional message to write to the log file. An empty string will write nothing.
+    :type message: str
+
+    :return: the logger created and a boolean indicating if progress bars should be displayed
+    """
+    LEVELS = {'DEBUG': logging.DEBUG,
+              'INFO': logging.INFO,
+              'WARNING': logging.WARNING,
+              'ERROR': logging.ERROR,
+              'CRITICAL': logging.CRITICAL,
+              }
+    # will only display the progress bar for log levels below ERROR
+    if LEVELS[log_level] >= 40:
+        show_progress = False
+    else:
+        show_progress = True
+    logger = logging.getLogger()
+    handlers = [logging.StreamHandler()]
+    if log_file:
+        handlers.append(logging.FileHandler(log_file))
+    logging.basicConfig(handlers=handlers,
+                        level="DEBUG",
+                        format='\n%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
+    logger.handlers[0].setLevel(LEVELS[log_level])
+    logging.info('New write_netcdf log session')
+    for handler in logger.handlers:
+        handler.setFormatter(logging.Formatter('[%(levelname)s]: %(message)s'))
+    if message:
+        logging.info('Note: %s', message)
+    logging.info('Running %s', wnc_version)
+    logging.info('Python executable used: %s', sys.executable)
+    logging.info('GGGPATH=%s', get_ggg_path())
+    logging.info('cwd=%s', os.getcwd())
+    return logger, show_progress
+
+
+def main():
+    code_dir = os.path.dirname(__file__) # path to the tccon_netcdf repository
+    GGGPATH = get_ggg_path()
 
     description = wnc_version + "This writes TCCON outputs in a NETCDF file"
     
@@ -623,30 +721,7 @@ def main():
     parser.add_argument('-m','--message',default='',help='Add an optional message to be kept in the log file to remember why you ran post-processing e.g. "2020 Eureka R3 processing" ')
 
     args = parser.parse_args()
-
-    LEVELS = {  'DEBUG': logging.DEBUG,
-                'INFO': logging.INFO,
-                'wWARNING': logging.WARNING,
-                'ERROR': logging.ERROR,
-                'CRITICAL': logging.CRITICAL,
-              }
-    # will only display the progress bar for log levels below ERROR
-    if LEVELS[args.log_level] >= 40:
-        show_progress = False
-    else:
-        show_progress = True
-    logger = logging.getLogger()
-    logging.basicConfig(handlers=[logging.FileHandler(args.log_file),logging.StreamHandler()],level="DEBUG",format='\n%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
-    logger.handlers[1].setLevel(LEVELS[args.log_level])
-    logging.info('New write_netcdf log session')
-    for handler in logger.handlers:
-        handler.setFormatter(logging.Formatter('[%(levelname)s]: %(message)s'))
-    if args.message:
-        logging.info('Note: %s',args.message)
-    logging.info('Running %s',wnc_version)
-    logging.info('Python executable used: %s',sys.executable)
-    logging.info('GGGPATH=%s',GGGPATH)
-    logging.info('cwd=%s',os.getcwd())
+    logger, show_progress = setup_logging(log_level=args.log_level, log_file=args.log_file, message=args.message)
 
     nc_format = args.format
     classic = nc_format == 'NETCDF4_CLASSIC'
@@ -1631,6 +1706,50 @@ def main():
     for handler in logger.handlers:
         handler.setFormatter(logging.Formatter('[%(levelname)s]: %(message)s at %(asctime)s',datefmt='%m/%d/%Y %I:%M:%S %p'))
     logging.info('Finished write_eof log session')
+
+
+def compare_nc_files(base_file, other_file, log_file=None, log_level='INFO'):
+    def get_file_variables(filename):
+        with netCDF4.Dataset(filename, 'r') as ds:
+            variables = set(ds.variables.keys())
+            return variables
+
+    setup_logging(log_level=log_level, log_file=log_file, message='')
+
+    base_variables = get_file_variables(base_file)
+    other_variables = get_file_variables(other_file)
+    common_variables = base_variables.intersection(other_variables)
+
+    missing_base_vars = base_variables.difference(common_variables)
+    if len(missing_base_vars) > 0:
+        logging.warning('{} variables present in the first file ({}) are missing from the second file ({})'
+                        .format(len(missing_base_vars), base_file, other_file))
+
+    missing_other_vars = other_variables.difference(common_variables)
+    if len(missing_other_vars) > 0:
+        logging.warning('{} variables present in the second file ({}) were not present in the first file ({})'
+                        .format(len(missing_other_vars), other_variables, base_variables))
+
+    common_variables = list(common_variables)
+    checks = check_eof(base_file, other_file, common_variables, common_variables, other_is_nc=True)
+
+    return 1 if False in checks else 0
+
+
+def compare_nc_files_command_line():
+    parser = argparse.ArgumentParser(description='Check that the variables in two .nc files are equal')
+    parser.add_argument('base_file', help='The first .nc file, which will serve as the baseline')
+    parser.add_argument('other_file', help='The second .nc file, which will be checked against the base_file')
+    parser.add_argument('--log-level', default='INFO', type=lambda x: x.upper(),
+                        help="Log level for the screen (it is always DEBUG for the log file)",
+                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'])
+    parser.add_argument('--log-file', default=None,
+                        help="File to write the logging messages to in addition to the screen. By default, no such "
+                             "file is written.")
+    parser.epilog = 'An exit code of 1 indicates that there were differences between the files.'
+    cl_args = vars(parser.parse_args())
+    return compare_nc_files(**cl_args)
+
 
 if __name__=='__main__': # execute only when the code is run by itself, and not when it is imported
     main()
