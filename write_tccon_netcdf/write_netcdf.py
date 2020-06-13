@@ -503,9 +503,12 @@ def check_eof(private_nc_file, eof_file, nc_var_list, eof_var_list, other_is_nc=
                 checks += [True]
             elif np.issubdtype(nc[var].dtype, np.floating):
                 # For floating point values, better to allow for small differences between the two values
-                checks += [np.ma.allclose(nc[var][:], eof[eof_var_list[i]][:].astype(nc[var].dtype))]
+                checks += [np.ma.allclose(nc[var][:], eof[eof_var_list[i]][:].astype(nc[var][:].dtype))]
             else:
-                checks += [np.array_equal(nc[var][:],eof[eof_var_list[i]][:].astype(nc[var].dtype))]
+                # It seems to be important to convert the eof variable to the datatype of the array,
+                # not the netcdf variable, from the first file. With netCDF version 1.4.2, string variables
+                # have type "|S1" but the arrays have type "<U32" for some reason.
+                checks += [np.array_equal(nc[var][:],eof[eof_var_list[i]][:].astype(nc[var][:].dtype))]
     finally:
         nc.close()
         if close_eof:
