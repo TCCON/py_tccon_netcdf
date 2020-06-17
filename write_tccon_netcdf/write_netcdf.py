@@ -586,7 +586,8 @@ def main():
         try:
             GGGPATH = os.environ['gggpath']
         except:
-            sys.exit('You need to set a GGGPATH (or gggpath) environment variable')
+            print('You need to set a GGGPATH (or gggpath) environment variable')
+            sys.exit()
 
     description = wnc_version + "This writes TCCON outputs in a NETCDF file"
     
@@ -658,7 +659,7 @@ def main():
         logging.info('Writting .public.nc file from the input .private.nc file')
         private_nc_file = args.file
         write_public_nc(private_nc_file,code_dir,nc_format)
-        return
+        sys.exit()
 
     # input and output file names
     tav_file = args.file
@@ -865,8 +866,8 @@ def main():
         mchar = 1
 
     if args.read_only:
-        logging.critical('Code was run in READ ONLY mode, all inputs read.')
-        return
+        logging.critical('Code was run in READ ONLY mode, all inputs read, exiting now.')
+        sys.exit()
 
     if os.path.exists(private_nc_file):
         os.remove(private_nc_file)
