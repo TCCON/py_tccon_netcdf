@@ -13,5 +13,8 @@ setup(
         'pandas>=0.23.0'
         ],
     packages=find_packages(),
-    entry_points={'console_scripts': ['write_netcdf=write_tccon_netcdf.write_netcdf:main']}
+    entry_points={'console_scripts': [
+        'write_netcdf=write_tccon_netcdf.write_netcdf:main',
+        'compare_netcdf=write_tccon_netcdf.write_netcdf:compare_nc_files_command_line'
+    ]}
 )
