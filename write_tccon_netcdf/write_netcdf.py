@@ -21,6 +21,7 @@ import time
 from datetime import datetime, timedelta
 import re
 import logging
+import warnings
 
 wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-15; SR)\n'
 
@@ -457,7 +458,7 @@ def write_eof(private_nc_file,eof_file,qc_file,nc_var_list,show_progress):
     check_eof(private_nc_file,eof_file,nc_var_list,eof_var_list)
 
 
-def check_eof(private_nc_file, eof_file, nc_var_list, eof_var_list, other_is_nc=False):
+def check_eof(private_nc_file, eof_file, nc_var_list, eof_var_list, other_is_nc=False, show_detail=False):
     """
     check that the private netcdf file and eof.csv file contents are equal
 
@@ -478,6 +479,10 @@ def check_eof(private_nc_file, eof_file, nc_var_list, eof_var_list, other_is_nc=
     :param other_is_nc: set to `True` if the second file is a netCDF, rather than .eof.csv file.
     :type other_is_nc: bool
 
+    :param show_detail: set to `True` to show additional detail about the differences between the two files.
+     Done separately from the log level because this is conceptually different from logging.
+    :type show_detail: bool
+
     :return: list of booleans indicating if each variable in the two files matches or not
     """
     logging.info('Checking EOF and NC file contents ...')
@@ -492,6 +497,7 @@ def check_eof(private_nc_file, eof_file, nc_var_list, eof_var_list, other_is_nc=
 
     nc = netCDF4.Dataset(private_nc_file, 'r')
     checks = []
+    numeric_diffs = dict()
     try:
         for i,var in enumerate(nc_var_list):
             if (var=='spectrum') or ('checksum' in var):
@@ -504,11 +510,15 @@ def check_eof(private_nc_file, eof_file, nc_var_list, eof_var_list, other_is_nc=
             elif np.issubdtype(nc[var].dtype, np.floating):
                 # For floating point values, better to allow for small differences between the two values
                 checks += [np.ma.allclose(nc[var][:], eof[eof_var_list[i]][:].astype(nc[var][:].dtype))]
+                numeric_diffs[var] = (nc[var][:].filled(np.nan), eof[eof_var_list[i]][:].filled(np.nan))
             else:
                 # It seems to be important to convert the eof variable to the datatype of the array,
                 # not the netcdf variable, from the first file. With netCDF version 1.4.2, string variables
                 # have type "|S1" but the arrays have type "<U32" for some reason.
                 checks += [np.array_equal(nc[var][:],eof[eof_var_list[i]][:].astype(nc[var][:].dtype))]
+                if np.issubdtype(nc[var].dtype, np.number):
+                    numeric_diffs[var] = (nc[var][:].filled(np.nan), eof[eof_var_list[i]][:].filled(np.nan))
+
     finally:
         nc.close()
         if close_eof:
@@ -519,10 +529,42 @@ def check_eof(private_nc_file, eof_file, nc_var_list, eof_var_list, other_is_nc=
         for i,var in enumerate(nc_var_list):
             if not checks[i]:
                 logging.warning('%s is not identical !',var)
+                if var in numeric_diffs and show_detail:
+                    print_detailed_diff(var, *numeric_diffs[var])
     else:
         logging.info('Contents are identical')
 
     return checks
+
+
+def print_detailed_diff(variable, old_vals, new_vals, threshold=0.01):
+    """
+    Log detailed differences between old and new values of a variable
+
+    :param variable: the variable name
+    :type variable: str
+
+    :param old_vals: the old values
+    :type old_vals: Sequence[float or int]
+
+    :param new_vals: the new values, should be same length as ``old_vals``
+    :type new_vals: Sequence[float or int]
+
+    :param threshold: the minimum absolute percent difference for which the difference
+     for a spectrum should be printed.
+    :type threshold: float
+    """
+    diffs = new_vals - old_vals
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        perdiffs = 100 * diffs / old_vals
+    imax = np.nanargmax(perdiffs)
+    logging.info('  %s has max percent diff (%.4f %%) at spectrum %d', variable, perdiffs[imax], imax+1)
+    ispec = 0
+    for delta, pdelta in zip(diffs, perdiffs):
+        ispec += 1
+        if np.abs(pdelta) > threshold:
+            logging.info('    Spectrum %d: Difference = %.4f    Fractional difference = %.4f %%', ispec, delta, pdelta)
 
 
 def write_values(nc_data,var,values):
@@ -1734,7 +1776,7 @@ def compare_nc_files(base_file, other_file, log_file=None, log_level='INFO'):
                         .format(len(missing_other_vars), other_variables, base_variables))
 
     common_variables = list(common_variables)
-    checks = check_eof(base_file, other_file, common_variables, common_variables, other_is_nc=True)
+    checks = check_eof(base_file, other_file, common_variables, common_variables, other_is_nc=True, show_detail=True)
 
     return 1 if False in checks else 0
 
