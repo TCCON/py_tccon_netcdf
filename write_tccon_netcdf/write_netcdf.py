@@ -827,7 +827,7 @@ def main():
     # read site specific data from the tccon_netcdf repository
     # the .apply and .rename bits are just strip the columns from leading and tailing white spaces
     with open(os.path.join(code_dir,'site_info.json'),'r') as f:
-        site_data = json.load(f)[site_ID]
+        site_data = json.load(f)[siteID]
     site_data['release_lag'] = '{} days'.format(site_data['release_lag'])
 
     # multiggg.sh; use it to get the number of windows fitted and check they all have a .col file
