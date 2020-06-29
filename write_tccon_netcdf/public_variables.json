@@ -29,7 +29,11 @@
 		"xn2o", 
 		"xch4", 
 		"prior_", 
-		"ak_"], 
+		"ak_"],
+
+	"subgroup_startswith": [
+		"xlco2",
+		"xwco2"], 
 	
 	"endswith": ["_version"], 
 	
