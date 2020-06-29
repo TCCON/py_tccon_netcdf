@@ -660,6 +660,16 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
                 public_data[public_name].units = units_dict[public_name]
 
         private_var_list = [v for v in private_data.variables]
+        
+        # special cases
+        if 'o2_7885_am_o2' not in private_var_list:
+            logging.warning('The O2 window is missing, the "airmass" variable will not be in the public file')
+        else:
+            public_data.createVariable('airmass',private_data['o2_7885_am_o2'],private_data['o2_7885_am_o2'].dimensions)
+            public_data['airmass'][:] = private_data['o2_7885_am_o2'][public_slice]
+            public_data['airmass'].setncatts(private_data['o2_7885_am_o2'].__dict__)
+            public_data['airmass'].description = "airmass computed as the total vertical column of O2 divided by the total slant column of O2 retrieved from the window centered at 7885 cm-1. To compute the slant column of a given gas use Xgas*airmass"
+
     logging.info('Finished writing {} {:.2f} MB'.format(public_nc_file,os.path.getsize(public_nc_file)/1e6))
 
 
