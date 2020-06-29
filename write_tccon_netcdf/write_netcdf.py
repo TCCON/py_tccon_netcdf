@@ -669,6 +669,9 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
             public_data['airmass'][:] = private_data['o2_7885_am_o2'][public_slice]
             public_data['airmass'].setncatts(private_data['o2_7885_am_o2'].__dict__)
             public_data['airmass'].description = "airmass computed as the total vertical column of O2 divided by the total slant column of O2 retrieved from the window centered at 7885 cm-1. To compute the slant column of a given gas use Xgas*airmass"
+            public_data['airmass'].long_name = 'airmass'
+            public_data['airmass'].standard_name = 'airmass'
+            public_data['airmass'].units = ''
 
     logging.info('Finished writing {} {:.2f} MB'.format(public_nc_file,os.path.getsize(public_nc_file)/1e6))
 
