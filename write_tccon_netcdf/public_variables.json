@@ -31,7 +31,7 @@
 		"prior_", 
 		"ak_"],
 
-	"subgroup_startswith": [
+	"experimental_group_startswith": [
 		"xlco2",
 		"xwco2"], 
 	

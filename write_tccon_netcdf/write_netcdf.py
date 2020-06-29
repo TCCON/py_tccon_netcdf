@@ -637,22 +637,17 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
             startswith_check = np.array([name.startswith(elem) for elem in public_variables['startswith']]).any()
             endswith_check = np.array([name.endswith(elem) for elem in public_variables['endswith']]).any()
             isequalto_check = np.array([name==elem for elem in public_variables['isequalto']]).any()
-            subgroup_startswith_check = np.array([name.startswith(elem) for elem in public_variables['subgroup_startswith']]).any()
+            experimental_group_startswith_check = np.array([name.startswith(elem) for elem in public_variables['experimental_group_startswith']]).any()
 
             excluded = np.array([elem in name for elem in public_variables['exclude']]).any()
 
-            if nc_format!='NETCDF4' and subgroup_startswith_check : # NETCDF4_CLASSIC files cannot have groups
-                if not excluded:
-                    logging.warning('NETCDF4_CLASSIC format is incompatible with groups, {} will be missing, run with --format NETCDF4'.format(name))
-                subgroup_startswith_check = False
+            public = np.array([contain_check,isequalto_check,startswith_check,endswith_check,experimental_group_startswith_check]).any() and not excluded
 
-            public = np.array([contain_check,isequalto_check,startswith_check,endswith_check,subgroup_startswith_check]).any() and not excluded
-
-            if subgroup_startswith_check and 'ingaas_experimental' not in public_data.groups:
+            if nc_format=='NETCDF4' and experimental_group_startswith_check and 'ingaas_experimental' not in public_data.groups:
                 public_data.createGroup('ingaas_experimental')
                 public_data['ingaas_experimental'].description = 'This data is EXPERIMENTAL.\nIn the root group of this file, the Xgas variables are obtained by combining columns retrieved from multiple spectral windows.\n In this ingaas_experimental group we include Xgas derived from spectral windows that do not contribute to the Xgas variables of the root group'
 
-            if public and not subgroup_startswith_check:
+            if public and not experimental_group_startswith_check:
                 if 'time' in variable.dimensions: # only the variables along the 'time' dimension need to be sampled with public_ids
                     public_data.createVariable(name, variable.datatype, variable.dimensions)
                     public_data[name][:] = private_data[name][public_slice]
@@ -661,10 +656,15 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
                     public_data[name][:] = private_data[name][:]
                 # copy variable attributes all at once via dictionary
                 public_data[name].setncatts(private_data[name].__dict__)
-            elif public and subgroup_startswith_check:
+            elif nc_format=='NETCDF4' and public and experimental_group_startswith_check:
                 public_data['ingaas_experimental'].createVariable(name, variable.datatype, variable.dimensions)
                 public_data['ingaas_experimental'][name][:] = private_data[name][public_slice]
                 public_data['ingaas_experimental'][name].setncatts(private_data[name].__dict__)
+            elif nc_format=='NETCDF4_CLASSIC' and public and experimental_group_startswith_check:
+                public_data.createVariable(name+'_experimental', variable.datatype, variable.dimensions)
+                public_data[name+'_experimental'][:] = private_data[name][public_slice]
+                public_data[name+'_experimental'].setncatts(private_data[name].__dict__)
+                public_data[name+'_experimental'].description += ' This data is EXPERIMENTAL'
             elif name in ['prior_{}'.format(var) for var in factor.keys()]: # for the a priori profile, only the ones listed in the "factor" dictionary make it to the public file
                 public_name = name.replace('_1','_')
                 public_data.createVariable(public_name,variable.datatype,variable.dimensions)
