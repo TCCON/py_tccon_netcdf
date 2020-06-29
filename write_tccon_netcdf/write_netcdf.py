@@ -731,7 +731,10 @@ def setup_logging(log_level, log_file, message=''):
         handler.setFormatter(logging.Formatter('[%(levelname)s]: %(message)s'))
     if message:
         logging.info('Note: %s', message)
-    logging.info('Running %s', wnc_version)
+    logging.info('Running %s', wnc_version.strip())
+    proc = subprocess.Popen(['git','rev-parse','--short','HEAD'],cwd=os.path.dirname(__file__),stdout=subprocess.PIPE)
+    out, err = proc.communicate()
+    logging.info('tccon_netcdf repository HEAD: {}'.format(out.decode("utf-8").strip()))
     logging.info('Python executable used: %s', sys.executable)
     logging.info('GGGPATH=%s', get_ggg_path())
     logging.info('cwd=%s', os.getcwd())
