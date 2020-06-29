@@ -1,0 +1,386 @@
+{
+	"pa": {
+		"long_name":"parkfalls01",
+		"release_lag":"120",
+		"location":"Park Falls, Wisconsin, USA",
+		"contact":"Paul Wennberg <wennberg@gps.caltech.edu>",
+		"site_reference":"Washenfelder, R. A., G. C. Toon, J.-F. L. Blavier, Z. Yang, N. T. Allen, P. O. Wennberg, S. A. Vay, D. M. Matross, and B. C. Daube (2006), Carbon dioxide column abundances at the Wisconsin Tall Tower site, Journal of Geophysical Research, 111(D22), 1-11, doi:10.1029/2006JD007154. Available from: https://www.agu.org/pubs/crossref/2006/2006JD007154.shtml",
+		"data_doi":"10.14291/tccon.ggg2014.parkfalls01.R1",
+		"data_reference":"Wennberg, P. O., C. Roehl, D. Wunch, G. C. Toon, J.-F. Blavier, R. Washenfelder, G. Keppel-Aleks, N. Allen, J. Ayers. 2017. TCCON data from Park Falls, Wisconsin, USA, Release GGG2014R1. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. http://doi.org/10.14291/tccon.ggg2014.parkfalls01.R1",
+		"data_revision":"R1"
+	},
+
+	"oc": {
+		"long_name":"lamont01",
+		"release_lag":"120",
+		"location":"Lamont, Oklahoma, USA",
+		"contact":"Paul Wennberg <wennberg@gps.caltech.edu>",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.lamont01.R1/1255070",
+		"data_reference":"Wennberg, P. O., D. Wunch, C. Roehl, J.-F. Blavier, G. C. Toon, N. Allen, P. Dowell, K. Teske, C. Martin, J. Martin. 2017. TCCON data from Lamont, Oklahoma, USA, Release GGG2014R1. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.lamont01.R1/1255070",
+		"data_revision":"R1"
+	},
+
+	"bi": {
+		"long_name":"bialystok01",
+		"release_lag":"366",
+		"location":"Bialystok, Poland",
+		"contact":"Christof Petri <christof_p@iup.physik.uni-bremen.de>",
+		"site_reference":"Messerschmidt, J., H. Chen, N. M. Deutscher, C. Gerbig, P. Grupe, K. Katrynski, F.-T. Koch, J. V. Lavric, J. Notholt, C. Rodenbeck, W. Ruhe, T. Warneke, and C. Weinzierl (2012), Automated ground-based remote sensing measurements of greenhouse gases at the Bialystok site in comparison with collocated in situ measurements and model data, Atmospheric Chemistry and Physics, 12(15), 6741-6755, doi:10.5194/acp-12-6741-2012. Available from: https://www.atmos-chem-phys.net/12/6741/2012/",
+		"data_doi":"10.14291/tccon.ggg2014.bialystok01.R2",
+		"data_reference":"Deutscher, N., J. Notholt, J. Messerschmidt, C. Weinzierl, T. Warneke, C. Petri, P. Grupe, K. Katrynski. 2017. TCCON data from Bialystok, Poland, Release GGG2014R2. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. http://doi.org/10.14291/tccon.ggg2014.bialystok01.R2",
+		"data_revision":"R2"
+	},
+
+	"or": {
+		"long_name":"orleans01",
+		"release_lag":"366",
+		"location":"Orleans, France",
+		"contact":"Thorsten Warneke <warneke@iup.physik.uni-bremen.de>",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.orleans01.R1",
+		"data_reference":"Warneke, T., J. Messerschmidt, J. Notholt, C. Weinzierl, N. Deutscher, C. Petri, P. Grupe, C. Vuillemin, F. Truong, M. Schmidt, M. Ramonet, E. Parmentier. 2017. TCCON data from Orleans, France, Release GGG2014R1. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.orleans01.R1",
+		"data_revision":"R1"
+	},
+
+	"ka": {
+		"long_name":"karlsruhe01",
+		"release_lag":" 90",
+		"location":"Karlsruhe, Germany",
+		"contact":"Frank Hase <frank.hase@kit.edu>",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.karlsruhe01.R1/1182416",
+		"data_reference":"Hase, F., T. Blumenstock, S. Dohe, J. Groß, M. Kiel. 2017. TCCON data from Karlsruhe, Germany, Release GGG2014R1. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.karlsruhe01.R1/1182416",
+		"data_revision":"R1"
+	},
+
+	"tj": {
+		"long_name":"tsukuba01",
+		"release_lag":"366",
+		"location":"Tsukuba, Ibaraki, Japan, 120HR",
+		"contact":"Isamu Morino <morino@nies.go.jp>",
+		"site_reference":"Ohyama, H., I. Morino, T. Nagahama, T. Machida, H. Suto, H. Oguma, Y. Sawa H. Matsueda, N. Sugimoto, H. Nakane, and K. Nakagawa (2009), Column-averaged volume mixing ratio of CO2 measured with ground-based Fourier transform spectrometer at Tsukuba, J. Geophys. Res., 114, D18303, doi:10.1029/2008JD011465. Available from: https://www.agu.org/pubs/crossref/2009/2008JD011465.shtml",
+		"data_doi":"10.14291/tccon.ggg2014.tsukuba01.R0/1149281",
+		"data_reference":"Morino, I., T. Matsuzaki, A. Shishime. 2017. TCCON data from Tsukuba, Ibaraki, Japan, 120HR, Release GGG2014R0. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. http://doi.org/10.14291/tccon.ggg2014.tsukuba01.R0/1149281",
+		"data_revision":"R0"
+	},
+
+	"tk": {
+		"long_name":"tsukuba02",
+		"release_lag":"366",
+		"location":"Tsukuba, Ibaraki, Japan, 125HR",
+		"contact":"Isamu Morino <morino@nies.go.jp>",
+		"site_reference":"Ohyama, H., I. Morino, T. Nagahama, T. Machida, H. Suto, H. Oguma, Y. Sawa H. Matsueda, N. Sugimoto, H. Nakane, and K. Nakagawa (2009), Column-averaged volume mixing ratio of CO2 measured with ground-based Fourier transform spectrometer at Tsukuba, J. Geophys. Res., 114, D18303, doi:10.1029/2008JD011465. Available from: https://www.agu.org/pubs/crossref/2009/2008JD011465.shtml",
+		"data_doi":"10.14291/tccon.ggg2014.tsukuba02.R2",
+		"data_reference":"Morino, I., T. Matsuzaki, A. Shishime. 2017. TCCON data from Tsukuba, Ibaraki, Japan, 125HR, Release GGG2014R2. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. http://doi.org/10.14291/tccon.ggg2014.tsukuba02.R2",
+		"data_revision":"R2"
+	},
+
+	"lh": {
+		"long_name":"lauder01",
+		"release_lag":"366",
+		"location":"Lauder, New Zealand, 120HR",
+		"contact":"Dave Pollard <Dave.Pollard@niwa.co.nz>",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.lauder01.R0/1149293",
+		"data_reference":"Sherlock, V., B. Connor, J. Robinson, H. Shiona, D. Smale, D. Pollard. 2017. TCCON data from Lauder, New Zealand, 120HR, Release GGG2014R0. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.lauder01.R0/1149293",
+		"data_revision":"R0"
+	},
+
+	"ll": {
+		"long_name":"lauder02",
+		"release_lag":"180",
+		"location":"Lauder, New Zealand, 125HR",
+		"contact":"Dave Pollard <Dave.Pollard@niwa.co.nz>",
+		"site_reference":"Pollard, D. F., V. Sherlock, J. Robinson, N. M. Deutscher, B. Connor, and H. Shiona (2017), The Total Carbon Column Observing Network site description for Lauder, New Zealand, Earth Syst. Sci. Data, 9(2), 977-992, doi:10.5194/essd-9-977-2017",
+		"data_doi":"10.14291/tccon.ggg2014.lauder02.R0/1149298",
+		"data_reference":"Sherlock, V., B. Connor, J. Robinson, H. Shiona, D. Smale, D. Pollard. 2017. TCCON data from Lauder, New Zealand, 125HR, Release GGG2014R0. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.lauder02.R0/1149298",
+		"data_revision":"R0"
+	},
+
+	"lr": {
+		"long_name":"lauder03",
+		"release_lag":"180",
+		"location":"Lauder, New Zealand, 125HR",
+		"contact":"Dave Pollard <Dave.Pollard@niwa.co.nz>",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.lauder03.R0",
+		"data_reference":"Pollard, D., J. Robinson, H. Shiona. 2019. TCCON data from Lauder, New Zealand, 125HR, Release GGG2014R0. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.lauder03.R0",
+		"data_revision":"R0"
+	},
+
+	"db": {
+		"long_name":"darwin01",
+		"release_lag":"366",
+		"location":"Darwin, Australia",
+		"contact":"David Griffith <griffith@uow.edu.au>",
+		"site_reference":"Deutscher, N. M., D. W. T. Griffith, G. W. Bryant, P. O. Wennberg, G. C. Toon, R. A. Washenfelder, G. Keppel-Aleks, D. Wunch, Y. G. Yavin, N. T. Allen, J.-F. L. Blavier, R. Jimenez, B. C. Daube, A. V. Bright, D. M. Matross, S. C. Wofsy, and S. Park (2010), Total column CO2 measurements at Darwin, Australia - site description and calibration against in situ aircraft profiles, Atmospheric Measurement Techniques, 3(4), 947-958, doi:10.5194/amt-3-947-2010. Available from: https://www.atmos-meas-tech.net/3/947/2010/",
+		"data_doi":"10.14291/tccon.ggg2014.darwin01.R0/1149290",
+		"data_reference":"Griffith, D. W. T., N. Deutscher, V. A. Velazco, P. O. Wennberg, Y. Yavin, G. Keppel Aleks, R. Washenfelder, G. C. Toon, J.-F. Blavier, C. Murphy, N. Jones, G. Kettlewell, B. Connor, R. Macatangay, C. Roehl, M. Ryczek, J. Glowacki, T. Culgan, G. Bryant. 2017. TCCON data from Darwin, Australia, Release GGG2014R0. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. http://doi.org/10.14291/tccon.ggg2014.darwin01.R0/1149290",
+		"data_revision":"R0"
+	},
+
+	"wg": {
+		"long_name":"wollongong01",
+		"release_lag":"366",
+		"location":"Wollongong, Australia",
+		"contact":"David Griffith <griffith@uow.edu.au>",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.wollongong01.R0/1149291",
+		"data_reference":"Griffith, D. W. T., V. A. Velazco, N. Deutscher, C. Murphy, N. Jones, S. Wilson, R. Macatangay, G. Kettlewell, R. R. Buchholz, M. Riggenbach. 2017. TCCON data from Wollongong, Australia, Release GGG2014R0. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.wollongong01.R0/1149291",
+		"data_revision":"R0"
+	},
+
+	"gm": {
+		"long_name":"garmisch01",
+		"release_lag":"120",
+		"location":"Garmisch, Germany",
+		"contact":"Ralf Sussmann <ralf.sussmann@kit.edu>",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.garmisch01.R2",
+		"data_reference":"Sussmann, R., M. Rettinger. 2017. TCCON data from Garmisch, Germany, Release GGG2014R2. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.garmisch01.R2",
+		"data_revision":"R2"
+	},
+
+	"br": {
+		"long_name":"bremen01",
+		"release_lag":"366",
+		"location":"Bremen, Germany",
+		"contact":"Nicholas Deutscher <n_deutscher@iup.physik.uni-bremen.de>; Justus Notholt <jnotholt@iup.physik.uni-bremen.de>",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.bremen01.R1",
+		"data_reference":"Notholt, J., C. Petri, T. Warneke, N. Deutscher, M. Buschmann, C. Weinzierl, R. Macatangay, P. Grupe. 2019. TCCON data from Bremen, Germany, Release GGG2014R1. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.bremen01.R1",
+		"data_revision":"R1"
+	},
+
+	"eu": {
+		"long_name":"eureka01",
+		"release_lag":"366",
+		"location":"Eureka, Canada",
+		"contact":"Kimberly Strong <strong@atmosp.physics.utoronto.ca>",
+		"site_reference":"Batchelor, R. L., K. Strong, R. Lindenmaier, R. L. Mittermeier, H. Fast, J. R. Drummond, and P. F. Fogal (2009), A New Bruker IFS 125HR FTIR Spectrometer for the Polar Environment Atmospheric Research Laboratory at Eureka, Nunavut, Canada: Measurements and Comparison with the Existing Bomem DA8 Spectrometer, Journal of Atmospheric and Oceanic Technology, 26(7), 1328-1340, doi:10.1175/2009JTECHA1215.1. Available from: https://journals.ametsoc.org/doi/abs/10.1175/2009JTECHA1215.1",
+		"data_doi":"10.14291/tccon.ggg2014.eureka01.R3",
+		"data_reference":"Strong, K., S. Roche, J.E. Franklin, J. Mendonca, E. Lutsch, D. Weaver, P.F. Fogal, J.R. Drummond, R. Batchelor, R. Lindenmaier. 2017. TCCON data from Eureka, Canada, Release GGG2014R3. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. http://doi.org/10.14291/tccon.ggg2014.eureka01.R3",
+		"data_revision":"R3"
+	},
+
+	"so": {
+		"long_name":"sodankyla01",
+		"release_lag":"120",
+		"location":"Sodankyla, Finland",
+		"contact":"Rigel Kivi <rigel.kivi@fmi.fi>",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.sodankyla01.R0/1149280",
+		"data_reference":"Kivi, R., P. Heikkinen, E. Kyro. 2017. TCCON data from Sodankyla, Finland, Release GGG2014R0. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.sodankyla01.R0/1149280",
+		"data_revision":"R0"
+	},
+
+	"iz": {
+		"long_name":"izana01",
+		"release_lag":" 90",
+		"location":"Izana, Tenerife, Spain",
+		"contact":"Matthias Schneider <matthias.schneider@kit.edu>",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.izana01.R1",
+		"data_reference":"Blumenstock, T., F. Hase, M. Schneider, O.E. García, E. Sepúlveda. 2017. TCCON data from Izana, Tenerife, Spain, Release GGG2014R1. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.izana01.R1",
+		"data_revision":"R1"
+	},
+
+	"ra": {
+		"long_name":"reunion01",
+		"release_lag":"90",
+		"location":"Reunion Island (Ile de La Reunion), France",
+		"contact":"Martine De Maziere <martine.demaziere@aeronomie.be>",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.reunion01.R1",
+		"data_reference":"De Maziere, M., M. K. Sha, F. Desmet, C. Hermans, F. Scolas, N. Kumps, J.-M. Metzger, V. Duflot, J.-P. Cammas. 2017. TCCON data from Reunion Island (La Reunion), France, Release GGG2014R0. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.reunion01.R1",
+		"data_revision":"R1"
+	},	
+
+	"ae": {
+		"long_name":"ascension01",
+		"release_lag":"0",
+		"location":"Ascension Island, Saint Helena, Ascension and Tristan da Cunha",
+		"contact":"Dietrich Feist <dfeist@bgc-jena.mpg.de>",
+		"site_reference":"Geibel, M. C., C. Gerbig, and D. G. Feist (2010), A new fully automated FTIR system for total column measurements of greenhouse gases, Atmospheric Measurement Techniques, 3(5), 1363-1375, doi:10.5194/amt-3-1363-2010. Available from: https://www.atmos-meas-tech.net/3/1363/2010/",
+		"data_doi":"10.14291/tccon.ggg2014.ascension01.R0/1149285",
+		"data_reference":"Feist, D. G., S. G. Arnold, N. John, M. C. Geibel. 2017. TCCON data from Ascension Island, Saint Helena, Ascension and Tristan da Cunha, Release GGG2014R0. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. http://doi.org/10.14291/tccon.ggg2014.ascension01.R0/1149285",
+		"data_revision":"R0"
+	},
+
+	"fc": {
+		"long_name":"fourcorners01",
+		"release_lag":"366",
+		"location":"Four Corners, NM, USA",
+		"contact":"Manvendra Dubey <dubey@lanl.gov>",
+		"site_reference":"Lindenmaier, R., M. K. Dubey, B. G. Henderson, Z. T. Butterfield, J. R. Herman, T. Rahn, and S. Lee (2014), Multiscale observations of CO2, 13CO2, and pollutants at Four Corners for emission verification and attribution, Proceedings of the National Academy of Sciences, 6-11, doi:10.1073/pnas.1321883111. Available from: www.pnas.org/cgi/doi/10.1073/pnas.1321883111",
+		"data_doi":"10.14291/tccon.ggg2014.fourcorners01.R0/1149272",
+		"data_reference":"Dubey, M., R. Lindenmaier, B. Henderson, D. Green, N. Allen, C. Roehl, J.-F. Blavier, Z. Butterfield, S. Love, J. Hamelmann, D. Wunch. 2017. TCCON data from Four Corners, NM, USA, Release GGG2014R0. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.fourcorners01.R0/1149272",
+		"data_revision":"R0"
+	},	
+
+	"ci": {
+		"long_name":"pasadena01",
+		"release_lag":"120",
+		"location":"California Institute of Technology, Pasadena, California, USA",
+		"contact":"Paul Wennberg <wennberg@gps.caltech.edu>",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.pasadena01.R1/1182415",
+		"data_reference":"Wennberg, P. O., D. Wunch, C. Roehl , J.-F. Blavier, G. C. Toon, N. Allen. 2017. TCCON data from California Institute of Technology, Pasadena, California, USA, Release GGG2014R1. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.pasadena01.R1/1182415",
+		"data_revision":"R1"
+	},	
+
+	"jf": {
+		"long_name":"jpl02",
+		"release_lag":"1",
+		"location":"Jet Propulsion Laboratory, Pasadena, California, USA",
+		"contact":"Paul Wennberg <wennberg@gps.caltech.edu>",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.jpl02.R1/1330096",
+		"data_reference":"Wennberg, P. O., C. Roehl, J.-F. Blavier, D. Wunch, J. Landeros, N. Allen. 2017. TCCON data from Jet Propulsion Laboratory, Pasadena, California, USA, Release GGG2014R1. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.jpl02.R1/1330096",
+		"data_revision":"R1"
+	},	
+
+	"jc": {
+		"long_name":"jpl01",
+		"release_lag":"1",
+		"location":"Jet Propulsion Laboratory, Pasadena, California, USA",
+		"contact":"Paul Wennberg <wennberg@gps.caltech.edu>",
+		"site_reference":"Wunch, D., P. O. Wennberg, G. C. Toon, G. Keppel-Aleks, and Y. G. Yavin (2009), Emissions of greenhouse gases from a North American megacity, Geophysical Research Letters, 36(15), 1-5, doi:10.1029/2009GL039825. Available from: https://www.agu.org/pubs/crossref/2009/2009GL039825.shtml",
+		"data_doi":"10.14291/tccon.ggg2014.jpl01.R0/1149163",
+		"data_reference":"Wennberg, P. O., D. Wunch, Y. Yavin, G. C. Toon, J.-F. Blavier, N. Allen, G. Keppel-Aleks. 2017. TCCON data from Jet Propulsion Laboratory, Pasadena, California, USA, Release GGG2014R0. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. http://doi.org/10.14291/tccon.ggg2014.jpl01.R0/1149163",
+		"data_revision":"R0"
+	},	
+
+	"sp": {
+		"long_name":"nyalesund01",
+		"release_lag":"366",
+		"location":"Ny Alesund, Spitzbergen, Norway",
+		"contact":"Justus Notholt <jnotholt@iup.physik.uni-bremen.de>; Nicholas Deutscher <n_deutscher@iup.physik.uni-bremen.de>",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.nyalesund01.R1",
+		"data_reference":"Notholt, J., O. Schrems, T. Warneke, N. Deutscher, C. Weinzierl, M. Palm, M. Buschmann, AWI-PEV Station Engineers. 2019. TCCON data from Ny Alesund, Spitzbergen, Norway, Release GGG2014R1. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.nyalesund01.R1",
+		"data_revision":"R1"
+	},	
+
+	"if": {
+		"long_name":"indianapolis01",
+		"release_lag":"1",
+		"location":"Indianapolis, Indiana, USA",
+		"contact":"Laura T. Iraci <laura.t.iraci@nasa.gov>",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.indianapolis01.R1/1330094",
+		"data_reference":"Iraci, L., J. Podolske, P. Hillyard, C. Roehl, P. O. Wennberg, J.-F. Blavier, J. Landeros, N. Allen, D. Wunch, J. Zavaleta, E. Quigley, G. Osterman, E. Barrow, J. Barney. 2017. TCCON data from Indianapolis, Indiana, USA, Release GGG2014R1. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.indianapolis01.R1/1330094",
+		"data_revision":"R1"
+	},	
+
+	"df": {
+		"long_name":"edwards01",
+		"release_lag":"120",
+		"location":"Armstrong Flight Research Center, Edwards, CA, USA",
+		"contact":"Laura T. Iraci <laura.t.iraci@nasa.gov>",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.edwards01.R1/1255068",
+		"data_reference":"Iraci, L., J. Podolske, P. Hillyard, C. Roehl, P. O. Wennberg, J.-F. Blavier, J. Landeros, N. Allen, D. Wunch, J. Zavaleta, E. Quigley, G. Osterman, R. Albertson, K. Dunwoody, H. Boyden. 2017. TCCON data from Armstrong Flight Research Center, Edwards, CA, USA, Release GGG2014R1. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.edwards01.R1/1255068",
+		"data_revision":"R1"
+	},	
+
+	"js": {
+		"long_name":"saga01",
+		"release_lag":"180",
+		"location":"Saga, Japan",
+		"contact":"Kei Shiomi <shiomi.kei@jaxa.jp>",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.saga01.R0/1149283",
+		"data_reference":"Shiomi, K., Kawakami, S., H. Ohyama, K. Arai, H. Okumura, C. Taura, T. Fukamachi, M. Sakashita. 2017. TCCON data from Saga, Japan, Release GGG2014R0. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.saga01.R0/1149283",
+		"data_revision":"R0"
+	},	
+
+	"rj": {
+		"long_name":"rikubetsu01",
+		"release_lag":"366",
+		"location":"Rikubetsu, Hokkaido, Japan",
+		"contact":"Isamu Morino <morino@nies.go.jp>",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.rikubetsu01.R2",
+		"data_reference":"Morino, I., N. Yokozeki, T. Matzuzaki, A. Shishime. 2017. TCCON data from Rikubetsu, Hokkaido, Japan, Release GGG2014R2. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.rikubetsu01.R2",
+		"data_revision":"R2"
+	},	
+
+	"ma": {
+		"long_name":"manaus01",
+		"release_lag":"366",
+		"location":"Manaus, Brazil",
+		"contact":"Manvendra Dubey <dubey@lanl.gov>",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.manaus01.R0/1149274",
+		"data_reference":"Dubey, M., B. Henderson, D. Green, Z. Butterfield, G. Keppel-Aleks, N. Allen, J.-F. Blavier, C. Roehl, D. Wunch, R. Lindenmaier. 2017. TCCON data from Manaus, Brazil, Release GGG2014R0. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.manaus01.R0/1149274",
+		"data_revision":"R0"
+	},	
+
+	"pr": {
+		"long_name":"paris01",
+		"release_lag":"366",
+		"location":"Paris, France",
+		"contact":"Yao Te <yao-veng.te@upmc.fr>",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.paris01.R0/1149279",
+		"data_reference":"Te, Y., P. Jeseck, C. Janssen. 2017. TCCON data from Paris, France, Release GGG2014R0. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.paris01.R0/1149279",
+		"data_revision":"R0"
+	},	
+
+	"an": {
+		"long_name":"anmeyondo01",
+		"release_lag":"366",
+		"location":"Anmyeondo, South Korea",
+		"contact":"Young-Suk Oh <ysoh306@gmail.com> ",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.anmeyondo01.R0/1149284",
+		"data_reference":"Goo, T.-Y., Y.-S. Oh, V. A. Velazco. 2017. TCCON data from Anmyeondo, South Korea, Release GGG2014R0. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.anmeyondo01.R0/1149284",
+		"data_revision":"R0"
+	},	
+
+	"et": {
+		"long_name":"easttroutlake01",
+		"release_lag":"120",
+		"location":"East Trout Lake, Canada",
+		"contact":"Debra Wunch <dwunch@atmosp.physics.utoronto.ca> ",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.easttroutlake01.R1",
+		"data_reference":"Wunch, D., J. Mendonca, O. Colebatch, N. Allen, J.-F. L. Blavier, S. Roche, J. Hedelius, G. Neufeld, S. Springett, D. Worthy, R. Kessler, K. Strong. 2017. TCCON data from East Trout Lake, Canada, Release GGG2014R1. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. https://doi.org/10.14291/tccon.ggg2014.easttroutlake01.R1",
+		"data_revision":"R1"
+	},	
+
+	"bu": {
+		"long_name":"burgos01",
+		"release_lag":"366",
+		"location":"Burgos, Ilocos Norte, Philippines",
+		"contact":"Isamu Morino <morino@nies.go.jp> ",
+		"site_reference":"Velazco V. A., Morino, I., Uchino, O., Deutscher, N. M., Bukosa, B., Belikov, D. A., Oishi, Y., Nakajima, T. Y., Macatangay, R. C., Nakatsuru, T., Maksyutov, S., Schwandner, F. M., Griffith, D. W. T., (2017), TCCON Philippines: Toward quantifying atmospheric carbon in Southeast Asia. Climate, Disaster and Development Journal, Vol 2, Issue 2. https://doi.org/10.18783/cddj.v002.i02.a01 ",
+		"data_doi":"10.14291/tccon.ggg2014.burgos01.R0/1368175",
+		"data_reference":"Morino, I., V. A. Velazco, A. Hori, O. Uchino, D. W. T. Griffith. 2017. TCCON data from Burgos, Philippines, Release GGG2014R0. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. http://dx.doi.org/10.14291/tccon.ggg2014.burgos01.R0/1368175",
+		"data_revision":"R0"
+	},	
+
+	"hf": {
+		"long_name":"hefei01",
+		"release_lag":"0",
+		"location":"Hefei, China",
+		"contact":"Wei Wang <wwang@aiofm.ac.cn> ",
+		"site_reference":"Wang, W., Tian, T., Liu, C., Sun, Y., Liu, W., Xie, P., Liu, J., Xu, J., Morino, I., Velazco, V. A., Griffith, D. W. T., Notholt, J., and Warneke, T. Investigating the performance of a greenhouse gas observatory in Hefei, China. Atmos. Meas. Tech., 10, 1-17, 2017. doi:10.5194/amt-10-2627-2017",
+		"data_doi":"10.14291/tccon.ggg2014.hefei01.R0",
+		"data_reference":"Liu C., Wang, W., Sun, Y. 2018. TCCON data from Hefei, China, Release GGG2014R0. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. http://dx.doi.org/10.14291/tccon.ggg2014.hefei01.R0",
+		"data_revision":"R0"
+	},	
+
+	"zs": {
+		"long_name":"zugspitze01",
+		"release_lag":"120",
+		"location":"Zugspitze, Germany",
+		"contact":"Ralf Sussmann <ralf.sussmann@kit.edu> ",
+		"site_reference":"",
+		"data_doi":"10.14291/tccon.ggg2014.zugspitze01.R1",
+		"data_reference":"Sussmann, R., M. Rettinger. 2017. TCCON data from Zugspitze, Germany, Release GGG2014R1. TCCON data archive, hosted by CaltechDATA, California Institute of Technology, Pasadena, CA, U.S.A. http://dx.doi.org/10.14291/tccon.ggg2014.zugspitze01.R1",
+		"data_revision":"R1"
+	}	
+}

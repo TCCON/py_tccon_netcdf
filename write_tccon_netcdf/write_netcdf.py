@@ -22,6 +22,7 @@ from datetime import datetime, timedelta
 import re
 import logging
 import warnings
+import json
 
 wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-15; SR)\n'
 
@@ -584,7 +585,7 @@ def write_values(nc_data,var,values):
 
 def write_public_nc(private_nc_file,code_dir,nc_format):
     """
-    Take a private netcdf file and write the public file using the public_variables.txt file
+    Take a private netcdf file and write the public file using the public_variables.json file
     """
     # factor to convert the prior fields of the public archive into more intuitive units
     factor = {'temperature':1.0,'pressure':1.0,'density':1.0,'gravity':1.0,'1h2o':1.0,'1hdo':1.0,'1co2':1e6,'1n2o':1e9,'1co':1e9,'1ch4':1e9,'1hf':1e12,'1o2':1.0}
@@ -626,10 +627,9 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
             else:
                 public_data.createDimension(name, (len(dimension) if not dimension.isunlimited() else None))
 
-        ## copy variables based on the info in public_variables.txt
-        with open(os.path.join(code_dir,'public_variables.txt')) as f:
-            c = f.read()
-        public_variables = eval(c)
+        ## copy variables based on the info in public_variables.json
+        with open(os.path.join(code_dir,'public_variables.json')) as f:
+            public_variables = json.load(f)
 
         for name,variable in private_data.variables.items():
             
@@ -660,7 +660,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
                 public_data[public_name].units = units_dict[public_name]
 
         private_var_list = [v for v in private_data.variables]
-        
+
         # special cases
         if 'o2_7885_am_o2' not in private_var_list:
             logging.warning('The O2 window is missing, the "airmass" variable will not be in the public file')
@@ -826,9 +826,8 @@ def main():
 
     # read site specific data from the tccon_netcdf repository
     # the .apply and .rename bits are just strip the columns from leading and tailing white spaces
-    with open(os.path.join(code_dir,'site_info.txt'),'r') as f:
-        c = f.read()
-    site_data = eval(c)[siteID]
+    with open(os.path.join(code_dir,'site_info.json'),'r') as f:
+        site_data = json.load(f)[site_ID]
     site_data['release_lag'] = '{} days'.format(site_data['release_lag'])
 
     # multiggg.sh; use it to get the number of windows fitted and check they all have a .col file
@@ -1648,16 +1647,15 @@ def main():
                     nc_data[varname].units = units_dict[var]
                 write_values(nc_data,varname,cbf_data[var].values)
 
-        # read the data from missing_data.txt and update data with fill values to the netCDF4 default fill value
+        # read the data from missing_data.json and update data with fill values to the netCDF4 default fill value
         """
         It is a dictionary with siteID as keys, values are dictionaries of variable:fill_value
 
         If a site has different null values defined for different time period the key has format siteID_ii_YYYYMMDD_YYYYMMDD
         with ii just the period index (e.g. 01 ) so that they come in order when the keys get sorted
         """
-        with open(os.path.join(code_dir,'missing_data.txt'),'r') as f:
-            c = f.read()
-        missing_data = eval(c)
+        with open(os.path.join(code_dir,'missing_data.json'),'r') as f:
+            missing_data = json.load(f)
         missing_data = {key:val for key,val in missing_data.items() if siteID in key}
         if len(missing_data.keys())>1: # if there are different null values for different time periods
             time_period_list = sorted(missing_data.keys())

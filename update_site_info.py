@@ -10,22 +10,22 @@ import netCDF4
 import pandas as pd
 import numpy as np
 import argparse
+import json
 
 def custom_update(nc_file,info_file):
     """
-    Update the netcdf file using a given input file formatted like the site_info.txt file hosted on tccon_data.org
+    Update the netcdf file using a given input file formatted like the site_info.json file hosted on tccon_data.org
     """
     siteID = nc_file[:2]
     with open(info_file,'r') as f:
-        c = f.read()
-    site_data = eval(c)[siteID]
+        site_data = json.load(f)[siteID]
     site_data['release_lag'] = '{} days'.format(site_data['release_lag'])
 
     return site_data
 
 def standard_update(nc_file):
     """
-    Update the netcdf file using the site_info.txt file hosted on tccon_data.org
+    Update the netcdf file using the site_info.json file hosted on tccon_data.org
     """
     # Will be updated once we figure out how the file will be hosted
     pass
@@ -47,7 +47,7 @@ def main():
     description = "Update some attributes in an existing netcdf file using a 'site_info' file, the file will be modified IN PLACE so make sure you have a backup if needed"
     parser = argparse.ArgumentParser(description=description,formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('file',type=lambda file_name:file_choices(('nc'),file_name),help='Full path to input TCCON netcdf file, it will be EDITED IN PLACE')
-    parser.add_argument('--info-file',help='Full path to a custom site_info.txt file formatted as the file hosted at tccon_data.org/site_info.txt, if not given the file hosted on tccondata.org will be used')
+    parser.add_argument('--info-file',help='Full path to a custom site_info.json file formatted as the file hosted at tccon_data.org/site_info.json, if not given the file hosted on tccondata.org will be used')
 
     args = parser.parse_args()
 
