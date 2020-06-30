@@ -328,7 +328,7 @@ def get_eflat(vmr_file):
 
 
 
-def read_mav(path,GGGPATH):
+def read_mav(path,GGGPATH,maxspec):
     """
     read .mav files into a dictionary with spectrum filnames as keys (from each "Next spectrum" block in the .mav file)
     values are dataframes with the prior data
@@ -336,6 +336,7 @@ def read_mav(path,GGGPATH):
     Inputs:
         - path: full path to the .mav file
         - GGGPATH: full path to GGG
+        - maxspec: maximum number of spectra expected, will break out of the read loop if it is exceeded
     Outputs:
         - DATA: dataframe with data from the .mav file and the eqlat profile from the .mod files
         - nlev: number of altitudes levels
@@ -378,12 +379,16 @@ def read_mav(path,GGGPATH):
         
     ispec = 1
     while True:
+        if ispec>maxspec:
+            loop_error_message = 'read_mav() tried to iterate more times than the number of spectra in the .tav file ({})'.format(maxspec)
+            logging.critical(loop_error_message)
+            raise RuntimeError(loop_error_message)
+
         block_id = ispec*nlev+(ispec-1)*7
         try:
             spectrum = d['temperature'][block_id].split(':')[1]
         except (KeyError, IndexError) as e:
             break
-
         tropalt = float(d['pressure'][block_id+2])
         oblat = float(d['pressure'][block_id+3])
         vmr_file = d['altitude'][block_id+4].split(os.sep)[-1]
@@ -878,8 +883,17 @@ def main():
     nlev_ak = ak_data['co2']['P_hPa'].size
     nsza_ak = ak_data['co2'].columns.size -1 # minus one because of the pressure column
 
+    # tav file: contains VSFs
+    with open(tav_file,'r') as infile:
+        nhead,ncol,nspec,naux = np.array(infile.readline().split()).astype(int)
+    nhead = nhead-1
+    tav_data = pd.read_csv(tav_file,delim_whitespace=True,skiprows=nhead)
+    tav_data['file'] = tav_file
+    nwin = int((ncol-naux)/2)
+    speclength = tav_data['spectrum'].map(len).max() # use the longest spectrum file name length for the specname dimension
+
     # read prior data
-    prior_data, nlev, ncell = read_mav(mav_file,GGGPATH)
+    prior_data, nlev, ncell = read_mav(mav_file,GGGPATH,tav_data['spectrum'].size)
     nprior = len(prior_data.keys())
 
     # read pth data
@@ -911,15 +925,6 @@ def main():
     lse_data = pd.read_csv(lse_file,delim_whitespace=True,skiprows=nhead)
     lse_data['file'] = lse_file
     lse_data.rename(index=str,columns={'Specname':'spectrum'},inplace=True) # the other files use 'spectrum'
-
-    # tav file: contains VSFs
-    with open(tav_file,'r') as infile:
-        nhead,ncol,nspec,naux = np.array(infile.readline().split()).astype(int)
-    nhead = nhead-1
-    tav_data = pd.read_csv(tav_file,delim_whitespace=True,skiprows=nhead)
-    tav_data['file'] = tav_file
-    nwin = int((ncol-naux)/2)
-    speclength = tav_data['spectrum'].map(len).max() # use the longest spectrum file name length for the specname dimension
 
     # vav file: contains column amounts
     nhead, ncol = file_info(vav_file)
