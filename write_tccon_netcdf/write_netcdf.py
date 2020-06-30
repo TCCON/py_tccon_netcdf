@@ -156,6 +156,7 @@ special_description_dict = {
     'luft':' luft is used for "dry air"',
 }
 
+
 def progress(i,tot,bar_length=20,word=''):
     """
     a fancy loadbar to be displayed in the prompt while executing a time consuming loop
@@ -280,6 +281,7 @@ def gravity(gdlat,altit):
 
     return gravity
 
+
 def get_eqlat(mod_file,levels):
     """
     Input:
@@ -314,7 +316,7 @@ def get_eflat(vmr_file):
         logging.warning('Could not find vmr file %s; the prior effective_latitude and mid-tropospheric potential temperature will use fill values',vmr_file)
         return np.ones(2)*netCDF4.default_fillvals['f4']
 
-
+    counter = 1
     with open(vmr_file,'r') as f:
         while True:
             line = f.readline().strip()
@@ -323,9 +325,13 @@ def get_eflat(vmr_file):
             elif 'MIDTROP_THETA' in line:
                 mid_trop_pt = float(line.split(':')[1])
                 break
+            if counter>nhead:
+                vmr_error_message = "Did not find EFF_LAT_TROP or MIDTROP_THETA in {}".format(vmr_file)
+                logging.critical(vmr_error_message)
+                raise RuntimeError(vmr_error_message)
+            counter += 1
 
     return eflat,mid_trop_pt
-
 
 
 def read_mav(path,GGGPATH,maxspec):
@@ -587,6 +593,7 @@ def write_values(nc_data,var,values):
             else:
                 nc_data[var][i] = test[0]
         logging.warning('All faulty values have been replaced by the default netcdf fill value for floats: {}'.format(netCDF4.default_fillvals['f4']))
+
 
 def write_public_nc(private_nc_file,code_dir,nc_format):
     """
