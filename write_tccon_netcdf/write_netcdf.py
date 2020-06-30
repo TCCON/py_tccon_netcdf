@@ -34,7 +34,7 @@ standard_name_dict = {
 'long':'longitude',
 'hour':'decimal_hour',
 'azim':'solar_azimuth_angle',
-'asza':'astronomical_solar_zenith_angle',
+'solzen':'solar_zenith_angle',
 'day':'day_of_year',
 'wspd':'wind_speed',
 'wdir':'wind_direction',
@@ -97,7 +97,7 @@ units_dict = {
 'long':'degrees_east',
 'hour':'hours',
 'azim':'degrees',
-'asza':'degrees',
+'solzen':'degrees',
 'day':'days',
 'wspd':'m.s-1',
 'wdir':'degrees',
@@ -1561,7 +1561,7 @@ def main():
                 widths = [speclength+2,9,9,7]
             cbf_data = pd.read_fwf(cbf_file,widths=widths,names=headers,skiprows=nhead+1)
             cbf_data.rename(str.lower,axis='columns',inplace=True)
-            cbf_data.rename(index=str,columns={'cfamp/cl':'cfampocl'},inplace=True)
+            cbf_data.rename(index=str,columns={'cf_amp/cl':'cfampocl','cf_period':'cfperiod','cf_phase':'cfphase'},inplace=True)
             cbf_data.rename(index=str,columns={'spectrum_name':'spectrum'},inplace=True)
             cbf_data['spectrum'] = cbf_data['spectrum'].map(lambda x: x.strip('"')) # remove quotes from the spectrum filenames
 
