@@ -549,6 +549,32 @@ def check_eof(private_nc_file, eof_file, nc_var_list, eof_var_list, other_is_nc=
     return checks
 
 
+def _nanabsargmax(arr, axis=None):
+    minimum = np.nanmin(arr, axis=axis)
+    maximum = np.nanmax(arr, axis=axis)
+    min_larger = np.abs(minimum) > np.abs(maximum)
+
+    minargs = np.nanargmin(arr, axis=axis)
+    maxargs = np.nanargmax(arr, axis=axis)
+    return np.where(min_larger, minargs, maxargs)
+
+
+def _flatten_diffs(diffs, perdiffs):
+    if np.ndim(diffs) == 1:
+        return diffs, perdiffs
+    elif np.ndim(diffs) == 2:
+        xinds = _nanabsargmax(perdiffs, axis=1)
+        # Subtle indexing point: if diffs is m-by-n (and so xinds is an m-element vector)
+        # then diffs[:, xinds] becomes m-by-m: the indices in xinds are pulled for each row.
+        # However, it seems that if we don't use the and instead give yinds as a concrete
+        # vector, it does what we want: pull one element from each row.
+        yinds = np.arange(diffs.shape[0])
+        return diffs[yinds, xinds], perdiffs[yinds, xinds]
+    else:
+        raise NotImplementedError('Cannot flatten {} dimensional diffs'.format(np.ndim(diffs)))
+    
+
+
 def print_detailed_diff(variable, old_vals, new_vals, threshold=0.01):
     """
     Log detailed differences between old and new values of a variable
@@ -570,6 +596,13 @@ def print_detailed_diff(variable, old_vals, new_vals, threshold=0.01):
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
         perdiffs = 100 * diffs / old_vals
+
+    try:
+        diffs, perdiffs = _flatten_diffs(diffs, perdiffs)
+    except NotImplementedError:
+        logging.warning('  %s has more than 2 dimensions, not set up to give detailed diffs', variable)
+        return
+
     imax = np.nanargmax(perdiffs)
     logging.info('  %s has max percent diff (%.4f %%) at spectrum %d', variable, perdiffs[imax], imax+1)
     ispec = 0
@@ -1769,13 +1802,13 @@ def compare_nc_files(base_file, other_file, log_file=None, log_level='INFO'):
 
     missing_base_vars = base_variables.difference(common_variables)
     if len(missing_base_vars) > 0:
-        logging.warning('{} variables present in the first file ({}) are missing from the second file ({})'
-                        .format(len(missing_base_vars), base_file, other_file))
+        logging.warning('{} variables ({}) present in the first file ({}) are missing from the second file ({})'
+                        .format(len(missing_base_vars), ', '.join(missing_base_vars), base_file, other_file))
 
     missing_other_vars = other_variables.difference(common_variables)
     if len(missing_other_vars) > 0:
         logging.warning('{} variables present in the second file ({}) were not present in the first file ({})'
-                        .format(len(missing_other_vars), other_variables, base_variables))
+                        .format(len(missing_other_vars), ', '.join(missing_other_vars), other_file, base_file))
 
     common_variables = list(common_variables)
     checks = check_eof(base_file, other_file, common_variables, common_variables, other_is_nc=True, show_detail=True)
