@@ -470,7 +470,7 @@ def write_eof(private_nc_file,eof_file,qc_file,nc_var_list,show_progress):
     check_eof(private_nc_file,eof_file,nc_var_list,eof_var_list)
 
 
-def check_eof(private_nc_file, eof_file, nc_var_list, eof_var_list, other_is_nc=False, show_detail=False):
+def check_eof(private_nc_file, eof_file, nc_var_list, eof_var_list, other_is_nc=False, show_detail=False, ignore=tuple()):
     """
     check that the private netcdf file and eof.csv file contents are equal
 
@@ -495,6 +495,10 @@ def check_eof(private_nc_file, eof_file, nc_var_list, eof_var_list, other_is_nc=
      Done separately from the log level because this is conceptually different from logging.
     :type show_detail: bool
 
+    :param ignore: sequence of variable names to ignore (not check for differences). These must be variables
+     in ``nc_var_list``
+    :type ignore: Sequence[str]
+
     :return: list of booleans indicating if each variable in the two files matches or not
     """
     logging.info('Checking EOF and NC file contents ...')
@@ -512,7 +516,11 @@ def check_eof(private_nc_file, eof_file, nc_var_list, eof_var_list, other_is_nc=
     numeric_diffs = dict()
     try:
         for i,var in enumerate(nc_var_list):
-            if (var=='spectrum') or ('checksum' in var):
+            if var in ignore:
+                logging.info('Not checking %s as specified', var)
+                checks += [True]
+                continue
+            elif (var=='spectrum') or ('checksum' in var):
                 checks += [np.array_equal(nc[var][:],eof[eof_var_list[i]][:])]
             elif var=='flagged_var_name':
                 #checks += [np.array_equal(nc[var][:],eof[eof_var_list[i]][:].replace(np.nan,''))]
@@ -1788,7 +1796,7 @@ def main():
     logging.info('Finished write_eof log session')
 
 
-def compare_nc_files(base_file, other_file, log_file=None, log_level='INFO'):
+def compare_nc_files(base_file, other_file, log_file=None, log_level='INFO', ignore=('config_checksum','mav_checksum')):
     def get_file_variables(filename):
         with netCDF4.Dataset(filename, 'r') as ds:
             variables = set(ds.variables.keys())
@@ -1811,12 +1819,14 @@ def compare_nc_files(base_file, other_file, log_file=None, log_level='INFO'):
                         .format(len(missing_other_vars), ', '.join(missing_other_vars), other_file, base_file))
 
     common_variables = list(common_variables)
-    checks = check_eof(base_file, other_file, common_variables, common_variables, other_is_nc=True, show_detail=True)
+    checks = check_eof(base_file, other_file, common_variables, common_variables, other_is_nc=True, show_detail=True, ignore=ignore)
 
     return 1 if False in checks else 0
 
 
 def compare_nc_files_command_line():
+    def csl(arg):
+        return arg.split(',')
     parser = argparse.ArgumentParser(description='Check that the variables in two .nc files are equal')
     parser.add_argument('base_file', help='The first .nc file, which will serve as the baseline')
     parser.add_argument('other_file', help='The second .nc file, which will be checked against the base_file')
@@ -1826,6 +1836,9 @@ def compare_nc_files_command_line():
     parser.add_argument('--log-file', default=None,
                         help="File to write the logging messages to in addition to the screen. By default, no such "
                              "file is written.")
+    parser.add_argument('-i', '--ignore', nargs='?', const='', default='mav_checksum,config_checksum', type=csl,
+                        help='A comma separated list of variables not to difference. Default is "%(default)s". '
+                             'To ignore no variables, give this flag with no following value')
     parser.epilog = 'An exit code of 1 indicates that there were differences between the files.'
     cl_args = vars(parser.parse_args())
     return compare_nc_files(**cl_args)
