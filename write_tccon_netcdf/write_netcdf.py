@@ -1466,10 +1466,6 @@ def main():
                 nc_data[varname][:] = aicf_data[var][i]
 
         ## write data
-        # time, need it before writing prior data      
-        write_values(nc_data,'year',np.round(aia_data['year'][:].values-aia_data['day'][:].values/365.25))
-        write_values(nc_data,'day',np.round(aia_data['day'][:].values-aia_data['hour'][:].values/24.0))
-        write_values(nc_data,'time',np.array([elem.total_seconds() for elem in (specdates-datetime(1970,1,1))]))
 
         # prior data
         logging.info('Writing prior data ...')
@@ -1480,6 +1476,8 @@ def main():
         prior_index = 0
         
         spec_list = nc_data['spectrum'][:]
+        # need the time not affected by esf data
+        aia_time = np.array([elem.total_seconds() for elem in (specdates-datetime(1970,1,1))])
         
         for spec_id,spectrum in enumerate(spec_list):
             if spectrum==next_spectrum:
@@ -1495,7 +1493,7 @@ def main():
                     logging.warning('The "Next spectrum" of a block in the .mav file is not part of the outputs: {}'.format(next_spectrum))
                     logging.warning('Find the spectrum in the .tav file closest to the model time minus 1.5 hour')
                     model_coinc_time = netCDF4.date2num(datetime.strptime(prior_data[next_spectrum]['mod_file'].split('_')[1],'%Y%m%d%HZ')-timedelta(hours=1.5),nc_data['time'].units,calendar=nc_data['time'].calendar)
-                    next_spectrum = nc_data['spectrum'][nc_data['time'][:]>model_coinc_time][0]
+                    next_spectrum = nc_data['spectrum'][aia_time>model_coinc_time][0]
                     logging.warning('The "Next spectrum" was replaced with: {}'.format(next_spectrum))
 
             nc_data['prior_index'][spec_id] = prior_index
@@ -1590,6 +1588,11 @@ def main():
             flag = flag_list[i]
             logging.info('{:>3}  {:<20} {:>6}   {:>8.3f}'.format(flag,qc_data['variable'][flag-1],kflag,100*kflag/nc_data['time'].size))
         logging.info('     {:<20} {:>6}   {:>8.3f}'.format('TOTAL',nflag,100*nflag/nc_data['time'].size))
+
+        # time    
+        write_values(nc_data,'year',np.round(aia_data['year'][:].values-aia_data['day'][:].values/365.25))
+        write_values(nc_data,'day',np.round(aia_data['day'][:].values-aia_data['hour'][:].values/24.0))
+        write_values(nc_data,'time',np.array([elem.total_seconds() for elem in (specdates-datetime(1970,1,1))]))
 
         # write data from .col and .cbf files
         logging.info('Writing data:')
