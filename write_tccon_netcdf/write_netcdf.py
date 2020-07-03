@@ -1032,7 +1032,7 @@ def main():
             logging.critical(len(data['spectrum']),'spectra in',data['file'][0])
         sys.exit()
 
-    specdates = np.array([datetime(int(aia_data['year'][i]),1,1)+timedelta(days=aia_data['day'][i]-1) for i in range(nspec)])
+    specdates = np.array([datetime(int(round(aia_data['year'][i]-aia_data['day'][i]/366.0)),1,1)+timedelta(days=aia_data['day'][i]-1) for i in range(nspec)])
     start_date = datetime.strftime(specdates[0],'%Y%m%d')
     end_date = datetime.strftime(specdates[-1],'%Y%m%d')
 
@@ -1591,8 +1591,7 @@ def main():
         logging.info('     {:<20} {:>6}   {:>8.3f}'.format('TOTAL',nflag,100*nflag/nc_data['time'].size))
 
         # time
-        days_in_year = aia_data['year'].apply(lambda x: 366 if calendar.isleap(int(x)) else 365)
-        write_values(nc_data,'year',np.round(aia_data['year'][:].values-aia_data['day'][:].values/days_in_year))
+        write_values(nc_data,'year',np.round(aia_data['year'][:].values-aia_data['day'][:].values/366.0))
         write_values(nc_data,'day',np.round(aia_data['day'][:].values-aia_data['hour'][:].values/24.0))
         write_values(nc_data,'time',np.array([elem.total_seconds() for elem in (specdates-datetime(1970,1,1))]))
 
