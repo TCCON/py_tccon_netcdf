@@ -19,6 +19,7 @@ import argparse
 from collections import OrderedDict
 import time
 from datetime import datetime, timedelta
+import calendar
 import re
 import logging
 import warnings
@@ -1589,8 +1590,9 @@ def main():
             logging.info('{:>3}  {:<20} {:>6}   {:>8.3f}'.format(flag,qc_data['variable'][flag-1],kflag,100*kflag/nc_data['time'].size))
         logging.info('     {:<20} {:>6}   {:>8.3f}'.format('TOTAL',nflag,100*nflag/nc_data['time'].size))
 
-        # time    
-        write_values(nc_data,'year',np.round(aia_data['year'][:].values-aia_data['day'][:].values/365.25))
+        # time
+        days_in_year = aia_data['year'].apply(lambda x: 366 if calendar.isleap(int(x)) else 365)
+        write_values(nc_data,'year',np.round(aia_data['year'][:].values-aia_data['day'][:].values/days_in_year))
         write_values(nc_data,'day',np.round(aia_data['day'][:].values-aia_data['hour'][:].values/24.0))
         write_values(nc_data,'time',np.array([elem.total_seconds() for elem in (specdates-datetime(1970,1,1))]))
 
