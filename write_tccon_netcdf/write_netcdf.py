@@ -522,28 +522,39 @@ def check_eof(private_nc_file, eof_file, nc_var_list, eof_var_list, other_is_nc=
                 checks += [True]
                 continue
             elif (var=='spectrum') or ('checksum' in var):
-                checks += [np.array_equal(nc[var][:],eof[eof_var_list[i]][:])]
+                checks += [np.array_equal(nc[var][:], eof[eof_var_list[i]][:])]
+                logging.debug('%s checked with array_equal, result %d', var, checks[-1])
             elif var=='flagged_var_name':
                 #checks += [np.array_equal(nc[var][:],eof[eof_var_list[i]][:].replace(np.nan,''))]
                 # these are actually different becaus the units are in the variable names for the eof.csv file
                 # however, we need an entry, otherwise checks gets out of sync with nc_var_list
                 checks += [True]
+                logging.debug('%s assumed True: %d', var, checks[-1])
             elif np.issubdtype(nc[var].dtype, np.floating):
                 # For floating point values, better to allow for small differences between the two values
                 checks += [np.ma.allclose(nc[var][:], eof[eof_var_list[i]][:].astype(nc[var][:].dtype))]
                 numeric_diffs[var] = (nc[var][:].filled(np.nan), eof[eof_var_list[i]][:].filled(np.nan))
+                logging.debug('%s checked with np.ma.allclose, result %d', var, checks[-1])
             else:
                 # It seems to be important to convert the eof variable to the datatype of the array,
                 # not the netcdf variable, from the first file. With netCDF version 1.4.2, string variables
                 # have type "|S1" but the arrays have type "<U32" for some reason.
-                checks += [np.array_equal(nc[var][:],eof[eof_var_list[i]][:].astype(nc[var][:].dtype))]
+                checks += [np.array_equal(nc[var][:], eof[eof_var_list[i]][:].astype(nc[var][:].dtype))]
                 if np.issubdtype(nc[var].dtype, np.number):
                     numeric_diffs[var] = (nc[var][:].filled(np.nan), eof[eof_var_list[i]][:].filled(np.nan))
+                logging.debug('%s checked with array_equal after dtype conversion, result %d', var, checks[-1])
 
     finally:
         nc.close()
         if close_eof:
             eof.close()
+
+    logging.debug('checks length = {}, vars length = {}'.format(len(checks), len(nc_var_list)))
+
+    max_diff = None
+    max_perdiff = None
+    max_fin_diff = None
+    max_fin_perdiff = None
 
     if False in checks:
         logging.warning('{} / {} different columns:'.format(ncol-np.count_nonzero(checks),ncol))
@@ -551,11 +562,32 @@ def check_eof(private_nc_file, eof_file, nc_var_list, eof_var_list, other_is_nc=
             if not checks[i]:
                 logging.warning('%s is not identical !',var)
                 if var in numeric_diffs and show_detail:
-                    print_detailed_diff(var, *numeric_diffs[var])
+                    this_diff, this_perdiff = print_detailed_diff(var, *numeric_diffs[var])
+                    
+                    if max_perdiff is None or np.abs(this_perdiff) > np.abs(max_perdiff[0]):
+                        max_perdiff = (this_perdiff, var)
+                        max_diff = (this_diff, var)
+                        logging.debug('Setting max_perdiff to {}'.format(max_perdiff))
+                        if np.isfinite(this_perdiff) and (max_fin_perdiff is None or np.abs(this_perdiff) > np.abs(max_fin_perdiff[0])):
+                            max_fin_perdiff = (this_perdiff, var)
+                            max_fin_diff = (this_diff, var)
+                            logging.debug('Setting max_fin_perdiff to {}'.format(max_fin_perdiff))
+
+        if max_perdiff is not None:
+            logging.info('Max percent difference ({pdiff}% = {diff}) was in {var}'.format(pdiff=max_perdiff[0], diff=max_diff[0], var=max_perdiff[1]))
+        if max_fin_perdiff is not None:
+            logging.info('Max FINITE percent difference ({pdiff}% = {diff}) was in {var}'.format(pdiff=max_fin_perdiff[0], diff=max_fin_diff[0], var=max_fin_perdiff[1]))
     else:
         logging.info('Contents are identical')
 
     return checks
+
+
+def _nanabsmax(arr, axis=None):
+    minimum = np.nanmin(arr, axis=axis)
+    maximum = np.nanmax(arr, axis=axis)
+    min_larger = np.abs(minimum) > np.abs(maximum)
+    return np.where(min_larger, minimum, maximum)
 
 
 def _nanabsargmax(arr, axis=None):
@@ -568,9 +600,9 @@ def _nanabsargmax(arr, axis=None):
     return np.where(min_larger, minargs, maxargs)
 
 
-def _flatten_diffs(diffs, perdiffs):
+def _flatten_diffs(diffs, perdiffs, old, new):
     if np.ndim(diffs) == 1:
-        return diffs, perdiffs
+        return diffs, perdiffs, old, new
     elif np.ndim(diffs) == 2:
         xinds = _nanabsargmax(perdiffs, axis=1)
         # Subtle indexing point: if diffs is m-by-n (and so xinds is an m-element vector)
@@ -578,7 +610,7 @@ def _flatten_diffs(diffs, perdiffs):
         # However, it seems that if we don't use the and instead give yinds as a concrete
         # vector, it does what we want: pull one element from each row.
         yinds = np.arange(diffs.shape[0])
-        return diffs[yinds, xinds], perdiffs[yinds, xinds]
+        return diffs[yinds, xinds], perdiffs[yinds, xinds], old[yinds, xinds], new[yinds, xinds]
     else:
         raise NotImplementedError('Cannot flatten {} dimensional diffs'.format(np.ndim(diffs)))
     
@@ -604,21 +636,23 @@ def print_detailed_diff(variable, old_vals, new_vals, threshold=0.01):
     diffs = new_vals - old_vals
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
-        perdiffs = 100 * diffs / old_vals
+        perdiffs = 100 * diffs / np.abs(old_vals)
 
     try:
-        diffs, perdiffs = _flatten_diffs(diffs, perdiffs)
+        diffs, perdiffs, old_vals, new_vals = _flatten_diffs(diffs, perdiffs, old_vals, new_vals)
     except NotImplementedError:
         logging.warning('  %s has more than 2 dimensions, not set up to give detailed diffs', variable)
         return
 
-    imax = np.nanargmax(perdiffs)
+    imax = _nanabsargmax(perdiffs)
     logging.info('  %s has max percent diff (%.4f %%) at spectrum %d', variable, perdiffs[imax], imax+1)
     ispec = 0
-    for delta, pdelta in zip(diffs, perdiffs):
+    for old, new, delta, pdelta in zip(old_vals, new_vals, diffs, perdiffs):
         ispec += 1
         if np.abs(pdelta) > threshold:
-            logging.info('    Spectrum %d: Difference = %.4f    Fractional difference = %.4f %%', ispec, delta, pdelta)
+            logging.info('    Spectrum %d (old = %.4g, new = %.4g): Difference = %.4g    Fractional difference = %.4f %%', ispec, old, new, delta, pdelta)
+
+    return _nanabsmax(diffs).item(), _nanabsmax(perdiffs).item()
 
 
 def write_values(nc_data,var,values):
