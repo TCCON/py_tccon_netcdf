@@ -1149,44 +1149,62 @@ def main():
 
         ## create coordinate variables
         nc_data.createVariable('time',np.float64,('time',))
-        nc_data['time'].standard_name = "time"
-        nc_data['time'].long_name = "time"
-        nc_data['time'].description = 'UTC time'
-        nc_data['time'].units = 'seconds since 1970-01-01 00:00:00'
-        nc_data['time'].calendar = 'gregorian'
+        att_dict = {
+            "standard_name": "time",
+            "long_name": "time",
+            "description": 'UTC time',
+            "units": 'seconds since 1970-01-01 00:00:00',
+            "calendar": 'gregorian',
+        }
+        nc_data['time'].setncatts(att_dict)
 
         nc_data.createVariable('prior_time',np.float32,('prior_time'))
-        nc_data['prior_time'].standard_name = "prior_time"
-        nc_data['prior_time'].long_name = "prior time"
-        nc_data['prior_time'].description = 'UTC time for the prior profiles, corresponds to GEOS5 times every 3 hours from 0 to 21'
-        nc_data['prior_time'].units = 'seconds since 1970-01-01 00:00:00'
-        nc_data['prior_time'].calendar = 'gregorian'
+        att_dict = {
+            "standard_name": "prior_time",
+            "long_name": "prior time",
+            "description": 'UTC time for the prior profiles, corresponds to GEOS5 times every 3 hours from 0 to 21',
+            "units": 'seconds since 1970-01-01 00:00:00',
+            "calendar": 'gregorian',
+        }
+        nc_data['prior_time'].setncatts(att_dict)
 
         nc_data.createVariable('cell_index',np.int16,('cell_index'))
-        nc_data['cell_index'].standard_name = "cell_index"
-        nc_data['cell_index'].long_name = "cell_index"
-        nc_data['cell_index'].description = "variables with names including 'cell_' will be along dimensions (prior_time,cell_index)"
+        att_dict = {
+            "standard_name": "cell_index",
+            "long_name": "cell_index",
+            "description": "variables with names including 'cell_' will be along dimensions (prior_time,cell_index)",
+        }
+        nc_data['cell_index'].setncatts(att_dict)
         nc_data['cell_index'][:] = np.arange(ncell)
 
         nc_data.createVariable('prior_altitude',np.float32,('prior_altitude')) # this one doesn't change between priors
-        nc_data['prior_altitude'].standard_name = '{}_profile'.format('prior_altitude')
-        nc_data['prior_altitude'].long_name = nc_data['prior_altitude'].standard_name.replace('_',' ')
-        nc_data['prior_altitude'].units = units_dict['prior_altitude']
-        nc_data['prior_altitude'].description = "altitude levels for the prior profiles, these are the same for all the priors"
+        att_dict = {
+            "standard_name": 'prior_altitude_profile',
+            "long_name": 'prior altitude profile',
+            "units": units_dict['prior_altitude'],
+            "description": "altitude levels for the prior profiles, these are the same for all the priors",
+        }
+        nc_data['prior_altitude'].setncatts(att_dict)
         nc_data['prior_altitude'][0:nlev] = prior_data[list(prior_data.keys())[0]]['data']['altitude'].values
 
         nc_data.createVariable('ak_pressure',np.float32,('ak_pressure'))
-        nc_data['ak_pressure'].standard_name = "averaging_kernel_pressure_levels"
-        nc_data['ak_pressure'].long_name = nc_data['ak_pressure'].standard_name.replace('_',' ')
-        nc_data['ak_pressure'].description = "fixed pressure levels for the Lamont (OK, USA) column averaging kernels"
-        nc_data['ak_pressure'].units = 'hPa'
+        att_dict = {
+            "standard_name": "averaging_kernel_pressure_levels",
+            "long_name": "averaging kernel pressure levels",
+            "description": "fixed pressure levels for the Lamont (OK, USA) column averaging kernels",
+            "units": 'hPa',
+        }
+        nc_data['ak_pressure'].setncatts(att_dict)
         nc_data['ak_pressure'][0:nlev_ak] = ak_data['co2']['P_hPa'].values
 
         nc_data.createVariable('ak_sza',np.float32,('ak_sza'))
-        nc_data['ak_sza'].standard_name = "averaging_kernel_solar_zenith_angles"
-        nc_data['ak_sza'].long_name = nc_data['ak_sza'].standard_name.replace('_',' ')
-        nc_data['ak_sza'].description = "fixed solar zenith angles for the Lamont (OK, USA) column averaging kernels"
-        nc_data['ak_sza'].units = 'degrees'
+        att_dict = {
+            "standard_name": "averaging_kernel_solar_zenith_angles",
+            "long_name": "averaging kernel solar zenith_angles",
+            "description": "fixed solar zenith angles for the Lamont (OK, USA) column averaging kernels",
+            "units": 'degrees',
+        }
+        nc_data['ak_sza'].setncatts(att_dict)
         nc_data['ak_sza'][0:nsza_ak] = ak_data['co2'].columns[1:].values.astype(np.float32)
 
         ## create variables
@@ -1196,20 +1214,26 @@ def main():
         for gas in ak_data.keys():
             var = 'ak_{}'.format(gas)
             nc_data.createVariable(var,np.float32,('ak_sza','ak_pressure'))
-            nc_data[var].standard_name = '{}_column_averaging_kernel'.format(gas)
-            nc_data[var].long_name = nc_data[var].standard_name.replace('_',' ')
-            nc_data[var].description = '{} column averaging kernel over Lamont (OK, USA)'.format(gas)
-            nc_data[var].units = ''
+            att_dict = {
+                "standard_name": '{}_column_averaging_kernel'.format(gas),
+                "long_name": '{} column averaging kernel'.format(gas),
+                "description": '{} column averaging kernel over Lamont (OK, USA)'.format(gas),
+                "units": '',
+            }
+            nc_data[var].setncatts(att_dict)
             # write it now
             for i,sza in enumerate(ak_data[gas].columns[1:]):
                 nc_data[var][i,0:nlev_ak] = ak_data[gas][sza].values
  
         # priors and cell variables
         nc_data.createVariable('prior_index',np.int16,('time',))
-        nc_data['prior_index'].standard_name = 'prior_index'
-        nc_data['prior_index'].long_name = 'prior index'
-        nc_data['prior_index'].units = ''
-        nc_data['prior_index'].description = 'Index of the prior profile associated with each measurement, it can be used to sample the prior_ and cell_ variables along the prior_time dimension'
+        att_dict = {
+            "standard_name": 'prior_index',
+            "long_name": 'prior index',
+            "units": '',
+            "description": 'Index of the prior profile associated with each measurement, it can be used to sample the prior_ and cell_ variables along the prior_time dimension',
+        }
+        nc_data['prior_index'].setncatts(att_dict)
 
         prior_var_list = [ i for i in list(prior_data[list(prior_data.keys())[0]]['data'].keys()) if i!='altitude']
         cell_var_list = []
@@ -1217,33 +1241,40 @@ def main():
         for var in prior_var_list:
             prior_var = 'prior_{}'.format(var)
             nc_data.createVariable(prior_var,np.float32,('prior_time','prior_altitude'))
-            nc_data[prior_var].standard_name = '{}_profile'.format(prior_var)
-            nc_data[prior_var].long_name = nc_data[prior_var].standard_name.replace('_',' ')
+            att_dict = {}
+            att_dict["standard_name"] = '{}_profile'.format(prior_var)
+            att_dict["long_name"] = att_dict["standard_name"].replace('_',' ')
             if var not in ['temperature','density','pressure','gravity']:
-                nc_data[prior_var].description = nc_data[prior_var].long_name
+                att_dict["description"] = att_dict["long_name"]
             else:
-                nc_data[prior_var].description = 'a priori concentration profile of {}, in parts'.format(var)
-            nc_data[prior_var].units = units_dict[prior_var]
+                att_dict["description"] = 'a priori concentration profile of {}, in parts'.format(var)
+            att_dict["units"] = units_dict[prior_var]
+            nc_data[prior_var].setncatts(att_dict)
 
             if var == 'gravity':
                 continue
             cell_var = 'cell_{}'.format(var)
             cell_var_list += [cell_var]
             nc_data.createVariable(cell_var,np.float32,('prior_time','cell_index'))
-            nc_data[cell_var].standard_name = cell_var
-            nc_data[cell_var].long_name = nc_data[cell_var].standard_name.replace('_',' ')
+            att_dict = {}
+            att_dict["standard_name"] = cell_var
+            att_dict["long_name"] = att_dict["standard_name"].replace('_',' ')
             if var in ['temperature','density','pressure']:
-                nc_data[cell_var].description = '{} in gas cell'.format(var)
+                att_dict["description"] = '{} in gas cell'.format(var)
             else:
-                nc_data[cell_var].description = 'concentration of {} in gas cell, in parts'.format(var)
-            nc_data[cell_var].units = units_dict[prior_var]
+                att_dict["description"] = 'concentration of {} in gas cell, in parts'.format(var)
+            att_dict["units"] = units_dict[prior_var]
+            nc_data[cell_var].setncatts(att_dict)
 
         prior_var_list += ['tropopause_altitude']
         nc_data.createVariable('prior_tropopause_altitude',np.float32,('prior_time'))
-        nc_data['prior_tropopause_altitude'].standard_name = 'prior_tropopause_altitude'
-        nc_data['prior_tropopause_altitude'].long_name = 'prior tropopause altitude'
-        nc_data['prior_tropopause_altitude'].description = 'altitude at which the gradient in the prior temperature profile becomes > -2 degrees per km'
-        nc_data['prior_tropopause_altitude'].units = units_dict[prior_var]       
+        att_dict = {
+            "standard_name": 'prior_tropopause_altitude',
+            "long_name": 'prior tropopause altitude',
+            "description": 'altitude at which the gradient in the prior temperature profile becomes > -2 degrees per km',
+            "units": units_dict[prior_var],
+        }
+        nc_data['prior_tropopause_altitude'].setncatts(att_dict)       
 
         prior_var_list += ['modfile','vmrfile']
         if classic:
@@ -1255,26 +1286,38 @@ def main():
             prior_modfile_var = nc_data.createVariable('prior_modfile',str,('prior_time',))
             prior_vmrfile_var = nc_data.createVariable('prior_vmrfile',str,('prior_time',))
         
-        nc_data['prior_modfile'].standard_name = 'prior_modfile'
-        nc_data['prior_modfile'].long_name = 'prior modfile'
-        nc_data['prior_modfile'].description = 'Model file corresponding to a given apriori'
+        att_dict = {
+            "standard_name":'prior_modfile',
+            "long_name":'prior modfile',
+            "description":'Model file corresponding to a given apriori',
+        }
+        nc_data['prior_modfile'].setncatts(att_dict)
 
-        nc_data['prior_vmrfile'].standard_name = 'prior_vmrfile'
-        nc_data['prior_vmrfile'].long_name = 'prior vmrfile'
-        nc_data['prior_vmrfile'].description = 'VMR file corresponding to a given apriori'
+        att_dict = {
+            "standard_name":'prior_vmrfile',
+            "long_name":'prior vmrfile',
+            "description":'VMR file corresponding to a given apriori',
+        }
+        nc_data['prior_vmrfile'].setncatts(att_dict)
 
         prior_var_list += ['effective_latitude','mid_tropospheric_potential_temperature']
         nc_data.createVariable('prior_effective_latitude',np.float32,('prior_time',))
-        nc_data['prior_effective_latitude'].standard_name = 'prior_effective_latitude'
-        nc_data['prior_effective_latitude'].long_name = 'prior effective latitude'
-        nc_data['prior_effective_latitude'].description = "latitude at which the mid-tropospheric potential temperature agrees with that from the corresponding 2-week period in a GEOS-FPIT climatology"
-        nc_data['prior_effective_latitude'].units = units_dict['prior_effective_latitude']
+        att_dict = {
+            "standard_name": 'prior_effective_latitude',
+            "long_name": 'prior effective latitude',
+            "description": "latitude at which the mid-tropospheric potential temperature agrees with that from the corresponding 2-week period in a GEOS-FPIT climatology",
+            "units": units_dict['prior_effective_latitude'],
+        }
+        nc_data['prior_effective_latitude'].setncatts(att_dict)
 
         nc_data.createVariable('prior_mid_tropospheric_potential_temperature',np.float32,('prior_time',))
-        nc_data['prior_mid_tropospheric_potential_temperature'].standard_name = 'prior_mid_tropospheric_potential_temperature'
-        nc_data['prior_mid_tropospheric_potential_temperature'].long_name = 'prior mid-tropospheric potential temperature'
-        nc_data['prior_mid_tropospheric_potential_temperature'].description = "average potential temperature between 700-500 hPa"
-        nc_data['prior_mid_tropospheric_potential_temperature'].units = units_dict['prior_mid_tropospheric_potential_temperature']
+        att_dict = {
+            "standard_name": 'prior_mid_tropospheric_potential_temperature',
+            "long_name": 'prior mid-tropospheric potential temperature',
+            "description": "average potential temperature between 700-500 hPa",
+            "units": units_dict['prior_mid_tropospheric_potential_temperature'],
+        }
+        nc_data['prior_mid_tropospheric_potential_temperature'].setncatts(att_dict)
 
         # checksums
         for var in checksum_var_list:
@@ -1283,35 +1326,50 @@ def main():
                 checksum_var._Encoding = 'ascii'
             else:
                 checksum_var = nc_data.createVariable(var+'_checksum',str,('time',))
-            checksum_var.standard_name = standard_name_dict[var+'_checksum']
-            checksum_var.long_name = long_name_dict[var+'_checksum']
-            checksum_var.description = 'hexdigest hash string of the md5 sum of the {} file'.format(var)
+            att_dict = {
+                "standard_name": standard_name_dict[var+'_checksum'],
+                "long_name": long_name_dict[var+'_checksum'],
+                "description": 'hexdigest hash string of the md5 sum of the {} file'.format(var),
+            }
+            checksum_var.setncatts(att_dict)
 
         # code versions
         nc_data.createVariable('gfit_version',np.float32,('time',))
-        nc_data['gfit_version'].description = "version number of the GFIT code that generated the data"
-        nc_data['gfit_version'].standard_name = standard_name_dict['gfit_version']
-        nc_data['gfit_version'].long_name_dict = long_name_dict['gfit_version']
+        att_dict = {
+            "description": "version number of the GFIT code that generated the data",
+            "standard_name": standard_name_dict['gfit_version'],
+            "long_name_dict": long_name_dict['gfit_version'],
+        }
+        nc_data['gfit_version'].setncatts(att_dict)
 
         nc_data.createVariable('gsetup_version',np.float32,('time',))
-        nc_data['gsetup_version'].description = "version number of the GSETUP code that generated the priors"
-        nc_data['gsetup_version'].standard_name = standard_name_dict['gsetup_version']
-        nc_data['gsetup_version'].long_name_dict = long_name_dict['gsetup_version']
+        att_dict = {
+            "description": "version number of the GSETUP code that generated the priors",
+            "standard_name": standard_name_dict['gsetup_version'],
+            "long_name": long_name_dict['gsetup_version'],
+        }
+        nc_data['gsetup_version'].setncatts(att_dict)
 
         # flags
         nc_data.createVariable('flag',np.int16,('time',))
-        nc_data['flag'].description = 'data quality flag, 0 = good'
-        nc_data['flag'].standard_name = 'quality_flag'
-        nc_data['flag'].long_name = 'quality flag'
+        att_dict = {
+            "description": 'data quality flag, 0 = good',
+            "standard_name": 'quality_flag',
+            "long_name": 'quality flag',
+        }
+        nc_data['flag'].setncatts(att_dict)
 
         if classic:
             v = nc_data.createVariable('flagged_var_name','S1',('time','a32'))
             v._Encoding = 'ascii'
         else:
             nc_data.createVariable('flagged_var_name',str,('time',))
-        nc_data['flagged_var_name'].description = 'name of the variable that caused the data to be flagged; empty string = good'
-        nc_data['flagged_var_name'].standard_name = 'flagged_variable_name'
-        nc_data['flagged_var_name'].long_name = 'flagged variable name'
+        att_dict = {
+            "description": 'name of the variable that caused the data to be flagged; empty string = good',
+            "standard_name": 'flagged_variable_name',
+            "long_name": 'flagged variable name',
+        }
+        nc_data['flagged_var_name'].setncatts(att_dict)
 
         # spectrum file names
         if classic:
@@ -1319,9 +1377,12 @@ def main():
             v._Encoding = 'ascii'
         else:
             nc_data.createVariable('spectrum',str,('time',))
-        nc_data['spectrum'].standard_name = 'spectrum_file_name'
-        nc_data['spectrum'].long_name = 'spectrum file name'
-        nc_data['spectrum'].description = 'spectrum file name'
+        att_dict = {
+            "standard_name": 'spectrum_file_name',
+            "long_name": 'spectrum file name',
+            "description": 'spectrum file name',
+        }
+        nc_data['spectrum'].setncatts(att_dict)
 
         for i,specname in enumerate(aia_data['spectrum'].values):
             nc_data['spectrum'][i] = specname        
@@ -1337,15 +1398,18 @@ def main():
                 var_type = np.float32 
             nc_data.createVariable(var,var_type,('time',))#,zlib=True)#,least_significant_digit=digit)
             # set attributes using the qc.dat file
-            nc_data[var].description = qc_data['description'][qc_id]
-            nc_data[var].units = qc_data['unit'][qc_id].replace('(','').replace(')','').strip()
-            nc_data[var].vmin = qc_data['vmin'][qc_id]
-            nc_data[var].vmax = qc_data['vmax'][qc_id]
-            nc_data[var].precision = qc_data['format'][qc_id]
+            att_dict = {
+                "description": qc_data['description'][qc_id],
+                "units": qc_data['unit'][qc_id].replace('(','').replace(')','').strip(),
+                "vmin": qc_data['vmin'][qc_id],
+                "vmax": qc_data['vmax'][qc_id],
+                "precision": qc_data['format'][qc_id],
+            }
             if var in standard_name_dict.keys():
-                nc_data[var].standard_name = standard_name_dict[var]
-                nc_data[var].long_name = long_name_dict[var]
-                nc_data[var].units = units_dict[var] # reset units here for some of the variables in the qc_file using UDUNITS compatible units
+                att_dict["standard_name"] = standard_name_dict[var]
+                att_dict["long_name"] = long_name_dict[var]
+                att_dict["units"] = units_dict[var] # reset units here for some of the variables in the qc_file using UDUNITS compatible units
+            nc_data[var].setncatts(att_dict)
 
         nc_data['hour'].description = 'Fractional UT hours (zero path difference crossing time)'
 
@@ -1356,14 +1420,17 @@ def main():
             #digit = int(qc_data['format'][qc_id].split('.')[-1])
             var_type = np.float32 
             nc_data.createVariable(key,var_type,('time'))#,zlib=True)#,least_significant_digit=digit)
-            nc_data[key].description = 'model {}'.format(qc_data['description'][qc_id].lower())
-            nc_data[key].vmin = qc_data['vmin'][qc_id]
-            nc_data[key].vmax = qc_data['vmax'][qc_id]
-            nc_data[key].precision = 'f10.4'
+            att_dict = {
+                "description": 'model {}'.format(qc_data['description'][qc_id].lower()),
+                "vmin": qc_data['vmin'][qc_id],
+                "vmax": qc_data['vmax'][qc_id],
+                "precision": 'f10.4',
+            }
             if key in standard_name_dict.keys():
-                nc_data[key].standard_name = standard_name_dict[key]
-                nc_data[key].long_name = long_name_dict[key]
-                nc_data[key].units = units_dict[val]
+                att_dict["standard_name"] = standard_name_dict[key]
+                att_dict["long_name"] = long_name_dict[key]
+                att_dict["units"] = units_dict[val]
+            nc_data[key].setncatts(att_dict)
 
         # write variables from the .vsw and .vsw.ada files
         vsw_var_list = [vsw_data.columns[i] for i in range(naux,len(vsw_data.columns)-1)]  # minus 1 because I added the 'file' column
@@ -1371,37 +1438,46 @@ def main():
             # .vsw file
             varname = 'vsw_{}'.format(var)
             nc_data.createVariable(varname,np.float32,('time',))
-            nc_data[varname].standard_name = varname
-            nc_data[varname].long_name = varname.replace('_',' ')
-            nc_data[varname].units = ''
-            nc_data[varname].precision = 'e12.4'
+            att_dict = {
+                "standard_name": varname,
+                "long_name": varname.replace('_',' '),
+                "units": '',
+                "precision": 'e12.4',
+            }
             if 'error' in varname:
-                nc_data[varname].description = "{0} scale factor {2} from the window centered at {1} cm-1.".format(*var.split('_'))
+                att_dict["description"] = "{0} scale factor {2} from the window centered at {1} cm-1.".format(*var.split('_'))
             else:
-                nc_data[varname].description = "{} scale factor from the window centered at {} cm-1".format(*var.split('_'))
+                att_dict["description"] = "{} scale factor from the window centered at {} cm-1".format(*var.split('_'))
                 if vsw_sf_check:
                     # write the data from the vsf= line ine the header of the vsw file
                     sf_var = 'vsw_sf_{}'.format(var)
                     nc_data.createVariable(sf_var,np.float32,('time',))
-                    nc_data[sf_var].standard_name = sf_var
-                    nc_data[sf_var].long_name = sf_var.replace('_',' ')
-                    nc_data[sf_var].description = "{} correction factor from the window centered at {} cm-1".format(*var.split('_'))
-                    nc_data[sf_var].units = ''
+                    sf_att_dict = {
+                        "standard_name": sf_var,
+                        "long_name": sf_var.replace('_',' '),
+                        "description": "{} correction factor from the window centered at {} cm-1".format(*var.split('_')),
+                        "units": '',
+                    }
+                    nc_data[sf_var].setncatts(sf_att_dict)
                     nc_data[sf_var][:] = next(vsw_sf)
+            nc_data[varname].setncatts(att_dict)
             write_values(nc_data,varname,vsw_data[var])
 
             # .vsw.ada file
             var = 'x'+var
             varname = 'vsw_ada_'+var
             nc_data.createVariable(varname,np.float32,('time',))
-            nc_data[varname].standard_name = varname
-            nc_data[varname].long_name = varname.replace('_',' ')
-            nc_data[varname].units = ''
-            nc_data[varname].precision = 'e12.4'
+            att_dict = {
+                "standard_name":varname,
+                "long_name":varname.replace('_',' '),
+                "units":'',
+                "precision":'e12.4',
+            }
             if 'error' in varname:
-                nc_data[varname].description = "{0} scale factor {2} from the window centered at {1} cm-1, after airmass dependence is removed, but before scaling to WMO.".format(*var.split('_'))
+                att_dict["description"] = "{0} scale factor {2} from the window centered at {1} cm-1, after airmass dependence is removed, but before scaling to WMO.".format(*var.split('_'))
             else:
-                nc_data[varname].description = "{} scale factor from the window centered at {} cm-1, after airmass dependence is removed, but before scaling to WMO.".format(*var.split('_'))
+                att_dict["description"] = "{} scale factor from the window centered at {} cm-1, after airmass dependence is removed, but before scaling to WMO.".format(*var.split('_'))
+            nc_data[varname].setncatts(att_dict)
             write_values(nc_data,varname,vsw_ada_data[var])
 
         # averaged variables (from the different windows of each species)
@@ -1412,38 +1488,51 @@ def main():
 
             #digit = int(qc_data['format'][qc_id].split('.')[-1])
             nc_data.createVariable(xvar,np.float32,('time',))#,zlib=True)#,least_significant_digit=digit)
-            nc_data[xvar].standard_name = xvar
-            nc_data[xvar].long_name = xvar.replace('_',' ')
-            nc_data[xvar].description = qc_data['description'][qc_id]
-            nc_data[xvar].units = qc_data['unit'][qc_id].replace('(','').replace(')','').strip()
-            nc_data[xvar].vmin = qc_data['vmin'][qc_id]
-            nc_data[xvar].vmax = qc_data['vmax'][qc_id]
-            nc_data[xvar].precision = qc_data['format'][qc_id]
+            att_dict = {
+                "standard_name": xvar,
+                "long_name": xvar.replace('_',' '),
+                "description": qc_data['description'][qc_id],
+                "units": qc_data['unit'][qc_id].replace('(','').replace(')','').strip(),
+                "vmin": qc_data['vmin'][qc_id],
+                "vmax": qc_data['vmax'][qc_id],
+                "precision": qc_data['format'][qc_id],
+            }
+            nc_data[xvar].setncatts(att_dict)
             #nc_data[xvar] will be written from the .aia data further below, not in this loop
 
             nc_data.createVariable('vsf_'+var,np.float32,('time',))
-            nc_data['vsf_'+var].description = var+" Volume Scale Factor."
-            nc_data['vsf_'+var].precision = 'e12.4'
+            att_dict = {
+                "description": var+" Volume Scale Factor.",
+                "precision": 'e12.4',
+            }
+            nc_data['vsf_'+var].setncatts(att_dict)
             write_values(nc_data,'vsf_'+var,tav_data[var].values)
             
             nc_data.createVariable('column_'+var,np.float32,('time',))
-            nc_data['column_'+var].description = var+' column average.'
-            nc_data['column_'+var].units = 'molecules.m-2'
-            nc_data['column_'+var].precision = 'e12.4'
+            att_dict = {
+                "description": var+' column average.',
+                "units": 'molecules.m-2',
+                "precision": 'e12.4',
+            }
+            nc_data['column_'+var].setncatts(att_dict)
             write_values(nc_data,'column_'+var,vav_data[var].values)
 
             nc_data.createVariable('ada_'+xvar,np.float32,('time',))
+            att_dict = {
+                "units": "",
+                "precision": 'e12.4',           
+            }
             if 'error' in var:
-                nc_data['ada_'+xvar].description = 'uncertainty associated with ada_x{}'.format(var.replace('_error',''))
+                att_dict["description"] = 'uncertainty associated with ada_x{}'.format(var.replace('_error',''))
             else:
-                nc_data['ada_'+xvar].description = var+' column-average dry-air mole fraction computed after airmass dependence is removed, but before scaling to WMO.'
+                att_dict["description"] = var+' column-average dry-air mole fraction computed after airmass dependence is removed, but before scaling to WMO.'
+            nc_data['ada_'+xvar].setncatts(att_dict)
+            write_values(nc_data,'ada_'+xvar,ada_data[xvar].values)
+
             for key in special_description_dict.keys():
                 if key in var:
                     for nc_var in [nc_data[xvar],nc_data['vsf_'+var],nc_data['column_'+var],nc_data['ada_'+xvar]]:
                         nc_var.description += special_description_dict[key]
-            nc_data['ada_'+xvar].units = ""
-            nc_data['ada_'+xvar].precision = 'e12.4'
-            write_values(nc_data,'ada_'+xvar,ada_data[xvar].values)
 
         # lse data
         lse_dict = {
@@ -1464,10 +1553,13 @@ def main():
         common_spec = np.intersect1d(aia_data['spectrum'],lse_data['spectrum'],return_indices=True)[2]
         for var in lse_dict.keys():
             nc_data.createVariable(var,np.float32,('time',))
-            nc_data[var].standard_name = standard_name_dict[var]
-            nc_data[var].long_name = long_name_dict[var]
-            nc_data[var].description = lse_dict[var]['description']
-            nc_data[var].precision = lse_dict[var]['precision']
+            att_dict = {
+                "standard_name":standard_name_dict[var],
+                "long_name":long_name_dict[var],
+                "description":lse_dict[var]['description'],
+                "precision":lse_dict[var]['precision'],
+            }
+            nc_data[var].setncatts(att_dict)
             write_values(nc_data,var,lse_data[var][common_spec].values)
 
         # airmass-dependent corrections (from the .aia file header)
@@ -1477,13 +1569,16 @@ def main():
                 varname = '{}_{}'.format(xgas,var)
                 correction_var_list += [varname]
                 nc_data.createVariable(varname,np.float32,('time',))
-                nc_data[varname].standard_name = varname
-                nc_data[varname].long_name = varname.replace('_',' ')
-                nc_data[varname].precision = 'f9.4'
+                att_dict = {
+                    "standard_name": varname,
+                    "long_name": varname.replace('_',' '),
+                    "precision": 'f9.4',
+                }
                 if 'error' in var:
-                    nc_data[varname].description = 'Error of the {} airmass-dependent correction factor'.format(xgas)
+                    att_dict["description"] = 'Error of the {} airmass-dependent correction factor'.format(xgas)
                 else:
-                    nc_data[varname].description = '{} airmass-dependent correction factor'.format(xgas)
+                    att_dict["description"] = '{} airmass-dependent correction factor'.format(xgas)
+                nc_data[varname].setncatts(att_dict)
                 nc_data[varname][:] = adcf_data[var][i]
         # airmass-independent corrections (from the .aia file header)
         for i,xgas in enumerate(aicf_data['xgas']):
@@ -1491,13 +1586,16 @@ def main():
                 varname = '{}_{}'.format(xgas,var)
                 correction_var_list += [varname]
                 nc_data.createVariable(varname,np.float32,('time',))
-                nc_data[varname].standard_name = varname
-                nc_data[varname].long_name = varname.replace('_',' ')
-                nc_data[varname].precision = 'f9.4'
+                att_dict = {
+                    "standard_name": varname,
+                    "long_name": varname.replace('_',' '),
+                    "precision": 'f9.4',
+                }
                 if 'error' in var:
-                    nc_data[varname].description = 'Error of the {} airmass-independent correction factor'.format(xgas)
+                    att_dict["description"] = 'Error of the {} airmass-independent correction factor'.format(xgas)
                 else:
-                    nc_data[varname].description = '{} airmass-independent correction factor'.format(xgas)
+                    att_dict["description"] = '{} airmass-independent correction factor'.format(xgas)
+                nc_data[varname].setncatts(att_dict)
                 nc_data[varname][:] = aicf_data[var][i]
 
         ## write data
@@ -1637,9 +1735,9 @@ def main():
                 progress(col_id,len(col_file_list),word=col_file)
 
             cbf_file = col_file.replace('.col','.cbf')
-            with open(cbf_file,'r') as infile:
-                content = infile.readlines()
             nhead,ncol = file_info(cbf_file)
+            with open(cbf_file,'r') as infile:
+                content = [infile.readline() for i in range(nhead+1)]
             headers = content[nhead].split()
             ncbf = len(headers)-4
             if ncbf>0:
@@ -1651,17 +1749,20 @@ def main():
             cbf_data.rename(index=str,columns={'cf_amp/cl':'cfampocl','cf_period':'cfperiod','cf_phase':'cfphase'},inplace=True)
             cbf_data.rename(index=str,columns={'spectrum_name':'spectrum'},inplace=True)
             cbf_data['spectrum'] = cbf_data['spectrum'].map(lambda x: x.strip('"')) # remove quotes from the spectrum filenames
-
+            
             gas_XXXX = col_file.split('.')[0] # gas_XXXX, suffix for nc_data variable names corresponding to each .col file (i.e. VSF_h2o from the 6220 co2 window becomes co2_6220_VSF_co2)
 
-            nhead,ncol = file_info(col_file)
-
             # read col_file headers
+            nhead,ncol = file_info(col_file)
             with open(col_file,'r') as infile:
-                content = infile.readlines()[1:nhead]
-            gfit_version, gsetup_version = content[:2]
+                content = [infile.readline() for i in range(nhead+1)]
+            gfit_version, gsetup_version = content[1:3]
             gfit_version = gfit_version.strip().split()[2]
             gsetup_version = gsetup_version.strip().split()[2]
+            ggg_line = content[nhead-1]
+            ngas = len(ggg_line.split(':')[-1].split())
+            widths = [speclength+1,3,6,6,5,6,6,7,7,8]+[7,11,10,8]*ngas # the fixed widths for each variable so we can read with pandas.read_fwf, because sometimes there is no whitespace between numbers
+            headers = content[nhead].split()
 
             if col_file == col_file_list[0]:
                 # check that the checksums are right for the files listed in the .col file header
@@ -1689,14 +1790,6 @@ def main():
                     for i in range(aia_data['spectrum'].size):
                         nc_data[checksum_var][i] = checksum_dict[checksum_var]
 
-            # read col_file data
-            with open(col_file,'r') as infile:
-                content = infile.readlines()
-            ggg_line = content[nhead-1]
-            ngas = len(ggg_line.split(':')[-1].split())
-            widths = [speclength+1,3,6,6,5,6,6,7,7,8]+[7,11,10,8]*ngas # the fixed widths for each variable so we can read with pandas.read_fwf, because sometimes there is no whitespace between numbers
-            headers = content[nhead].split()
-
             col_data = pd.read_fwf(col_file,widths=widths,names=headers,skiprows=nhead+1)
             col_data.rename(str.lower,axis='columns',inplace=True)
             col_data.rename(index=str,columns={'rms/cl':'rmsocl'},inplace=True)
@@ -1720,13 +1813,14 @@ def main():
                 varname = '_'.join([gas_XXXX,var])
                 col_var_list += [varname]
                 nc_data.createVariable(varname,np.float32,('time',))
+                
+                att_dict = {}               
                 if var in standard_name_dict.keys():
-                    nc_data[varname].standard_name = standard_name_dict[var]
-                    nc_data[varname].long_name = long_name_dict[var]
-
-                write_values(nc_data,varname,col_data[var].values)
+                    att_dict['standard_name'] = standard_name_dict[var]
+                    att_dict['long_name'] = long_name_dict[var]
+                
                 if '_' in var:
-                    nc_data[varname].description = '{} {} retrieved from the {} window centered at {} cm-1.'.format(var.split('_')[1],var.split('_')[0],gas_XXXX.split('_')[0],gas_XXXX.split('_')[1])
+                    att_dict['description'] = '{} {} retrieved from the {} window centered at {} cm-1.'.format(var.split('_')[1],var.split('_')[0],gas_XXXX.split('_')[0],gas_XXXX.split('_')[1])                    
 
                     try:
                         iso = int(var.split('_')[1][0])
@@ -1738,12 +1832,15 @@ def main():
                             sup = ['st','nd','rd'][iso-1]
                         else:
                             sup = 'th'
-                        nc_data[varname].description += "{} is the {}{} isotopolog of {} as listed in GGG's isotopologs.dat file.".format(iso_gas,iso,sup,iso_gas[1:])
+                        att_dict['description'] += "{} is the {}{} isotopolog of {} as listed in GGG's isotopologs.dat file.".format(iso_gas,iso,sup,iso_gas[1:])
                 else:
-                    nc_data[varname].description = '{} retrieved from the {} window centered at {} cm-1.'.format(var,gas_XXXX.split('_')[0],gas_XXXX.split('_')[1])
+                    att_dict['description'] = '{} retrieved from the {} window centered at {} cm-1.'.format(var,gas_XXXX.split('_')[0],gas_XXXX.split('_')[1])
                 for key in special_description_dict.keys():
                     if key in varname:
-                        nc_data[varname].description += special_description_dict[key]
+                        att_dict['description'] += special_description_dict[key]
+                nc_data[varname].setncatts(att_dict)
+                write_values(nc_data,varname,col_data[var].values)
+
             
             # add data from the .cbf file
             ncbf_var = '{}_ncbf'.format(gas_XXXX)
@@ -1754,13 +1851,15 @@ def main():
                 varname = '_'.join([gas_XXXX,var])
                 col_var_list += [varname]
                 nc_data.createVariable(varname,np.float32,('time',))
+                att_dict = {}
                 if '_' in var:
-                    nc_data[varname].standard_name = standard_name_dict[var.split('_')[0]].format(var.split('_')[1])
-                    nc_data[varname].long_name = long_name_dict[var.split('_')[0]].format(var.split('_')[1])
+                    att_dict['standard_name'] = standard_name_dict[var.split('_')[0]].format(var.split('_')[1])
+                    att_dict['long_name'] = long_name_dict[var.split('_')[0]].format(var.split('_')[1])
                 else:
-                    nc_data[varname].standard_name = standard_name_dict[var]
-                    nc_data[varname].long_name = long_name_dict[var]
-                    nc_data[varname].units = units_dict[var]
+                    att_dict['standard_name'] = standard_name_dict[var]
+                    att_dict['long_name'] = long_name_dict[var]
+                    att_dict['units'] = units_dict[var]
+                nc_data[varname].setncatts(att_dict)
                 write_values(nc_data,varname,cbf_data[var].values)
 
         # read the data from missing_data.json and update data with fill values to the netCDF4 default fill value
