@@ -1963,7 +1963,7 @@ def compare_nc_files(base_file, other_file, log_file=None, log_level='INFO', ign
         logging.warning('{} variables present in the second file ({}) were not present in the first file ({})'
                         .format(len(missing_other_vars), ', '.join(missing_other_vars), other_file, base_file))
 
-    common_variables = list(common_variables)
+    common_variables = sorted(list(common_variables))
     checks = check_eof(base_file, other_file, common_variables, common_variables, other_is_nc=True, show_detail=True, ignore=ignore)
 
     return 1 if False in checks else 0
