@@ -171,9 +171,9 @@ def progress(i,tot,bar_length=20,word=''):
     spaces=' ' * (bar_length - len(hashes))
 
     if i+1==tot:
-        sys.stdout.write("\rPercent:[{0}] {1}%".format(hashes + spaces, int(round(percent * 100)))+" "*50+'\n')
+        sys.stdout.write("\rProgress:[{0}] {1}%".format(hashes + spaces, int(round(percent * 100)))+" "*50+'\n')
     else:
-        sys.stdout.write("\rPercent:[{0}] {1}%".format(hashes + spaces, int(round(percent * 100)))+"    "+str(i+1)+"/"+str(tot)+" "+word)
+        sys.stdout.write("\rProgress:[{0}] {1}%".format(hashes + spaces, int(round(percent * 100)))+"    "+str(i+1)+"/"+str(tot)+" "+word+"   ")
     sys.stdout.flush()
 
 
