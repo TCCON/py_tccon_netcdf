@@ -209,7 +209,7 @@ def checksum(file_name,hexdigest):
     check = (md5(file_name) == hexdigest)
 
     if not check:
-        logging.warning('Checksum mismatch for %s',file_name)
+        logging.warning('\nChecksum mismatch for %s',file_name)
         logging.warning('New: %s',md5(file_name))
         logging.warning('Old: %s',hexdigest)
 
