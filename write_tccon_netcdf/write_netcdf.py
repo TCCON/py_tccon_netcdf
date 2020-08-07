@@ -336,6 +336,23 @@ def get_eflat(vmr_file):
 
     return eflat,mid_trop_pt
 
+def get_duplicates(a):
+    """
+    :param a: an array/list to find duplicates in
+
+    :return: list of duplicated elements in a
+    """
+    seen = {}
+    dupes = []
+
+    for x in a:
+        if x not in seen:
+            seen[x] = 1
+        else:
+            if seen[x] == 1:
+                dupes.append(x)
+            seen[x] += 1
+    return dupes
 
 def read_mav(path,GGGPATH,maxspec):
     """
@@ -400,8 +417,8 @@ def read_mav(path,GGGPATH,maxspec):
             break
         tropalt = float(d['pressure'][block_id+2])
         oblat = float(d['pressure'][block_id+3])
-        vmr_file = d['altitude'][block_id+4].split(os.sep)[-1]
-        mod_file = d['altitude'][block_id+5].split(os.sep)[-1]
+        vmr_file = os.path.basename(d['altitude'][block_id+4])
+        mod_file = os.path.basename(d['altitude'][block_id+5])
         vmr_time = (datetime.strptime(vmr_file.split('_')[1][:-1],'%Y%m%d%H')-datetime(1970,1,1)).total_seconds()
         
         mav_block = d[block_id+7:block_id+7+nlev].apply(pd.to_numeric) # turn all the strings into numbers
@@ -424,9 +441,50 @@ def read_mav(path,GGGPATH,maxspec):
 
     nlev = DATA[spectrum]['data']['altitude'].size # get nlev again without the cell levels
     ncell = DATA[spectrum]['cell_data']['altitude'].size
+    mav_vmr_list = [DATA[spec]['vmr_file'] for spec in DATA]
+    mav_spec_list = [spec for spec in DATA]
+    if len(mav_vmr_list)!=len(set(mav_vmr_list)):
+        vmr_dupes = get_duplicates(mav_vmr_list)
+        mav_warning = """There are duplicate .mav blocks, typically resulting from spectra not time-ordered in the runlog.
+        This can happen if an InSb spectrum listed after an InGaAs spectrum has an earlier time than the InGaAs spectrum.
+        Pairs of InSb-InGaAs spectra share output lines in the post_processing outputs.
+        In that case the prior_index variable will point to the prior used to process the InGaAs spectrum.
+        The duplicated blocks correspond to these vmr files: {}""".format(vmr_dupes)
+        logging.warning(mav_warning)
+        for vmr_file in vmr_dupes:
+            spec_dupes = np.array(mav_spec_list)[np.full(len(mav_vmr_list),vmr_file)==mav_vmr_list]
+            for spec in spec_dupes:
+                if spec[15]=='c':
+                    logging.warning('{} was processed with {} but the prior_index will refer to the InGaAs spectrum prior'.format(spec,vmr_file))
+                    del DATA[spec]
+               
     logging.info('Finished reading MAV file')
     return DATA, nlev, ncell
 
+def read_col(col_file,speclength):
+    """
+    Read a .col file into a dataframe
+
+    :param col_file: full path to the .col file
+
+    :param speclength: maximum length of the spectrum file names
+
+    :return: dataframe with the .col file data
+    """
+
+    nhead,ncol = file_info(col_file)
+    with open(col_file,'r') as infile:
+        content = [infile.readline() for i in range(nhead+1)]
+    ggg_line = content[nhead-1]
+    gfit_version, gsetup_version = [i.strip().split()[2] for i in content[1:3]]
+    ngas = len(ggg_line.split(':')[-1].split())
+    widths = [speclength+1,3,6,6,5,6,6,7,7,8]+[7,11,10,8]*ngas # the fixed widths for each variable so we can read with pandas.read_fwf, because sometimes there is no whitespace between numbers
+    headers = content[nhead].split()
+    col_data = pd.read_fwf(col_file,widths=widths,names=headers,skiprows=nhead+1)
+    col_data.rename(str.lower,axis='columns',inplace=True)
+    col_data.rename(index=str,columns={'rms/cl':'rmsocl'},inplace=True)
+
+    return col_data, gfit_version, gsetup_version
 
 def write_eof(private_nc_file,eof_file,qc_file,nc_var_list,show_progress):
     """
@@ -740,16 +798,26 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
             endswith_check = np.array([name.endswith(elem) for elem in public_variables['endswith']]).any()
             isequalto_check = np.array([name==elem for elem in public_variables['isequalto']]).any()
             experimental_group_startswith_check = np.array([name.startswith(elem) for elem in public_variables['experimental_group_startswith']]).any()
+            insb_group_check = np.array([(name.startswith(elem) and name.endswith('_insb')) for elem in public_variables['insb_group_startswith']]).any()
+            si_group_check = np.array([(name.startswith(elem) and name.endswith('_si')) for elem in public_variables['si_group_startswith']]).any()
 
             excluded = np.array([elem in name for elem in public_variables['exclude']]).any()
 
-            public = np.array([contain_check,isequalto_check,startswith_check,endswith_check,experimental_group_startswith_check]).any() and not excluded
+            public = np.array([contain_check,isequalto_check,startswith_check,endswith_check,experimental_group_startswith_check,insb_group_check,si_group_check]).any() and not excluded
 
             if nc_format=='NETCDF4' and experimental_group_startswith_check and 'ingaas_experimental' not in public_data.groups:
                 public_data.createGroup('ingaas_experimental')
                 public_data['ingaas_experimental'].description = 'This data is EXPERIMENTAL.\nIn the root group of this file, the Xgas variables are obtained by combining columns retrieved from multiple spectral windows.\n In this ingaas_experimental group we include Xgas derived from spectral windows that do not contribute to the Xgas variables of the root group'
 
-            if public and not experimental_group_startswith_check:
+            if nc_format=='NETCDF4' and insb_group_check and 'insb_experimental' not in public_data.groups:
+                public_data.createGroup('insb_experimental')
+                public_data['insb_experimental'].description = 'This data is EXPERIMENTAL.\nIn the root group of this file, all data is obtained from an InGaAs detector while data is this group is obtained from an InSb detector.'
+
+            if nc_format=='NETCDF4' and si_group_check and 'si_experimental' not in public_data.groups:
+                public_data.createGroup('si_experimental')
+                public_data['si_experimental'].description = 'This data is EXPERIMENTAL.\nIn the root group of this file, all data is obtained from an InGaAs detector while data in this group is obtained from an Si detector.'
+
+            if public and not experimental_group_startswith_check and not (insb_group_check or si_group_check):
                 if 'time' in variable.dimensions: # only the variables along the 'time' dimension need to be sampled with public_ids
                     public_data.createVariable(name, variable.datatype, variable.dimensions)
                     public_data[name][:] = private_data[name][public_slice]
@@ -758,15 +826,28 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
                     public_data[name][:] = private_data[name][:]
                 # copy variable attributes all at once via dictionary
                 public_data[name].setncatts(private_data[name].__dict__)
-            elif nc_format=='NETCDF4' and public and experimental_group_startswith_check:
+            elif nc_format=='NETCDF4' and public and experimental_group_startswith_check: # ingaas experimental variables
                 public_data['ingaas_experimental'].createVariable(name, variable.datatype, variable.dimensions)
                 public_data['ingaas_experimental'][name][:] = private_data[name][public_slice]
                 public_data['ingaas_experimental'][name].setncatts(private_data[name].__dict__)
-            elif nc_format=='NETCDF4_CLASSIC' and public and experimental_group_startswith_check:
+            elif nc_format=='NETCDF4' and public and insb_group_check: # insb experimental variables
+                public_data['insb_experimental'].createVariable(name.replace('_insb',''), variable.datatype, variable.dimensions)
+                public_data['insb_experimental'][name.replace('_insb','')][:] = private_data[name][public_slice]
+                public_data['insb_experimental'][name.replace('_insb','')].setncatts(private_data[name].__dict__)
+            elif nc_format=='NETCDF4' and public and si_group_check: # si experimental variables
+                public_data['si_experimental'].createVariable(name.replace('_si',''), variable.datatype, variable.dimensions)
+                public_data['si_experimental'][name.replace('_si','')][:] = private_data[name][public_slice]
+                public_data['si_experimental'][name.replace('_si','')].setncatts(private_data[name].__dict__)
+            elif nc_format=='NETCDF4_CLASSIC' and public and (experimental_group_startswith_check or insb_group_check or si_group_check):
                 public_data.createVariable(name+'_experimental', variable.datatype, variable.dimensions)
                 public_data[name+'_experimental'][:] = private_data[name][public_slice]
                 public_data[name+'_experimental'].setncatts(private_data[name].__dict__)
-                public_data[name+'_experimental'].description += ' This data is EXPERIMENTAL'
+                if hasattr(public_data[name+'_experimental'],'description'):
+                    public_data[name+'_experimental'].description += ' This data is EXPERIMENTAL'
+                else:
+                    public_data[name+'_experimental'].description = ' This data is EXPERIMENTAL'
+
+            # prior variables
             elif name in ['prior_{}'.format(var) for var in factor.keys()]: # for the a priori profile, only the ones listed in the "factor" dictionary make it to the public file
                 public_name = name.replace('_1','_')
                 public_data.createVariable(public_name,variable.datatype,variable.dimensions)
@@ -781,7 +862,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
         if 'o2_7885_am_o2' not in private_var_list:
             logging.warning('The O2 window is missing, the "airmass" variable will not be in the public file')
         else:
-            public_data.createVariable('airmass',private_data['o2_7885_am_o2'],private_data['o2_7885_am_o2'].dimensions)
+            public_data.createVariable('airmass',private_data['o2_7885_am_o2'].datatype,private_data['o2_7885_am_o2'].dimensions)
             public_data['airmass'][:] = private_data['o2_7885_am_o2'][public_slice]
             public_data['airmass'].setncatts(private_data['o2_7885_am_o2'].__dict__)
             public_data['airmass'].description = "airmass computed as the total vertical column of O2 divided by the total slant column of O2 retrieved from the window centered at 7885 cm-1. To compute the slant column of a given gas use Xgas*airmass"
@@ -924,7 +1005,11 @@ def main():
     ada_file = vav_file+'.ada'
     aia_file = ada_file+'.aia'
     esf_file = aia_file+'.daily_error.out'
-    eof_file = aia_file+'.eof.csv'  
+    eof_file = aia_file+'.eof.csv'
+    runlog_file = os.path.join(GGGPATH,'runlogs','gnd',tav_file.replace('.tav','.grl'))
+    if not os.path.exists(runlog_file):
+        logging.critical('Could not find {}'.format(runlog_file))
+        sys.exit()
     
     siteID = os.path.basename(tav_file)[:2] # two letter site abbreviation
     qc_file = os.path.join(GGGPATH,'tccon','{}_qc.dat'.format(siteID))
@@ -942,6 +1027,31 @@ def main():
         sys.exit()
 
     ## read data, I add the file_name to the data dictionaries for some of them
+
+    # read runlog spectra; only read in the spectrum file names to make checks with the post_processing outputs
+    nhead,ncol = file_info(runlog_file)
+    runlog_data = pd.read_csv(runlog_file,delim_whitespace=True,skiprows=nhead,usecols=['Spectrum_File_Name']).rename(index=str,columns={'Spectrum_File_Name':'spectrum'})
+    runlog_insb_speclist = np.array([spec for spec in runlog_data['spectrum'] if spec[15]=='c'])
+    runlog_ingaas_speclist = np.array([spec for spec in runlog_data['spectrum'] if spec[15]=='a'])
+    runlog_si_speclist = np.array([spec for spec in runlog_data['spectrum'] if spec[15]=='b'])
+    nsi = len(runlog_si_speclist)
+    ninsb = len(runlog_insb_speclist)
+    ningaas = len(runlog_ingaas_speclist)
+    spec_info = 'The runlog contains:'
+    if ningaas:
+        spec_info += ' {} InGaAs spectra;'.format(ningaas)
+    if ninsb:
+        spec_info += ' {} InSb spectra;'.format(ninsb)
+    if nsi:
+        spec_info += ' {} Si spectra;'.format(nsi)
+    logging.info(spec_info)
+
+    if ningaas!=0 and ninsb and ninsb>ningaas:
+        logging.critical('Having more InSb than InGaAs spectra is not supported')
+        sys.exit()
+    if ningaas!=0 and nsi and nsi>ningaas:
+        logging.critical('Having more Si than InGaAs spectra is not supported')
+        sys.exit()
 
     # read site specific data from the tccon_netcdf repository
     # the .apply and .rename bits are just strip the columns from leading and tailing white spaces
@@ -1036,6 +1146,20 @@ def main():
     # aia file: ada file with scale factor applied
     nhead, ncol = file_info(aia_file)
     aia_data = pd.read_csv(aia_file,delim_whitespace=True,skiprows=nhead)
+    if 'Infinity' in aia_data.values:
+        logging.warning('Found "Infinity" values in {}'.format(aia_file))
+        object_columns = [i for i in aia_data.select_dtypes(include=np.object).columns if i.startswith('x')]
+        logging.warning('Found "Infinity" values in {}'.format(object_columns))
+        aia_data[object_columns] = aia_data[object_columns].astype(np.float64)
+    if ningaas: # check for consistency with the runlog spectra
+        aia_ref_speclist = np.array([i.replace('c.','a.').replace('b.','a.') for i in aia_data['spectrum']]) # this is the .aia spectrum list but with only ingaas names
+        if not np.array_equal(aia_ref_speclist,runlog_ingaas_speclist):
+            logging.warning('The spectra in the .aia file are inconsistent with the runlog spectra:\n {}'.format(set(aia_ref_speclist).symmetric_difference(set(runlog_ingaas_speclist))))       
+        if ninsb:
+            aia_ref_speclist_insb = np.array([i.replace('a.','c.') for i in aia_data['spectrum']]) # will be used to get .col file spectra indices along the time dimension
+        if nsi:
+            aia_ref_speclist_si = np.array([i.replace('a.','b.') for i in aia_data['spectrum']]) # will be used to get .col file spectra indices along the time dimension
+
     aia_data['file'] = aia_file
     with open(aia_file,'r') as f:
         i = 0
@@ -1448,9 +1572,17 @@ def main():
 
         # write variables from the .vsw and .vsw.ada files
         vsw_var_list = [vsw_data.columns[i] for i in range(naux,len(vsw_data.columns)-1)]  # minus 1 because I added the 'file' column
+        full_vsw_var_list = []
         for var in vsw_var_list:
+            center_wavenumber = int(''.join([i for i in var.split('_')[1] if i.isdigit()]))
             # .vsw file
-            varname = 'vsw_{}'.format(var)
+            if center_wavenumber<4000:
+                varname = 'vsw_{}_insb'.format(var[1:])
+            elif center_wavenumber>10000:
+                varname = 'vsw_{}_si'.format(var[1:])
+            else:
+                varname = 'vsw_{}'.format(var)
+            full_vsw_var_list += [varname]
             nc_data.createVariable(varname,np.float32,('time',))
             att_dict = {
                 "standard_name": varname,
@@ -1464,7 +1596,13 @@ def main():
                 att_dict["description"] = "{} scale factor from the window centered at {} cm-1".format(*var.split('_'))
                 if vsw_sf_check:
                     # write the data from the vsf= line ine the header of the vsw file
-                    sf_var = 'vsw_sf_{}'.format(var)
+                    if center_wavenumber<4000:
+                        sf_var = 'vsw_sf_{}_insb'.format(var[1:])
+                    elif center_wavenumber>10000:
+                        sf_var = 'vsw_sf_{}_si'.format(var[1:])
+                    else:
+                        sf_var = 'vsw_sf_{}'.format(var)
+                    full_vsw_var_list += [sf_var]
                     nc_data.createVariable(sf_var,np.float32,('time',))
                     sf_att_dict = {
                         "standard_name": sf_var,
@@ -1479,7 +1617,13 @@ def main():
 
             # .vsw.ada file
             var = 'x'+var
-            varname = 'vsw_ada_'+var
+            if center_wavenumber<4000:
+                varname = 'vsw_ada_x{}_insb'.format(var[1:])
+            elif center_wavenumber>10000:
+                varname = 'vsw_ada_x{}_si'.format(var[1:])
+            else:
+                varname = 'vsw_ada_'+var
+            full_vsw_var_list += [varname]
             nc_data.createVariable(varname,np.float32,('time',))
             att_dict = {
                 "standard_name":varname,
@@ -1496,12 +1640,21 @@ def main():
 
         # averaged variables (from the different windows of each species)
         main_var_list = [tav_data.columns[i] for i in range(naux,len(tav_data.columns)-1)]  # minus 1 because I added the 'file' column
+        full_main_var_list = []
         for var in main_var_list:
             xvar = 'x'+var
+            varname = var
+            xvarname = xvar
             qc_id = list(qc_data['variable']).index(xvar)
-
-            #digit = int(qc_data['format'][qc_id].split('.')[-1])
-            nc_data.createVariable(xvar,np.float32,('time',))#,zlib=True)#,least_significant_digit=digit)
+            if var.startswith('m'):
+                xvarname = 'x{}_insb'.format(var[1:])
+                varname = var[1:]+'_insb'
+            elif var.startswith('j'):
+                xvarname = 'x{}_si'.format(var[1:])
+                varname = var[1:]+'_si'                
+            
+            full_main_var_list += [xvarname]
+            nc_data.createVariable(xvarname,np.float32,('time',))
             att_dict = {
                 "standard_name": xvar,
                 "long_name": xvar.replace('_',' '),
@@ -1511,41 +1664,44 @@ def main():
                 "vmax": qc_data['vmax'][qc_id],
                 "precision": qc_data['format'][qc_id],
             }
-            nc_data[xvar].setncatts(att_dict)
+            nc_data[xvarname].setncatts(att_dict)
             #nc_data[xvar] will be written from the .aia data further below, not in this loop
 
-            nc_data.createVariable('vsf_'+var,np.float32,('time',))
+            full_main_var_list += ['vsf_'+varname]
+            nc_data.createVariable('vsf_'+varname,np.float32,('time',))
             att_dict = {
-                "description": var+" Volume Scale Factor.",
+                "description": varname+" Volume Scale Factor.",
                 "precision": 'e12.4',
             }
-            nc_data['vsf_'+var].setncatts(att_dict)
-            write_values(nc_data,'vsf_'+var,tav_data[var].values)
+            nc_data['vsf_'+varname].setncatts(att_dict)
+            write_values(nc_data,'vsf_'+varname,tav_data[var].values)
             
-            nc_data.createVariable('column_'+var,np.float32,('time',))
+            full_main_var_list += ['column_'+varname]
+            nc_data.createVariable('column_'+varname,np.float32,('time',))
             att_dict = {
-                "description": var+' column average.',
+                "description": varname+' column average.',
                 "units": 'molecules.m-2',
                 "precision": 'e12.4',
             }
-            nc_data['column_'+var].setncatts(att_dict)
-            write_values(nc_data,'column_'+var,vav_data[var].values)
+            nc_data['column_'+varname].setncatts(att_dict)
+            write_values(nc_data,'column_'+varname,vav_data[var].values)
 
-            nc_data.createVariable('ada_'+xvar,np.float32,('time',))
+            full_main_var_list += ['ada_'+xvarname]
+            nc_data.createVariable('ada_'+xvarname,np.float32,('time',))
             att_dict = {
                 "units": "",
-                "precision": 'e12.4',           
+                "precision": 'e12.4',
             }
-            if 'error' in var:
-                att_dict["description"] = 'uncertainty associated with ada_x{}'.format(var.replace('_error',''))
+            if 'error' in varname:
+                att_dict["description"] = 'uncertainty associated with ada_{}'.format(xvarname.replace('_error',''))
             else:
-                att_dict["description"] = var+' column-average dry-air mole fraction computed after airmass dependence is removed, but before scaling to WMO.'
-            nc_data['ada_'+xvar].setncatts(att_dict)
-            write_values(nc_data,'ada_'+xvar,ada_data[xvar].values)
+                att_dict["description"] = varname+' column-average dry-air mole fraction computed after airmass dependence is removed, but before scaling to WMO.'
+            nc_data['ada_'+xvarname].setncatts(att_dict)
+            write_values(nc_data,'ada_'+xvarname,ada_data[xvar].values)
 
             for key in special_description_dict.keys():
                 if key in var:
-                    for nc_var in [nc_data[xvar],nc_data['vsf_'+var],nc_data['column_'+var],nc_data['ada_'+xvar]]:
+                    for nc_var in [nc_data[xvarname],nc_data['vsf_'+varname],nc_data['column_'+varname],nc_data['ada_'+xvarname]]:
                         nc_var.description += special_description_dict[key]
 
         # lse data
@@ -1697,15 +1853,22 @@ def main():
             dmax = np.zeros(end-start)
             for var_id,var in enumerate(aia_data.columns[mchar:-1]):
 
-                if len(aia_data[var][aia_data[var]>=9e29]) >= 1:
-                    logging.critical('Missing value found (>=9e29) for variable {}.\nEnding Program'.format(var))
-                    logging.critical('You may need to remove missing .col files from {} and rerun post_processing.sh'.format(args.multiggg))
-                    sys.exit()
+                if var.startswith('xm'):
+                    varname = 'x{}_insb'.format(var[2:])
+                elif var.startswith('xj'):
+                    varname = 'x{}_si'.format(var[2:])
+                else:
+                    varname = var
+
+                if len(aia_data[var][aia_data[var]>=9e29]) >= 1 and not (var.startswith('xm') or var.startswith('xj')): # only show this for InGaAs spectra
+                    logging.warning('You may need to remove missing .col files from {} and rerun post_processing.sh'.format(args.multiggg))
 
                 qc_id = list(qc_data['variable']).index(var)
                 digit = int(qc_data['format'][qc_id].split('.')[-1])
-                
-                nc_data[var][start:end] = np.round(aia_data[var][start:end].values*qc_data['rsc'][qc_id],digit)
+
+                aia_qc_data = np.round(aia_data[var][start:end].values*qc_data['rsc'][qc_id],digit)
+                aia_qc_data[aia_qc_data>9e29] = netCDF4.default_fillvals[nc_data[varname].dtype.str[1:]]
+                nc_data[varname][start:end] = aia_qc_data
 
                 dev = np.abs( (qc_data['rsc'][qc_id]*aia_data[var][start:end].values-qc_data['vmin'][qc_id])/(qc_data['vmax'][qc_id]-qc_data['vmin'][qc_id]) -0.5 )
                 
@@ -1715,14 +1878,20 @@ def main():
             eflag[dmax>0.5] = kmax[dmax>0.5]
             
             # write the flagged variable index
-            nc_data['flag'][start:end] = [int(i) for i in eflag]
+            nc_data['flag'][start:end] = [int(i) if not np.isnan(i) else -1 for i in eflag]
 
             # write the flagged variable name
             for i in range(start,end):
                 if eflag[i-start] == 0:
-                    nc_data['flagged_var_name'][i] = ""
+                    nc_data['flagged_var_name'][i] = ""                    
                 else:
-                    nc_data['flagged_var_name'][i] = qc_data['variable'][eflag[i-start]-1]
+                    flagged_var_name = qc_data['variable'][eflag[i-start]-1]
+                    if flagged_var_name.startswith('xm'):
+                        nc_data['flagged_var_name'][i] = flagged_var_name[2:]+'_insb'
+                    elif flagged_var_name.startswith('xj'):
+                        nc_data['flagged_var_name'][i] = flagged_var_name[2:]+'_si'
+                    else:
+                        nc_data['flagged_var_name'][i] = flagged_var_name
 
         flag_list = [i for i in set(nc_data['flag'][:]) if i!=0]
         nflag = np.count_nonzero(nc_data['flag'][:])
@@ -1744,7 +1913,24 @@ def main():
         # write data from .col and .cbf files
         logging.info('Writing data:')
         col_var_list = []
+        # If there are InSb or Si windows fitted, get the indices along the time dimension of the spectra in the .col file
+        insb_col_file_list = [i for i in col_file_list if int(''.join([j for j in i.split('.')[0].split('_')[1] if j.isdigit()]))<4000]
+        si_col_file_list = [i for i in col_file_list if int(''.join([j for j in i.split('.')[0].split('_')[1] if j.isdigit()]))>10000]
+        if insb_col_file_list:
+            col_data, gfit_version, gsetup_version = read_col(insb_col_file_list[0],speclength)
+            insb_slice = list(np.where(np.isin(aia_ref_speclist_insb,col_data['spectrum']))[0]) # indices of the InSb spectra along the time dimension
+            if np.array_equal(insb_slice,aia_data.index.values):
+                # if the insb slice is the full indices, set it to empty list such that write_values writes the whole array at once instead of looping over indices
+                insb_slice = []
+        if si_col_file_list:
+            col_data, gfit_version, gsetup_version = read_col(si_col_file_list[0],speclength)
+            si_slice = list(np.where(np.isin(aia_ref_speclist_si,col_data['spectrum']))[0]) # indices of the Si spectra along the time dimension
+            if np.array_equal(si_slice,aia_data.index.values):
+                # if the si slice is the full indices, set it to empty list such that write_values writes the whole array at once instead of looping over indices
+                si_slice = []
+
         for col_id,col_file in enumerate(col_file_list):
+            center_wavenumber = int(''.join([j for j in col_file.split('.')[0].split('_')[1] if j.isdigit()]))
             if show_progress:
                 progress(col_id,len(col_file_list),word=col_file)
 
@@ -1765,20 +1951,27 @@ def main():
             cbf_data['spectrum'] = cbf_data['spectrum'].map(lambda x: x.strip('"')) # remove quotes from the spectrum filenames
             
             gas_XXXX = col_file.split('.')[0] # gas_XXXX, suffix for nc_data variable names corresponding to each .col file (i.e. VSF_h2o from the 6220 co2 window becomes co2_6220_VSF_co2)
+                
+            # check if it is insb or ingaas window
+            if center_wavenumber<4000: # InSb
+                ingaas, insb, si = [False,True,False]
+                gas_XXXX = gas_XXXX[1:]
+                inds = insb_slice
+            elif center_wavenumber>10000: # Si
+                ingaas, insb, si = [False,False,True]
+                gas_XXXX = gas_XXXX[1:]
+                inds = si_slice
+            else:
+                ingaas, insb, si = [True,False,False]
+                inds = []
 
             # read col_file headers
-            nhead,ncol = file_info(col_file)
-            with open(col_file,'r') as infile:
-                content = [infile.readline() for i in range(nhead+1)]
-            gfit_version, gsetup_version = content[1:3]
-            gfit_version = gfit_version.strip().split()[2]
-            gsetup_version = gsetup_version.strip().split()[2]
-            ggg_line = content[nhead-1]
-            ngas = len(ggg_line.split(':')[-1].split())
-            widths = [speclength+1,3,6,6,5,6,6,7,7,8]+[7,11,10,8]*ngas # the fixed widths for each variable so we can read with pandas.read_fwf, because sometimes there is no whitespace between numbers
-            headers = content[nhead].split()
+            col_data, gfit_version, gsetup_version = read_col(col_file,speclength)
 
             if col_file == col_file_list[0]:
+                nhead,ncol = file_info(col_file)
+                with open(col_file,'r') as infile:
+                    content = [infile.readline() for i in range(nhead+1)]                
                 # check that the checksums are right for the files listed in the .col file header
                 checksum_dict = OrderedDict((key+'_checksum',None) for key in checksum_var_list)
                 # If a line begins with a 32-character MD5 hash, then one or more spaces, then
@@ -1804,18 +1997,14 @@ def main():
                     for i in range(aia_data['spectrum'].size):
                         nc_data[checksum_var][i] = checksum_dict[checksum_var]
 
-            col_data = pd.read_fwf(col_file,widths=widths,names=headers,skiprows=nhead+1)
-            col_data.rename(str.lower,axis='columns',inplace=True)
-            col_data.rename(index=str,columns={'rms/cl':'rmsocl'},inplace=True)
-
             # JLL 2020-05-19: need to check that the shapes are equal first, or get a very confusing error
-            if col_data.shape[0] != vav_data.shape[0]:
+            if ingaas and (col_data.shape[0] != vav_data.shape[0]):
                 logging.warning('Different number of spectra in %s and %s, recommend checking this col/vav file', col_file, vav_file)
                 continue
             if col_data.shape[0] != cbf_data.shape[0]:
                 logging.warning('Different number of spectra in %s and %s, recommend checking this col/cbf pair', col_file, cbf_file)
                 continue
-            if not all(col_data['spectrum'].values == vav_data['spectrum'].values):
+            if ingaas and not all(col_data['spectrum'].values == np.array(runlog_ingaas_speclist)): #vav_data['spectrum'].values
                 logging.warning('Mismatch between .col file spectra and .vav spectra; col_file=%s',col_file)
                 continue # contine or exit here ? Might not need to exit if we can add in the results from the faulty col file afterwards
             if not all(col_data['spectrum'].values == cbf_data['spectrum'].values) and 'luft' not in col_file: # luft has no cbfs
@@ -1824,7 +2013,12 @@ def main():
 
             # create window specific variables
             for var in col_data.columns[1:]: # skip the first one ("spectrum")
-                varname = '_'.join([gas_XXXX,var])
+                if ingaas:
+                    varname = '_'.join([gas_XXXX,var])
+                elif insb:
+                    varname = '_'.join([gas_XXXX,var,'insb'])
+                elif si:
+                    varname = '_'.join([gas_XXXX,var,'si'])
                 col_var_list += [varname]
                 nc_data.createVariable(varname,np.float32,('time',))
                 
@@ -1853,11 +2047,15 @@ def main():
                     if key in varname:
                         att_dict['description'] += special_description_dict[key]
                 nc_data[varname].setncatts(att_dict)
-                write_values(nc_data,varname,col_data[var].values)
-
+                write_values(nc_data,varname,col_data[var].values,inds=inds)
             
             # add data from the .cbf file
-            ncbf_var = '{}_ncbf'.format(gas_XXXX)
+            if ingaas:
+                ncbf_var = '{}_ncbf'.format(gas_XXXX)
+            elif insb:
+                ncbf_var = '{}_ncbf_insb'.format(gas_XXXX)
+            elif si:
+                ncbf_var = '{}_ncbf_si'.format(gas_XXXX)
             col_var_list += [ncbf_var]
             nc_data.createVariable(ncbf_var,np.int32,('time',))
             nc_data[ncbf_var][:] = len(cbf_data.columns)-1 # minus 1 because of the spectrum name column
@@ -1874,7 +2072,7 @@ def main():
                     att_dict['long_name'] = long_name_dict[var]
                     att_dict['units'] = units_dict[var]
                 nc_data[varname].setncatts(att_dict)
-                write_values(nc_data,varname,cbf_data[var].values)
+                write_values(nc_data,varname,cbf_data[var].values,inds=inds)
 
         # read the data from missing_data.json and update data with fill values to the netCDF4 default fill value
         """
@@ -1932,10 +2130,10 @@ def main():
         ordered_var_list = ['flag','flagged_var_name','spectrum'] # list of variables for writing the eof file
         ordered_var_list += aux_var_list
         ordered_var_list += list(lse_dict.keys())
-        ordered_var_list += ['x'+var for var in main_var_list]+['vsf_'+var for var in main_var_list]+['column_'+var for var in main_var_list]+['ada_x'+var for var in main_var_list]
+        ordered_var_list += full_main_var_list
         ordered_var_list += correction_var_list
         ordered_var_list += col_var_list
-        ordered_var_list += ['vsw_'+var for var in vsw_var_list] + ['vsw_ada_x'+var for var in vsw_var_list] + ['vsw_sf_'+var for var in vsw_var_list if 'error' not in var]
+        ordered_var_list += full_vsw_var_list
         ordered_var_list += ['gfit_version','gsetup_version']
         ordered_var_list += [var+'_checksum' for var in checksum_var_list]
 

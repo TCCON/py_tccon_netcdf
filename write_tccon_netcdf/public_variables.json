@@ -33,7 +33,12 @@
 
 	"experimental_group_startswith": [
 		"xlco2",
-		"xwco2"], 
+		"xwco2",
+		"xqco2"],
+
+	"insb_group_startswith": ["x"],
+
+	"si_group_startswith": ["x"], 
 	
 	"endswith": ["_version"], 
 	
@@ -58,5 +63,8 @@
 		"prior_15", 
 		"cell_", 
 		"_modfile", 
-		"_vmrfile"]
+		"_vmrfile",
+		"xtco2_",
+		"xfco2_",
+		"xth2o_"]
 }
