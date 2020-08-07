@@ -657,20 +657,32 @@ def print_detailed_diff(variable, old_vals, new_vals, threshold=0.01):
     return _nanabsmax(diffs).item(), _nanabsmax(perdiffs).item()
 
 
-def write_values(nc_data,var,values):
-    try:
-        nc_data[var][:] = np.array(values).astype(nc_data[var].dtype)
-    except ValueError:
-        logging.warning('ValueError when writing {} with expected type {} for the following spectra:'.format(var,nc_data[var].dtype))
-        for i,val in enumerate(values):
-            try:
-                test = np.array([val]).astype(nc_data[var].dtype)
-            except ValueError:
-                logging.warning('{} {} = {}'.format(nc_data['spectrum'][i],var,values[i]))
-                nc_data[var][i] = netCDF4.default_fillvals['f4']
-            else:
-                nc_data[var][i] = test[0]
-        logging.warning('All faulty values have been replaced by the default netcdf fill value for floats: {}'.format(netCDF4.default_fillvals['f4']))
+def write_values(nc_data,var,values,inds=[]):
+    """
+    :nc_data: the netcdf4 dataset
+    :var: the variable name
+    :values: the values to write to the variable
+    :inds: list of specific indices to write the values in nc_data[var] (must be the same size as values)
+    """
+    if not inds:
+        try:
+            nc_data[var][:] = np.array(values).astype(nc_data[var].dtype)
+        except ValueError:
+            logging.warning('ValueError when writing {} with expected type {} for the following spectra:'.format(var,nc_data[var].dtype))
+            for i,val in enumerate(values):
+                try:
+                    test = np.array([val]).astype(nc_data[var].dtype)
+                except ValueError:
+                    logging.warning('{} {} = {}'.format(nc_data['spectrum'][i],var,values[i]))
+                    nc_data[var][i] = netCDF4.default_fillvals['f4']
+                else:
+                    nc_data[var][i] = test[0]
+            logging.warning('All faulty values have been replaced by the default netcdf fill value for floats: {}'.format(netCDF4.default_fillvals['f4']))
+    else:
+        full_array = np.full(nc_data[var].size,netCDF4.default_fillvals[nc_data[var].dtype.str[1:]])
+        for i,index in enumerate(inds):
+            full_array[index] = values[i]
+        nc_data[var][:] = full_array.astype(nc_data[var].dtype)
 
 
 def write_public_nc(private_nc_file,code_dir,nc_format):
