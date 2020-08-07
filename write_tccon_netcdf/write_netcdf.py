@@ -533,7 +533,7 @@ def check_eof(private_nc_file, eof_file, nc_var_list, eof_var_list, other_is_nc=
             elif np.issubdtype(nc[var].dtype, np.floating):
                 # For floating point values, better to allow for small differences between the two values
                 checks += [np.ma.allclose(nc[var][:], eof[eof_var_list[i]][:].astype(nc[var][:].dtype))]
-                numeric_diffs[var] = (nc[var][:].filled(np.nan), eof[eof_var_list[i]][:].filled(np.nan))
+                numeric_diffs[var] = (nc[var][:].filled(np.nan), np.ma.masked_array(eof[eof_var_list[i]][:]).filled(np.nan))
                 logging.debug('%s checked with np.ma.allclose, result %d', var, checks[-1])
             else:
                 # It seems to be important to convert the eof variable to the datatype of the array,
@@ -541,7 +541,7 @@ def check_eof(private_nc_file, eof_file, nc_var_list, eof_var_list, other_is_nc=
                 # have type "|S1" but the arrays have type "<U32" for some reason.
                 checks += [np.array_equal(nc[var][:], eof[eof_var_list[i]][:].astype(nc[var][:].dtype))]
                 if np.issubdtype(nc[var].dtype, np.number):
-                    numeric_diffs[var] = (nc[var][:].filled(np.nan), eof[eof_var_list[i]][:].filled(np.nan))
+                    numeric_diffs[var] = (nc[var][:].filled(np.nan), np.ma.masked_array(eof[eof_var_list[i]][:]).filled(np.nan))
                 logging.debug('%s checked with array_equal after dtype conversion, result %d', var, checks[-1])
 
     finally:
