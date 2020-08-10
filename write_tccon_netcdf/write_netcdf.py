@@ -1280,7 +1280,7 @@ def main():
         
         # general TCCON
         nc_data.title = "Atmospheric trace gas column-average dry-air mole fractions retrieved from solar absorption spectra measured by ground based Fourier Transform Infrared Spectrometers that are part of the Total Carbon Column Observing Network (TCCON)"
-        nc_data.source = "Products retrieved from solar absorption spectra using the GGG2019 software"
+        nc_data.source = "Products retrieved from solar absorption spectra using the GGG2020 software"
         nc_data.data_use_policy = "https://tccon-wiki.caltech.edu/Network_Policy/Data_Use_Policy"
         nc_data.auxiliary_data_description = "https://tccon-wiki.caltech.edu/Network_Policy/Data_Use_Policy/Auxiliary_Data"
         nc_data.description = '\n'+header_content
