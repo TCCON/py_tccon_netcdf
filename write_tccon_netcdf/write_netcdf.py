@@ -487,6 +487,32 @@ def read_col(col_file,speclength):
 
     return col_data, gfit_version, gsetup_version
 
+def read_windows(window_file):
+    """
+    Read a window file and returns a list of windows as gas_XXXX
+    
+    :param window_file: full path to the window file to read
+
+    :returns: set of windows with gas name and center wavenumber
+    """
+    window_list = []
+    gas_list = []
+    nhead,ncol = file_info(window_file)
+    with open(window_file,'r') as infile:
+        content = [line for line in infile.readlines()[nhead+1:] if not line.startswith(':')]
+    seen = {}
+    for line in content:
+        center_wavenumber = line.split()[0].split('.')[0]
+        gas = line.split(':')[1].split()[0]
+        gas_list += [gas]
+        gas_XXXX = '_'.join([center_wavenumber,gas])
+        if gas_XXXX not in seen:
+            seen[gas_XXXX] = 1
+        else:
+            gas_XXXX += 'a' # assume not more than 2 windows with same center and target gas
+        window_list += [gas_XXXX]
+    return set(window_list),set(gas_list) # return sets for O(1) lookups
+
 def write_eof(private_nc_file,eof_file,qc_file,nc_var_list,show_progress):
     """
     Convert the private netcdf file into an eof.csv file
@@ -1008,9 +1034,13 @@ def main():
     esf_file = aia_file+'.daily_error.out'
     eof_file = aia_file+'.eof.csv'
     runlog_file = os.path.join(GGGPATH,'runlogs','gnd',tav_file.replace('.tav','.grl'))
-    if not os.path.exists(runlog_file):
-        logging.critical('Could not find {}'.format(runlog_file))
-        sys.exit()
+    ingaas_window_file = os.path.join(GGGPATH,'windows','gnd','tccon.gnd')
+    insb_window_file = os.path.join(GGGPATH,'windows','gnd','tccon_insb.gnd')
+    si_window_file = os.path.join(GGGPATH,'windows','gnd','tccon_si.gnd')
+    for elem in [runlog_file,ingaas_window_file,insb_window_file,si_window_file]:
+        if not os.path.exists(elem):
+            logging.critical('Could not find {}'.format(runlog_file))
+            sys.exit()
     
     siteID = os.path.basename(tav_file)[:2] # two letter site abbreviation
     qc_file = os.path.join(GGGPATH,'tccon','{}_qc.dat'.format(siteID))
@@ -1028,6 +1058,15 @@ def main():
         sys.exit()
 
     ## read data, I add the file_name to the data dictionaries for some of them
+
+    # read window files
+    ingaas_windows, ingaas_gases = read_windows(ingaas_window_file)
+    insb_windows, insb_gases = read_windows(insb_window_file)
+    si_windows, si_gases = read_windows(si_window_file)
+
+    # if a gas is shared by InSb and Si, but not InGaAs, then the corresponding .col file should start with 'm' for InSb and 'v' for Si
+    insb_only = set([gas for gas in insb_gases if (gas not in ingaas_gases) and (gas not in si_gases)])
+    si_only = set([gas for gas in si_gases if (gas not in ingaas_gases) and (gas not in insb_gases)])
 
     # read runlog spectra; only read in the spectrum file names to make checks with the post_processing outputs
     nhead,ncol = file_info(runlog_file)
@@ -1122,7 +1161,8 @@ def main():
     len_list = len(list(qc_data['Variable']))
     len_set = len(list(set(qc_data['Variable'])))
     if len_list!=len_set:
-        logging.warning('There are {} duplicate variables in the qc.dat file, flags will be determined based on the first occurence of each duplicate.'.format(len_list-len_set))
+        dupes = get_duplicates(list(qc_data['Variable']))
+        logging.warning('There are {} duplicate variables in the qc.dat file: {}\n flags will be determined based on the first occurence of each duplicate.'.format(len_list-len_set,dupes))
 
     # error scale factors: 
     nhead, ncol = file_info(esf_file)
@@ -1647,12 +1687,20 @@ def main():
             varname = var
             xvarname = xvar
             qc_id = list(qc_data['variable']).index(xvar)
+            gas = var.split('_')[0]
+
             if var.startswith('m'):
                 xvarname = 'x{}_insb'.format(var[1:])
                 varname = var[1:]+'_insb'
-            elif var.startswith('j'):
+            elif gas in insb_only:
+                xvarname = 'x{}_insb'.format(var)
+                varname = var+'_insb'                
+            elif var.startswith('v'):
                 xvarname = 'x{}_si'.format(var[1:])
-                varname = var[1:]+'_si'                
+                varname = var[1:]+'_si'
+            elif gas in si_only:
+                xvarname = 'x{}_si'.format(var)
+                varname = var+'_si'                                
             
             full_main_var_list += [xvarname]
             nc_data.createVariable(xvarname,np.float32,('time',))
@@ -1853,15 +1901,25 @@ def main():
             kmax = np.zeros(end-start)
             dmax = np.zeros(end-start)
             for var_id,var in enumerate(aia_data.columns[mchar:-1]):
+                gas = var.split('_')[0][1:] # [1:] removes the 'x' for gas variables
 
                 if var.startswith('xm'):
                     varname = 'x{}_insb'.format(var[2:])
-                elif var.startswith('xj'):
+                    ingaas = False
+                elif gas in insb_only:
+                    varname = var+'_insb'
+                    ingaas = False
+                elif var.startswith('xv'):
                     varname = 'x{}_si'.format(var[2:])
+                    ingaas = False
+                elif gas in si_only:
+                    varname = var+'_si'
+                    ingaas = False
                 else:
                     varname = var
+                    ingaas = True
 
-                if len(aia_data[var][aia_data[var]>=9e29]) >= 1 and not (var.startswith('xm') or var.startswith('xj')): # only show this for InGaAs spectra
+                if ingaas and len(aia_data[var][aia_data[var]>=9e29]) >= 1: # only show this for InGaAs spectra
                     logging.warning('You may need to remove missing .col files from {} and rerun post_processing.sh'.format(args.multiggg))
 
                 qc_id = list(qc_data['variable']).index(var)
@@ -1873,8 +1931,9 @@ def main():
 
                 dev = np.abs( (qc_data['rsc'][qc_id]*aia_data[var][start:end].values-qc_data['vmin'][qc_id])/(qc_data['vmax'][qc_id]-qc_data['vmin'][qc_id]) -0.5 )
                 
-                kmax[dev>dmax] = qc_id+1 # add 1 here, otherwise qc_id starts at 0 for 'year'
-                dmax[dev>dmax] = dev[dev>dmax]
+                if ingaas: # only set flags based on ingaas data
+                    kmax[dev>dmax] = qc_id+1 # add 1 here, otherwise qc_id starts at 0 for 'year'
+                    dmax[dev>dmax] = dev[dev>dmax]
 
             eflag[dmax>0.5] = kmax[dmax>0.5]
             
