@@ -157,6 +157,7 @@ special_description_dict = {
     'fco2':' fco2 is used for a spectral window chosen to estimate the channel fringe amplitude and period, it does not contribute to the xco2 calculation',
     'luft':' luft is used for "dry air"',
     'qco2':' qco2 is the strong CO2 band centered at  4974.05 cm-1 and does not contribute to the xco2 calculation.',
+    'zco2':' zco2 is used to test zero level offset (zo) fits in the strong CO2 window, zco2_4852 is without zo, and zco2_4852a is with zo. it does not contribute to the xco2 calculation'
 }
 
 
