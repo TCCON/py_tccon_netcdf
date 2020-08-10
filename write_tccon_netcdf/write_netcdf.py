@@ -1039,7 +1039,7 @@ def main():
     si_window_file = os.path.join(GGGPATH,'windows','gnd','tccon_si.gnd')
     for elem in [runlog_file,ingaas_window_file,insb_window_file,si_window_file]:
         if not os.path.exists(elem):
-            logging.critical('Could not find {}'.format(runlog_file))
+            logging.critical('Could not find {}'.format(elem))
             sys.exit()
     
     siteID = os.path.basename(tav_file)[:2] # two letter site abbreviation
