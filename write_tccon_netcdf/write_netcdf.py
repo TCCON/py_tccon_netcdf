@@ -306,6 +306,7 @@ def get_eqlat(mod_file,levels):
 
     return eqlat
 
+
 def get_eflat(vmr_file):
     """
     Input:
@@ -337,6 +338,7 @@ def get_eflat(vmr_file):
 
     return eflat,mid_trop_pt
 
+
 def get_duplicates(a):
     """
     :param a: an array/list to find duplicates in
@@ -354,6 +356,7 @@ def get_duplicates(a):
                 dupes.append(x)
             seen[x] += 1
     return dupes
+
 
 def read_mav(path,GGGPATH,maxspec):
     """
@@ -462,6 +465,7 @@ def read_mav(path,GGGPATH,maxspec):
     logging.info('Finished reading MAV file')
     return DATA, nlev, ncell
 
+
 def read_col(col_file,speclength):
     """
     Read a .col file into a dataframe
@@ -487,31 +491,6 @@ def read_col(col_file,speclength):
 
     return col_data, gfit_version, gsetup_version
 
-def read_windows(window_file):
-    """
-    Read a window file and returns a list of windows as gas_XXXX
-    
-    :param window_file: full path to the window file to read
-
-    :returns: set of windows with gas name and center wavenumber
-    """
-    window_list = []
-    gas_list = []
-    nhead,ncol = file_info(window_file)
-    with open(window_file,'r') as infile:
-        content = [line for line in infile.readlines()[nhead+1:] if not line.startswith(':')]
-    seen = {}
-    for line in content:
-        center_wavenumber = line.split()[0].split('.')[0]
-        gas = line.split(':')[1].split()[0]
-        gas_list += [gas]
-        gas_XXXX = '_'.join([center_wavenumber,gas])
-        if gas_XXXX not in seen:
-            seen[gas_XXXX] = 1
-        else:
-            gas_XXXX += 'a' # assume not more than 2 windows with same center and target gas
-        window_list += [gas_XXXX]
-    return set(window_list),set(gas_list) # return sets for O(1) lookups
 
 def write_eof(private_nc_file,eof_file,qc_file,nc_var_list,show_progress):
     """
@@ -1034,13 +1013,9 @@ def main():
     esf_file = aia_file+'.daily_error.out'
     eof_file = aia_file+'.eof.csv'
     runlog_file = os.path.join(GGGPATH,'runlogs','gnd',tav_file.replace('.tav','.grl'))
-    ingaas_window_file = os.path.join(GGGPATH,'windows','gnd','tccon.gnd')
-    insb_window_file = os.path.join(GGGPATH,'windows','gnd','tccon_insb.gnd')
-    si_window_file = os.path.join(GGGPATH,'windows','gnd','tccon_si.gnd')
-    for elem in [runlog_file,ingaas_window_file,insb_window_file,si_window_file]:
-        if not os.path.exists(elem):
-            logging.critical('Could not find {}'.format(elem))
-            sys.exit()
+    if not os.path.exists(runlog_file):
+    	logging.critical('Could not find {}'.format(runlog_file))
+    	sys.exit()
     
     siteID = os.path.basename(tav_file)[:2] # two letter site abbreviation
     qc_file = os.path.join(GGGPATH,'tccon','{}_qc.dat'.format(siteID))
@@ -1059,14 +1034,13 @@ def main():
 
     ## read data, I add the file_name to the data dictionaries for some of them
 
-    # read window files
-    ingaas_windows, ingaas_gases = read_windows(ingaas_window_file)
-    insb_windows, insb_gases = read_windows(insb_window_file)
-    si_windows, si_gases = read_windows(si_window_file)
+    # read tccon_gases.json
+    with open(os.path.join(code_dir,'tccon_gases.json'),'r') as f:
+    	tccon_gases = json.load(f)
 
     # if a gas is shared by InSb and Si, but not InGaAs, then the corresponding .col file should start with 'm' for InSb and 'v' for Si
-    insb_only = set([gas for gas in insb_gases if (gas not in ingaas_gases) and (gas not in si_gases)])
-    si_only = set([gas for gas in si_gases if (gas not in ingaas_gases) and (gas not in insb_gases)])
+    insb_only = set([gas for gas in tccon_gases['insb'] if (gas not in tccon_gases['ingaas']) and (gas not in tccon_gases['si'])])
+    si_only = set([gas for gas in tccon_gases['si'] if (gas not in tccon_gases['ingaas']) and (gas not in tccon_gases['insb'])])
 
     # read runlog spectra; only read in the spectrum file names to make checks with the post_processing outputs
     nhead,ncol = file_info(runlog_file)
