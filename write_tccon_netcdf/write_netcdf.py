@@ -1270,11 +1270,16 @@ def main():
         # other
         nc_data.number_of_spectral_windows = str(len(col_file_list))
        
-        if os.path.isdir(os.path.join(GGGPATH,'.hg')): 
-            proc = subprocess.Popen(['hg','summary'],cwd=GGGPATH,stdout=subprocess.PIPE)
-            out, err = proc.communicate()
-            gggtip = out.decode("utf-8")
-            logging.info('The output of "hg summary" from the GGG repository:\n %s',gggtip)
+        if os.path.isdir(os.path.join(GGGPATH,'.hg')):
+            try: 
+                proc = subprocess.Popen(['hg','summary'],cwd=GGGPATH,stdout=subprocess.PIPE)
+            except FileNotFoundError:
+                gggtip = ''
+                logging.warning('could not use the "hg" command to read the tip revision')
+            else:
+                out, err = proc.communicate()
+                gggtip = out.decode("utf-8")
+                logging.info('The output of "hg summary" from the GGG repository:\n %s',gggtip)
         else:
             gggtip = "Could not find .hg in the GGG repository"
             logging.warning('GGGtip %s',gggtip)
