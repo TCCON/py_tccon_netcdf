@@ -1595,9 +1595,14 @@ def main():
         full_vsw_var_list = []
         for var in vsw_var_list:
             center_wavenumber = int(''.join([i for i in var.split('_')[1] if i.isdigit()]))
+            gas = var.split('_')[0]
             # .vsw file
-            if center_wavenumber<4000:
+            if gas in insb_only:
+            	varname = 'vsw_{}_insb'.format(var)
+            elif center_wavenumber<4000:
                 varname = 'vsw_{}_insb'.format(var[1:])
+            elif gas in si_only:
+            	varname = 'vsw_{}_si'.format(var)
             elif center_wavenumber>10000:
                 varname = 'vsw_{}_si'.format(var[1:])
             else:
@@ -1616,8 +1621,12 @@ def main():
                 att_dict["description"] = "{} scale factor from the window centered at {} cm-1".format(*var.split('_'))
                 if vsw_sf_check:
                     # write the data from the vsf= line ine the header of the vsw file
-                    if center_wavenumber<4000:
+                    if gas in insb_only:
+                    	sf_var = 'vsw_sf_{}_insb'.format(var)
+                    elif center_wavenumber<4000:
                         sf_var = 'vsw_sf_{}_insb'.format(var[1:])
+                    elif gas in si_only:
+                    	sf_var = 'vsw_sf_{}_si'.format(var)
                     elif center_wavenumber>10000:
                         sf_var = 'vsw_sf_{}_si'.format(var[1:])
                     else:
@@ -1636,13 +1645,17 @@ def main():
             write_values(nc_data,varname,vsw_data[var])
 
             # .vsw.ada file
-            var = 'x'+var
-            if center_wavenumber<4000:
+            xvar = 'x'+var
+            if gas in insb_only:
+            	varname = 'vsw_ada_x{}_insb'.format(var)
+            elif center_wavenumber<4000:
                 varname = 'vsw_ada_x{}_insb'.format(var[1:])
+            elif gas in si_only:
+            	varname = 'vsw_ada_x{}_si'.format(var)
             elif center_wavenumber>10000:
                 varname = 'vsw_ada_x{}_si'.format(var[1:])
             else:
-                varname = 'vsw_ada_'+var
+                varname = 'vsw_ada_'+xvar
             full_vsw_var_list += [varname]
             nc_data.createVariable(varname,np.float32,('time',))
             att_dict = {
@@ -1652,11 +1665,11 @@ def main():
                 "precision":'e12.4',
             }
             if 'error' in varname:
-                att_dict["description"] = "{0} scale factor {2} from the window centered at {1} cm-1, after airmass dependence is removed, but before scaling to WMO.".format(*var.split('_'))
+                att_dict["description"] = "{0} scale factor {2} from the window centered at {1} cm-1, after airmass dependence is removed, but before scaling to WMO.".format(*xvar.split('_'))
             else:
-                att_dict["description"] = "{} scale factor from the window centered at {} cm-1, after airmass dependence is removed, but before scaling to WMO.".format(*var.split('_'))
+                att_dict["description"] = "{} scale factor from the window centered at {} cm-1, after airmass dependence is removed, but before scaling to WMO.".format(*xvar.split('_'))
             nc_data[varname].setncatts(att_dict)
-            write_values(nc_data,varname,vsw_ada_data[var])
+            write_values(nc_data,varname,vsw_ada_data[xvar])
 
         # averaged variables (from the different windows of each species)
         main_var_list = [tav_data.columns[i] for i in range(naux,len(tav_data.columns)-1)]  # minus 1 because I added the 'file' column
@@ -1990,15 +2003,16 @@ def main():
             cbf_data['spectrum'] = cbf_data['spectrum'].map(lambda x: x.strip('"')) # remove quotes from the spectrum filenames
             
             gas_XXXX = col_file.split('.')[0] # gas_XXXX, suffix for nc_data variable names corresponding to each .col file (i.e. VSF_h2o from the 6220 co2 window becomes co2_6220_VSF_co2)
-                
+            gas = gas_XXXX.split('_')[0]
+            if gas.startswith('m') or gas.startswith('v'):
+            	gas_XXXX = gas_XXXX[1:]
+
             # check if it is insb or ingaas window
             if center_wavenumber<4000: # InSb
                 ingaas, insb, si = [False,True,False]
-                gas_XXXX = gas_XXXX[1:]
                 inds = insb_slice
             elif center_wavenumber>10000: # Si
                 ingaas, insb, si = [False,False,True]
-                gas_XXXX = gas_XXXX[1:]
                 inds = si_slice
             else:
                 ingaas, insb, si = [True,False,False]
