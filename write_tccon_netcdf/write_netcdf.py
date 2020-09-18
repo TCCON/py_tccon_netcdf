@@ -70,7 +70,7 @@ standard_name_dict = {
 'zo':'zero_level_offset',
 'zpres':'pressure_altitude',
 'cbf':'continuum_basis_function_coefficient_{}',
-'ncbf':'number of continuum basis functions',
+'ncbf':'number_of_continuum_basis_functions',
 'lsf':'laser_sampling_fraction',
 'lse':'laser_sampling_error',
 'lsu':'laser_sampling_error_uncertainty',
@@ -2111,7 +2111,10 @@ def main():
                 ncbf_var = '{}_ncbf_si'.format(gas_XXXX)
             col_var_list += [ncbf_var]
             nc_data.createVariable(ncbf_var,np.int32,('time',))
+            att_dict = {'standard_name':standard_name_dict['ncbf'],'long_name':long_name_dict['ncbf'],'units':units_dict['ncbf']}
+            nc_data[ncbf_var].setncatts(att_dict)
             nc_data[ncbf_var][:] = len(cbf_data.columns)-1 # minus 1 because of the spectrum name column
+
             for var in cbf_data.columns[1:]: # don't use the 'Spectrum' column
                 varname = '_'.join([gas_XXXX,var])
                 col_var_list += [varname]
