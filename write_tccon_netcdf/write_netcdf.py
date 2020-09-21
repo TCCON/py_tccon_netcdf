@@ -1816,31 +1816,35 @@ def main():
         prior_spec_list = list(prior_data.keys())
         prior_spec_gen = (spectrum for spectrum in prior_spec_list)
         prior_spectrum = next(prior_spec_gen)
-        next_spectrum = next(prior_spec_gen)
+        if nprior>1: # if there isn't more than 1 block in the .mav file, don't look for the second block...
+            next_spectrum = next(prior_spec_gen)
         prior_index = 0
         
         spec_list = nc_data['spectrum'][:]
         # need the time not affected by esf data
         aia_time = np.array([elem.total_seconds() for elem in (specdates-datetime(1970,1,1))])
         
-        for spec_id,spectrum in enumerate(spec_list):
-            if spectrum==next_spectrum:
-                prior_spectrum = next_spectrum
-                try:
-                    next_spectrum = next(prior_spec_gen)
-                except StopIteration:
-                    pass
-                
-                prior_index += 1
+        if nprior==1: # if there is just one block in the .mav file, set it as the prior index for all spectra
+            nc_data['prior_index'][:] = 0
+        else:
+            for spec_id,spectrum in enumerate(spec_list):
+                if spectrum==next_spectrum:
+                    prior_spectrum = next_spectrum
+                    try:
+                        next_spectrum = next(prior_spec_gen)
+                    except StopIteration:
+                        pass
+                    
+                    prior_index += 1
 
-                if next_spectrum not in spec_list:
-                    logging.warning('The "Next spectrum" of a block in the .mav file is not part of the outputs: {}'.format(next_spectrum))
-                    logging.warning('Find the spectrum in the .tav file closest to the model time minus 1.5 hour')
-                    model_coinc_time = netCDF4.date2num(datetime.strptime(prior_data[next_spectrum]['mod_file'].split('_')[1],'%Y%m%d%HZ')-timedelta(hours=1.5),nc_data['time'].units,calendar=nc_data['time'].calendar)
-                    next_spectrum = nc_data['spectrum'][aia_time>model_coinc_time][0]
-                    logging.warning('The "Next spectrum" was replaced with: {}'.format(next_spectrum))
+                    if next_spectrum not in spec_list:
+                        logging.warning('The "Next spectrum" of a block in the .mav file is not part of the outputs: {}'.format(next_spectrum))
+                        logging.warning('Find the spectrum in the .tav file closest to the model time minus 1.5 hour')
+                        model_coinc_time = netCDF4.date2num(datetime.strptime(prior_data[next_spectrum]['mod_file'].split('_')[1],'%Y%m%d%HZ')-timedelta(hours=1.5),nc_data['time'].units,calendar=nc_data['time'].calendar)
+                        next_spectrum = nc_data['spectrum'][aia_time>model_coinc_time][0]
+                        logging.warning('The "Next spectrum" was replaced with: {}'.format(next_spectrum))
 
-            nc_data['prior_index'][spec_id] = prior_index
+                nc_data['prior_index'][spec_id] = prior_index
         
         # write prior and cell data
         for prior_spec_id, prior_spectrum in enumerate(prior_spec_list):
