@@ -1915,8 +1915,9 @@ def main():
                     varname = var
                     ingaas = True
 
-                if ingaas and len(aia_data[var][aia_data[var]>=9e29]) >= 1: # only show this for InGaAs spectra
-                    logging.warning('You may need to remove missing .col files from {} and rerun post_processing.sh'.format(args.multiggg))
+                nmiss = len(aia_data[var][aia_data[var]>=9e29])
+                if ingaas and nmiss >= 1: # only show this for InGaAs spectra
+                    logging.warning('{} ({}%) missing values for {}'.format(nmiss,np.round(100*nmiss/nspec,2),var))
 
                 qc_id = list(qc_data['variable']).index(var)
                 digit = int(qc_data['format'][qc_id].split('.')[-1])
