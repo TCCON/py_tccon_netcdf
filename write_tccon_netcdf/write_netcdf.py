@@ -1944,7 +1944,7 @@ def main():
                     flagged_var_name = qc_data['variable'][eflag[i-start]-1]
                     if flagged_var_name.startswith('xm'):
                         nc_data['flagged_var_name'][i] = flagged_var_name[2:]+'_insb'
-                    elif flagged_var_name.startswith('xj'):
+                    elif flagged_var_name.startswith('xv'):
                         nc_data['flagged_var_name'][i] = flagged_var_name[2:]+'_si'
                     else:
                         nc_data['flagged_var_name'][i] = flagged_var_name
