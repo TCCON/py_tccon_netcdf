@@ -1927,7 +1927,7 @@ def main():
                 nc_data[varname][start:end] = aia_qc_data
 
                 dev = np.abs( (qc_data['rsc'][qc_id]*aia_data[var][start:end].values-qc_data['vmin'][qc_id])/(qc_data['vmax'][qc_id]-qc_data['vmin'][qc_id]) -0.5 )
-                dev[aia_qc_data[start:end]==fillval] = 0 # don't flag variables for having missing values
+                dev[np.where(np.isclose(aia_qc_data,fillval))[0]] = 0 # don't flag variables for having missing values
                 
                 if ingaas: # only set flags based on ingaas data
                     kmax[dev>dmax] = qc_id+1 # add 1 here, otherwise qc_id starts at 0 for 'year'
