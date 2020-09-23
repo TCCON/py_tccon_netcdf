@@ -1920,12 +1920,14 @@ def main():
 
                 qc_id = list(qc_data['variable']).index(var)
                 digit = int(qc_data['format'][qc_id].split('.')[-1])
+                fillval = netCDF4.default_fillvals[nc_data[varname].dtype.str[1:]]
 
                 aia_qc_data = np.round(aia_data[var][start:end].values*qc_data['rsc'][qc_id],digit)
-                aia_qc_data[aia_qc_data>9e29] = netCDF4.default_fillvals[nc_data[varname].dtype.str[1:]]
+                aia_qc_data[aia_qc_data>9e29] = fillval
                 nc_data[varname][start:end] = aia_qc_data
 
                 dev = np.abs( (qc_data['rsc'][qc_id]*aia_data[var][start:end].values-qc_data['vmin'][qc_id])/(qc_data['vmax'][qc_id]-qc_data['vmin'][qc_id]) -0.5 )
+                dev[aia_qc_data[start:end]==fillval] = 0 # don't flag variables for having missing values
                 
                 if ingaas: # only set flags based on ingaas data
                     kmax[dev>dmax] = qc_id+1 # add 1 here, otherwise qc_id starts at 0 for 'year'
