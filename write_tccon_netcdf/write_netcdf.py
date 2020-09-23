@@ -1916,7 +1916,7 @@ def main():
                     ingaas = True
 
                 nmiss = len(aia_data[var][aia_data[var]>=9e29])
-                if ingaas and nmiss >= 1: # only show this for InGaAs spectra
+                if ingaas and nmiss >= 1 and esf_id==0: # only show this for InGaAs spectra
                     logging.warning('{} ({}%) missing values for {}'.format(nmiss,np.round(100*nmiss/nspec,2),var))
 
                 qc_id = list(qc_data['variable']).index(var)
