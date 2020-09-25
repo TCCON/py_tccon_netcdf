@@ -1951,9 +1951,9 @@ def main():
                 else:
                     flagged_var_name = qc_data['variable'][eflag[i-start]-1]
                     if flagged_var_name.startswith('xm'):
-                        nc_data['flagged_var_name'][i] = flagged_var_name[2:]+'_insb'
+                        nc_data['flagged_var_name'][i] = 'x{}_insb'.format(flagged_var_name[2:])
                     elif flagged_var_name.startswith('xv'):
-                        nc_data['flagged_var_name'][i] = flagged_var_name[2:]+'_si'
+                        nc_data['flagged_var_name'][i] = 'x{}_si'.format(flagged_var_name[2:])
                     else:
                         nc_data['flagged_var_name'][i] = flagged_var_name
 
