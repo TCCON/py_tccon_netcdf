@@ -1070,7 +1070,12 @@ def main():
     # read site specific data from the tccon_netcdf repository
     # the .apply and .rename bits are just strip the columns from leading and tailing white spaces
     with open(os.path.join(code_dir,'site_info.json'),'r') as f:
-        site_data = json.load(f)[siteID]
+        try:
+            site_data = json.load(f)[siteID]
+        except KeyError:
+            logging.warning('{} is not in the site_info.json file. Using empty metadata.'.format(siteID))
+            site_data = {key:"" for key in ['long_name', 'release_lag', 'location', 'contact', 'site_reference', 'data_doi', 'data_reference', 'data_revision']}
+            site_data['release_lag'] = "0"
     site_data['release_lag'] = '{} days'.format(site_data['release_lag'])
 
     # multiggg.sh; use it to get the number of windows fitted and check they all have a .col file
