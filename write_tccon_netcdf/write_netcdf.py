@@ -1047,13 +1047,17 @@ def main():
     runlog_data = pd.read_csv(runlog_file,delim_whitespace=True,skiprows=nhead,usecols=['Spectrum_File_Name']).rename(index=str,columns={'Spectrum_File_Name':'spectrum'})
     runlog_insb_speclist = np.array([spec for spec in runlog_data['spectrum'] if spec[15]=='c'])
     runlog_ingaas_speclist = np.array([spec for spec in runlog_data['spectrum'] if spec[15]=='a'])
+    runlog_ingaas2_speclist = np.array([spec for spec in runlog_data['spectrum'] if spec[15]=='d']) # second InGaAs detector of em27s
     runlog_si_speclist = np.array([spec for spec in runlog_data['spectrum'] if spec[15]=='b'])
     nsi = len(runlog_si_speclist)
     ninsb = len(runlog_insb_speclist)
     ningaas = len(runlog_ingaas_speclist)
+    ningaas2 = len(runlog_ingaas2_speclist)
     spec_info = 'The runlog contains:'
     if ningaas:
         spec_info += ' {} InGaAs spectra;'.format(ningaas)
+    if ningaas2:
+        spec_info += ' {} secondary InGaAs spectra;'.format(ningaas2)
     if ninsb:
         spec_info += ' {} InSb spectra;'.format(ninsb)
     if nsi:
@@ -2069,8 +2073,8 @@ def main():
             if col_data.shape[0] != cbf_data.shape[0]:
                 logging.warning('Different number of spectra in %s and %s, recommend checking this col/cbf pair', col_file, cbf_file)
                 continue
-            if ingaas and not all(col_data['spectrum'].values == np.array(runlog_ingaas_speclist)): #vav_data['spectrum'].values
-                logging.warning('Mismatch between .col file spectra and .vav spectra; col_file=%s',col_file)
+            if ingaas and not (all(col_data['spectrum'].values == np.array(runlog_ingaas_speclist)) or all(col_data['spectrum'].values == np.array(runlog_ingaas2_speclist))):
+                logging.warning('Mismatch between .col file spectra and .grl spectra; col_file=%s',col_file)
                 continue # contine or exit here ? Might not need to exit if we can add in the results from the faulty col file afterwards
             if not all(col_data['spectrum'].values == cbf_data['spectrum'].values) and 'luft' not in col_file: # luft has no cbfs
                 logging.warning('Mismatch between .col file spectra and .cbf spectra; col_file=%s',col_file)
