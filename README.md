@@ -37,6 +37,8 @@ Code to compile the outputs of GGG in a netCDF file
 >
 >						[--multiggg MULTIGGG]
 >
+>						[--mode {TCCON,em27}]
+>
 >                       file
 >
 >write_netcdf.py (Version 1.0; 2019-11-15; SR)
@@ -71,6 +73,8 @@ Code to compile the outputs of GGG in a netCDF file
 >       --m, --message        Add an optional message to be kept in the log file to remember why you ran post-processing e.g. "2020 Eureka R3 processing"
 >
 >       --multiggg MULTIGGG   Use this argument if you use differently named multiggg.sh files
+>
+>       --mode {TCCON,em27}   Will be used to set TCCON specific or em27 specific metadata
 
 Run from the directory where the GFIT outputs are saved with:
 
