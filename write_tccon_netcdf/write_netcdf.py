@@ -1177,7 +1177,7 @@ def main():
         logging.warning('Found "Infinity" values in {}'.format(object_columns))
         aia_data[object_columns] = aia_data[object_columns].astype(np.float64)
     if ningaas: # check for consistency with the runlog spectra
-        aia_ref_speclist = np.array([i.replace('c.','a.').replace('b.','a.') for i in aia_data['spectrum']]) # this is the .aia spectrum list but with only ingaas names
+        aia_ref_speclist = np.array([i.replace('c.','a.').replace('b.','a.').replace('d.','a.') for i in aia_data['spectrum']]) # this is the .aia spectrum list but with only ingaas names
         if not np.array_equal(aia_ref_speclist,runlog_ingaas_speclist):
             logging.warning('The spectra in the .aia file are inconsistent with the runlog spectra:\n {}'.format(set(aia_ref_speclist).symmetric_difference(set(runlog_ingaas_speclist))))       
         if ninsb:
@@ -2072,18 +2072,17 @@ def main():
                         nc_data[checksum_var][i] = checksum_dict[checksum_var]
 
             # JLL 2020-05-19: need to check that the shapes are equal first, or get a very confusing error
-            if ingaas and (col_data.shape[0] != vav_data.shape[0]):
-                logging.warning('Different number of spectra in %s and %s, recommend checking this col/vav file', col_file, vav_file)
-                continue
-            if col_data.shape[0] != cbf_data.shape[0]:
-                logging.warning('Different number of spectra in %s and %s, recommend checking this col/cbf pair', col_file, cbf_file)
-                continue
             if ingaas and not (all(col_data['spectrum'].values == np.array(runlog_ingaas_speclist)) or all(col_data['spectrum'].values == np.array(runlog_ingaas2_speclist))):
                 logging.warning('Mismatch between .col file spectra and .grl spectra; col_file=%s',col_file)
                 continue # contine or exit here ? Might not need to exit if we can add in the results from the faulty col file afterwards
-            if not all(col_data['spectrum'].values == cbf_data['spectrum'].values) and 'luft' not in col_file: # luft has no cbfs
-                logging.warning('Mismatch between .col file spectra and .cbf spectra; col_file=%s',col_file)
-                continue # contine or exit here ? Might not need to exit if we can add in the results from the faulty col file afterwards
+            if col_data.shape[0] != cbf_data.shape[0]:
+                logging.warning('Different number of spectra in %s and %s, recommend checking this col/cbf pair', col_file, cbf_file)
+                continue
+
+            if ingaas and (col_data.shape[0] != vav_data.shape[0]):
+                inds = list(np.where(np.isin(vav_data['spectrum'],col_data['spectrum'].apply(lambda x: x.replace('d.','a.'))))[0]) # handle case when the .col file has more spectra listed than the .vav file
+                dif = col_data['spectrum'].size - len(inds)
+                logging.warning('There are {} more spectra in {} than in {}, recommend checking this col/vav file'.format(dif,col_file, vav_file))
 
             # create window specific variables
             for var in col_data.columns[1:]: # skip the first one ("spectrum")
