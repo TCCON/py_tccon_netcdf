@@ -946,6 +946,19 @@ def setup_logging(log_level, log_file, message=''):
     logging.info('cwd=%s', os.getcwd())
     return logger, show_progress
 
+def get_runlog_file(GGGPATH,tav_file,col_file):
+    with open(col_file,'r') as infile:
+        for i in range(6): # read up to the runlog line in the .col file header
+            c = infile.readline().strip()
+    runlog_file = c.split()[1]
+    if not os.path.exists(runlog_file):
+        logging.warning('Could not find {}; now checking under GGGPATH/runlogs/gnd'.format(runlog_file)) 
+        runlog_file = os.path.join(GGGPATH,'runlogs','gnd',tav_file.replace('.tav','.grl'))
+        if not os.path.exists(runlog_file):
+            logging.critical('Could not find {}'.format(runlog_file))
+            sys.exit()
+
+    return runlog_file
 
 def main():
     code_dir = os.path.dirname(__file__) # path to the tccon_netcdf repository
@@ -1013,10 +1026,6 @@ def main():
     aia_file = ada_file+'.aia'
     esf_file = aia_file+'.daily_error.out'
     eof_file = aia_file+'.eof.csv'
-    runlog_file = os.path.join(GGGPATH,'runlogs','gnd',tav_file.replace('.tav','.grl'))
-    if not os.path.exists(runlog_file):
-    	logging.critical('Could not find {}'.format(runlog_file))
-    	sys.exit()
     
     siteID = os.path.basename(tav_file)[:2] # two letter site abbreviation
     qc_file = os.path.join(GGGPATH,'tccon','{}_qc.dat'.format(siteID))
@@ -1032,6 +1041,8 @@ def main():
     if not col_file_list: # [] evaluates to False
         logging.critical('No .col files in',os.getcwd())
         sys.exit()
+
+    runlog_file = get_runlog_file(GGGPATH,tav_file,col_file_list[0])
 
     ## read data, I add the file_name to the data dictionaries for some of them
 
