@@ -213,10 +213,8 @@ def checksum(file_name,hexdigest):
     check = (md5(file_name) == hexdigest)
 
     if not check:
-        logging.warning('\nChecksum mismatch for %s',file_name)
-        logging.warning('New: %s',md5(file_name))
-        logging.warning('Old: %s',hexdigest)
-
+        print('\n')
+        logging.warning('Checksum mismatch for {}\nNew: {}\nOld: {}'.format(file_name,md5(file_name),hexdigest))
 
 def file_info(file_name,delimiter=''):
     """
