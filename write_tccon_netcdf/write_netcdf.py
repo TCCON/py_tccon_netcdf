@@ -1217,8 +1217,7 @@ def main():
     pth_data = pd.read_csv(pth_file,delim_whitespace=True,skiprows=nhead)
     # extract_pth lines correspond to runlog lines, so use the ingaas_runlog_slice to get the values along the time dimension
     pth_data = pth_data.loc[ingaas_runlog_slice]
-    pth_data.loc[:,'hout'] = pth_data['hout'] # hout from extract_pth.out is a wet mole fraction
-    pth_data.loc[:,'hout'] = pth_data['hout']/(1-pth_data['hout']) # convert wet to dry mole fraction
+    pth_data.loc[:,'hout'] = pth_data['hout']/(1-pth_data['hout']) # hout from extract_pth.out is a wet mole fraction; convert wet to dry mole fraction
     pth_data.loc[:,'hmod'] = pth_data['hmod'] # hmod from extract_pth.out is a dry mole fraction
     pth_data.loc[:,'tout'] = pth_data['tout']-273.15 # convert Kelvin to Celcius
     pth_data.loc[:,'tmod'] = pth_data['tmod']-273.15 # convert Kelvin to Celcius
