@@ -45,9 +45,10 @@ standard_name_dict = {
 'pins':'instrument_internal_pressure',
 'pout':'atmospheric_pressure',
 'hout':'atmospheric_humidity',
+'h2o_dmf_out':'water_vapour_dry_mole_fraction',
+'h2o_dmf_mod':'model_water_vapour_dry_mole_fraction',
 'tmod':'model_atmospheric_temperature',
 'pmod':'model_atmospheric_pressure',
-'hmod':'model_atmospheric_humidity',
 'sia':'solar_intensity_average',
 'fvsi':'fractional_variation_in_solar_intensity',
 'zobs':'observation_altitude',
@@ -108,9 +109,10 @@ units_dict = {
 'pins':'hPa',
 'pout':'hPa',
 'hout':'%',
+'h2o_dmf_out':'',
+'h2o_dmf_mod':'',
 'tmod':'degrees_Celsius',
 'pmod':'hPa',
-'hmod':'%',
 'sia':'',
 'fvsi':'%',
 'zobs':'km',
@@ -1215,8 +1217,9 @@ def main():
     pth_data = pd.read_csv(pth_file,delim_whitespace=True,skiprows=nhead)
     # extract_pth lines correspond to runlog lines, so use the ingaas_runlog_slice to get the values along the time dimension
     pth_data = pth_data.loc[ingaas_runlog_slice]
-    pth_data.loc[:,'hout'] = pth_data['hout']*100.0 # convert fractional humidity to percent
-    pth_data.loc[:,'hmod'] = pth_data['hmod']*100.0 # convert fractional humidity to percent
+    pth_data.loc[:,'hout'] = pth_data['hout'] # hout from extract_pth.out is a wet mole fraction
+    pth_data.loc[:,'hout'] = pth_data['hout']/(1-pth_data['hout']) # convert wet to dry mole fraction
+    pth_data.loc[:,'hmod'] = pth_data['hmod'] # hmod from extract_pth.out is a dry mole fraction
     pth_data.loc[:,'tout'] = pth_data['tout']-273.15 # convert Kelvin to Celcius
     pth_data.loc[:,'tmod'] = pth_data['tmod']-273.15 # convert Kelvin to Celcius
 
@@ -1605,7 +1608,7 @@ def main():
         nc_data['hour'].description = 'Fractional UT hours (zero path difference crossing time)'
 
         # get model surface values from the output of extract_pth.f
-        mod_var_dict = {'tmod':'tout','pmod':'pout','hmod':'hout'}
+        mod_var_dict = {'tmod':'tout','pmod':'pout'}
         for key,val in mod_var_dict.items(): # use a mapping to the equivalent runlog variables to querry their qc.dat info
             qc_id = list(qc_data['variable']).index(val)
             var_type = np.float32 
@@ -1621,7 +1624,19 @@ def main():
                 att_dict["long_name"] = long_name_dict[key]
                 att_dict["units"] = units_dict[key]
             nc_data[key].setncatts(att_dict)
-            write_values(nc_data,key,np.array(pth_data[key])) 
+            write_values(nc_data,key,np.array(pth_data[key]))
+        # Use extract_pth.out hmod and hout to create h2o_dmf_out and h2_dmf_mod
+        for key,val in {'h2o_dmf_out':'hout','h2o_dmf_mod':'hmod'}.items():
+            nc_data.createVariable(key,np.float32,('time',))
+            att_dict = {
+                "standard_name":standard_name_dict[key],
+                "long_name":long_name_dict[key],
+                "units":units_dict[key],
+            }
+            nc_data[key].setncatts(att_dict)
+            write_values(nc_data,key,np.array(pth_data[val]))
+        nc_data['h2o_dmf_out'].description = "external water vapour dry mole fraction"
+        nc_data['h2o_dmf_mod'].description = "model external water vapour dry mole fraction"
 
         # write variables from the .vsw and .vsw.ada files
         vsw_var_list = [vsw_data.columns[i] for i in range(naux,len(vsw_data.columns)-1)]  # minus 1 because I added the 'file' column
