@@ -108,6 +108,9 @@ units_dict = {
 'pins':'hPa',
 'pout':'hPa',
 'hout':'%',
+'tmod':'degrees_Celsius',
+'pmod':'hPa',
+'hmod':'%',
 'sia':'',
 'fvsi':'%',
 'zobs':'km',
@@ -1133,16 +1136,12 @@ def main():
     tav_data['file'] = tav_file
     nwin = int((ncol-naux)/2)
     speclength = tav_data['spectrum'].map(len).max() # use the longest spectrum file name length for the specname dimension
+    if nspec!=ningaas:
+        logging.warning('{} ingaas spectra in runlog; {} spectra in .tav file'.format(ningaas,nspec))
 
     # read prior data
     prior_data, nlev, ncell = read_mav(mav_file,GGGPATH,tav_data['spectrum'].size)
     nprior = len(prior_data.keys())
-
-    # read pth data
-    nhead,ncol = file_info(pth_file)
-    pth_data = pd.read_csv(pth_file,delim_whitespace=True,skiprows=nhead)
-    pth_data.loc[:,'hout'] = pth_data['hout']*100.0 # convert fractional humidity to percent
-    pth_data.loc[:,'hmod'] = pth_data['hmod']*100.0 # convert fractional humidity to percent
 
     # header file: it contains general information and comments.
     with open(header_file,'r') as infile:
@@ -1191,6 +1190,7 @@ def main():
         aia_ref_speclist = np.array([i.replace('c.','a.').replace('b.','a.').replace('d.','a.') for i in aia_data['spectrum']]) # this is the .aia spectrum list but with only ingaas names
         if not np.array_equal(aia_ref_speclist,runlog_ingaas_speclist):
             logging.warning('The spectra in the .aia file are inconsistent with the runlog spectra:\n {}'.format(set(aia_ref_speclist).symmetric_difference(set(runlog_ingaas_speclist))))       
+        ingaas_runlog_slice = list(np.where(np.isin(runlog_data['spectrum'],aia_ref_speclist))[0]) # indices to slice the runlog arrays for the ingaas spectra that made it to the .tav file
         if ninsb:
             aia_ref_speclist_insb = np.array([i.replace('a.','c.') for i in aia_data['spectrum']]) # will be used to get .col file spectra indices along the time dimension
         if nsi:
@@ -1211,6 +1211,16 @@ def main():
             i = i+1   
     adcf_data = pd.read_csv(aia_file,delim_whitespace=True,skiprows=adcf_id,nrows=nrow_adcf,names=['xgas','adcf','adcf_error'])
     aicf_data = pd.read_csv(aia_file,delim_whitespace=True,skiprows=aicf_id,nrows=nrow_aicf,names=['xgas','aicf','aicf_error'])
+
+    # read pth data
+    nhead,ncol = file_info(pth_file)
+    pth_data = pd.read_csv(pth_file,delim_whitespace=True,skiprows=nhead)
+    # extract_pth lines correspond to runlog lines, so use the ingaas_runlog_slice to get the values along the time dimension
+    pth_data = pth_data.loc[ingaas_runlog_slice]
+    pth_data.loc[:,'hout'] = pth_data['hout']*100.0 # convert fractional humidity to percent
+    pth_data.loc[:,'hmod'] = pth_data['hmod']*100.0 # convert fractional humidity to percent
+    pth_data.loc[:,'tout'] = pth_data['tout']-273.15 # convert Kelvin to Celcius
+    pth_data.loc[:,'tmod'] = pth_data['tmod']-273.15 # convert Kelvin to Celcius
 
     # vsw file
     nhead,ncol = file_info(vsw_file)
@@ -1600,20 +1610,20 @@ def main():
         mod_var_dict = {'tmod':'tout','pmod':'pout','hmod':'hout'}
         for key,val in mod_var_dict.items(): # use a mapping to the equivalent runlog variables to querry their qc.dat info
             qc_id = list(qc_data['variable']).index(val)
-            #digit = int(qc_data['format'][qc_id].split('.')[-1])
             var_type = np.float32 
-            nc_data.createVariable(key,var_type,('time'))#,zlib=True)#,least_significant_digit=digit)
+            nc_data.createVariable(key,var_type,('time'))
             att_dict = {
-                "description": 'model {}'.format(qc_data['description'][qc_id].lower()),
+                "description": 'model {}'.format(qc_data['description'][qc_id]),
                 "vmin": qc_data['vmin'][qc_id],
                 "vmax": qc_data['vmax'][qc_id],
-                "precision": 'f10.4',
+                "precision": qc_data['format'][qc_id],
             }
             if key in standard_name_dict.keys():
                 att_dict["standard_name"] = standard_name_dict[key]
                 att_dict["long_name"] = long_name_dict[key]
-                att_dict["units"] = units_dict[val]
+                att_dict["units"] = units_dict[key]
             nc_data[key].setncatts(att_dict)
+            write_values(nc_data,key,np.array(pth_data[key])) 
 
         # write variables from the .vsw and .vsw.ada files
         vsw_var_list = [vsw_data.columns[i] for i in range(naux,len(vsw_data.columns)-1)]  # minus 1 because I added the 'file' column
