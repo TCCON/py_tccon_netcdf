@@ -1196,21 +1196,25 @@ def main():
         if nsi:
             aia_ref_speclist_si = np.array([i.replace('a.','b.') for i in aia_data['spectrum']]) # will be used to get .col file spectra indices along the time dimension
 
+    # read airmass-dependent and -independent correction factors from the header of the .aia file
     aia_data['file'] = aia_file
     with open(aia_file,'r') as f:
         i = 0
-        while True:
+        while i<nhead:
             line = f.readline()
             if 'Airmass-Dependent' in line:
                 adcf_id = i+1
-                nrow_adcf = int(line.split(':')[1].split()[0])
+                nrow_adcf, ncol_adcf = np.array(line.split(':')[1].split()).astype(int)
             elif 'Airmass-Independent' in line:
                 aicf_id = i+1
-                nrow_aicf = int(line.split(':')[1].split()[0])
+                nrow_aicf, ncol_aicf = np.array(line.split(':')[1].split()).astype(int)
                 break 
-            i = i+1   
+            i = i+1
+        else:
+            logging.critical('Could not find the airmass-dependent and airmass-independent correction factors in the header of the .aia file')   
     adcf_data = pd.read_csv(aia_file,delim_whitespace=True,skiprows=adcf_id,nrows=nrow_adcf,names=['xgas','adcf','adcf_error'])
-    aicf_data = pd.read_csv(aia_file,delim_whitespace=True,skiprows=aicf_id,nrows=nrow_aicf,names=['xgas','aicf','aicf_error'])
+    aicf_data = pd.read_csv(aia_file,delim_whitespace=True,skiprows=aicf_id,nrows=nrow_aicf,names=['xgas','aicf','aicf_error','scale'])
+    aicf_data.loc[:,'scale'] = aicf_data['scale'].apply(lambda x: '' if type(x)==float else x)
 
     # read pth data
     nhead,ncol = file_info(pth_file)
@@ -1855,6 +1859,22 @@ def main():
                     att_dict["description"] = '{} airmass-independent correction factor'.format(xgas)
                 nc_data[varname].setncatts(att_dict)
                 nc_data[varname][:] = aicf_data[var][i]
+
+            varname = 'aicf_{}_scale'.format(xgas)
+            if classic:
+                v = nc_data.createVariable(varname,'S1',('time','a32'))
+                v._Encoding = 'ascii'
+            else:
+                nc_data.createVariable(varname,str,('time',))
+            att_dict = {
+                "standard_name":"aicf_scale",
+                "long_name":"aicf scale",
+                "description":"{} traceability".format(xgas),
+            }
+            nc_data[varname].setncatts(att_dict)
+            for j in range(nc_data['time'].size):
+                nc_data[varname][j] = aicf_data['scale'][i]
+
 
         ## write data
 

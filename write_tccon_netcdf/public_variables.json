@@ -43,7 +43,8 @@
 	"endswith": ["_version"], 
 	
 	"exclude": [
-		"_aicf", 
+		"_aicf",
+		"aicf_", 
 		"_adcf", 
 		"prior_0", 
 		"prior_1", 
