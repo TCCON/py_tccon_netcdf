@@ -14,4 +14,5 @@ fi
 # --script-dir: write command line scripts to the given directory
 python setup.py --no-user-cfg develop --script-dir=./scripts \
     && mv -v ./scripts/write_netcdf $GGGPATH/bin/ \
-    && mv -v ./scripts/compare_netcdf $GGGPATH/bin/
+    && mv -v ./scripts/compare_netcdf $GGGPATH/bin/ \
+    && mv -v ./scripts/concat_netcdf $GGGPATH/bin/
