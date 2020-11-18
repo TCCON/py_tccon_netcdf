@@ -8,7 +8,9 @@ Can be used to concatenate netCDF files contained in a folder, the concatenated 
 
 where **xx** is the 2-letters site ID and **YYYYMMDD** are the first and last date in the data files.
 
-activate the python environment of the netCDF writer with:
+If you ran the install you can run the code from **$GGGPATH/bin/concat_netcdf**
+
+To run directly with python, activate the python environment of the netCDF writer with:
 
 > conda activate ggg-tccon-default
 

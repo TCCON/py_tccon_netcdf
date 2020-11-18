@@ -52,7 +52,7 @@ def progress(i,tot,bar_length=20,word=''):
 def main():
     parser = argparse.ArgumentParser(description="Concatenate netCDF files that are in the given directory")
     parser.add_argument('path',help='full path to a folder containing netCDF files')
-    parser.add_argument('--out',default='',help='full path to the directory where the output file will be saved, default to save as "path"')
+    parser.add_argument('--out',default='',help='full path to the directory where the output file will be saved, default to same as the "path" argument')
     parser.add_argument('--prefix',default='',help='if given, only use files starting with the given prefix')
     args = parser.parse_args()
 
