@@ -124,6 +124,10 @@ def main():
             varcount += 1
             var = ncout.createVariable(name,variable.datatype,variable.dimensions)
             ncout[name].setncatts(ncin_list[0][name].__dict__)
+            # Set the values of non-time coordinate variables
+            if (name not in ['prior_time','time']) and (name in list(ncout.dimensions)):
+                ncout[name][:] = ncin_list[0][name][:]
+                continue
             if 'a32' in variable.dimensions or 'specname' in variable.dimensions:
                 var._Encoding = 'ascii'
 
