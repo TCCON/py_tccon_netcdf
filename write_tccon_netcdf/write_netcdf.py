@@ -183,6 +183,13 @@ def progress(i,tot,bar_length=20,word=''):
     sys.stdout.flush()
 
 
+def short_error(ex:Exception) -> str:
+    """
+    Return a short version of a python error message
+    """
+    return '{0}: {1}'.format(ex.__class__.__name__, ex)
+
+
 def md5(file_name):
     """
     Reads file_name and get its md5 sum, returns the hexdigest hash string
@@ -1157,6 +1164,16 @@ def main():
     if len_list!=len_set:
         dupes = get_duplicates(list(qc_data['Variable']))
         logging.warning('There are {} duplicate variables in the qc.dat file: {}\n flags will be determined based on the first occurence of each duplicate.'.format(len_list-len_set,dupes))
+    # the qc.dat file is an input file that gets edited often by users
+    # they often mistakenly misalign columns which messes with the fwf read and raises a confusing error when determining flags later
+    # check that the Scale, Vmin, and Vmax columns can be converted to floats here    
+    for qc_var in ['Scale','Vmin','Vmax']:
+        try:
+            qc_data[qc_var].astype(float)
+        except ValueError as qc_err:
+            logging.critical('Could not convert all of {} to floats from the {} file; please check for misaligned columns in the file'.format(qc_var,os.path.basename(qc_file)))
+            logging.critical('Python error: "{}"'.format(short_error(qc_err)))
+            sys.exit()
 
     # error scale factors: 
     nhead, ncol = file_info(esf_file)
