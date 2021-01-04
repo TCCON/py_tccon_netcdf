@@ -1372,7 +1372,7 @@ def main():
         }
         nc_data['time'].setncatts(att_dict)
 
-        nc_data.createVariable('prior_time',np.float32,('prior_time'))
+        nc_data.createVariable('prior_time',np.float64,('prior_time'))
         att_dict = {
             "standard_name": "prior_time",
             "long_name": "prior time",
