@@ -950,11 +950,12 @@ def setup_logging(log_level, log_file, message=''):
     logging.info('Running %s', wnc_version.strip())
     proc = subprocess.Popen(['git','rev-parse','--short','HEAD'],cwd=os.path.dirname(__file__),stdout=subprocess.PIPE)
     out, err = proc.communicate()
-    logging.info('tccon_netcdf repository HEAD: {}'.format(out.decode("utf-8").strip()))
+    HEAD_commit = out.decode("utf-8").strip()
+    logging.info('tccon_netcdf repository HEAD: {}'.format(HEAD_commit))
     logging.info('Python executable used: %s', sys.executable)
     logging.info('GGGPATH=%s', get_ggg_path())
     logging.info('cwd=%s', os.getcwd())
-    return logger, show_progress
+    return logger, show_progress, HEAD_commit
 
 def get_runlog_file(GGGPATH,tav_file,col_file):
     with open(col_file,'r') as infile:
@@ -1010,7 +1011,7 @@ def main():
     parser.add_argument('--mode',default='TCCON',choices=['TCCON','em27'],help='Will be used to set TCCON specific or em27 specific metadata')
 
     args = parser.parse_args()
-    logger, show_progress = setup_logging(log_level=args.log_level, log_file=args.log_file, message=args.message)
+    logger, show_progress, HEAD_commit = setup_logging(log_level=args.log_level, log_file=args.log_file, message=args.message)
 
     nc_format = args.format
     classic = nc_format == 'NETCDF4_CLASSIC'
@@ -1307,7 +1308,8 @@ def main():
         # general
         nc_data.source = "Products retrieved from solar absorption spectra using the GGG2020 software"
         nc_data.description = '\n'+header_content
-        nc_data.file_creation = "Created with Python {}; the library netCDF4 {}; and the code {}".format(platform.python_version(),netCDF4.__version__,wnc_version)
+        nc_data.file_creation = "Created with Python {} and the library netCDF4 {}".format(platform.python_version(),netCDF4.__version__)
+        nc_data.code_version = "Created using commit {} of the code {}".format(HEAD_commit,wnc_version)
         nc_data.flag_info = 'The Vmin and Vmax attributes of the variables indicate the range of valid values.\nThe values comes from the xx_qc.dat file.\n the variable "flag" stores the index of the variable that contains out of range values.\nThe variable "flagged_var_name" stores the name of that variable'
         
         if args.mode == 'TCCON':
