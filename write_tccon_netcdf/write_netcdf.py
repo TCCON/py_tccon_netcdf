@@ -460,7 +460,7 @@ def read_mav(path,GGGPATH,maxspec):
     if len(mav_vmr_list)!=len(set(mav_vmr_list)):
         vmr_dupes = get_duplicates(mav_vmr_list)
         mav_warning = """There are duplicate .mav blocks, typically resulting from spectra not time-ordered in the runlog.
-        This can happen if an InSb spectrum listed after an InGaAs spectrum has an earlier time than the InGaAs spectrum.
+        This can happen if an InSb or Si spectrum listed after an InGaAs spectrum has an earlier time than the InGaAs spectrum.
         Pairs of InSb-InGaAs spectra share output lines in the post_processing outputs.
         In that case the prior_index variable will point to the prior used to process the InGaAs spectrum.
         The duplicated blocks correspond to these vmr files: {}""".format(vmr_dupes)
@@ -468,8 +468,11 @@ def read_mav(path,GGGPATH,maxspec):
         for vmr_file in vmr_dupes:
             spec_dupes = np.array(mav_spec_list)[np.full(len(mav_vmr_list),vmr_file)==mav_vmr_list]
             for spec in spec_dupes:
-                if spec[15]=='c':
-                    logging.warning('{} was processed with {} but the prior_index will refer to the InGaAs spectrum prior'.format(spec,vmr_file))
+                if spec[15]!='a':
+                    ingaas_spec = list(spec)
+                    ingaas_spec[15] = 'a'
+                    ingaas_spec = ''.join(ingaas_spec)
+                    logging.warning('{} was processed with {} but the prior_index will refer to the InGaAs spectrum prior {}'.format(spec,vmr_file,DATA[ingaas_spec]['vmr_file']))
                     del DATA[spec]
                
     logging.info('Finished reading MAV file')
