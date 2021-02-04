@@ -66,8 +66,8 @@ standard_name_dict = {
 'cl':'continuum_level',
 'ct':'continuum_tilt',
 'cc':'continuum_curvature',
-'fs':'frequency_shift',
-'sg':'solar_gas_shift',
+'fs':'frequency_stretch',
+'sg':'solar_gas_stretch',
 'zo':'zero_level_offset',
 'zpres':'pressure_altitude',
 'cbf':'continuum_basis_function_coefficient_{}',
@@ -130,7 +130,7 @@ units_dict = {
 'cl':'',
 'ct':'',
 'cc':'',
-'fs':'mK',
+'fs':'ppm',
 'sg':'ppm',
 'zo':'%',
 'zpres':'km',
@@ -1070,7 +1070,13 @@ def main():
 
     # read runlog spectra; only read in the spectrum file names to make checks with the post_processing outputs
     nhead,ncol = file_info(runlog_file)
-    runlog_data = pd.read_csv(runlog_file,delim_whitespace=True,skiprows=nhead,usecols=['Spectrum_File_Name']).rename(index=str,columns={'Spectrum_File_Name':'spectrum'})
+    runlog_data = pd.read_csv(runlog_file,delim_whitespace=True,skiprows=nhead,usecols=['Spectrum_File_Name','DELTA_NU']).rename(index=str,columns={'Spectrum_File_Name':'spectrum','DELTA_NU':'delta_nu'})
+    dnu_set = len(set(runlog_data['delta_nu']))
+    dnu = 0
+    if dnu_set>1:
+        logging.warning('There are {} different spectral point spacings in the runlog'.format(dnu_set))
+    else:
+        dnu = runlog_data['delta_nu'][0]
     runlog_insb_speclist = np.array([spec for spec in runlog_data['spectrum'] if spec[15]=='c'])
     runlog_ingaas_speclist = np.array([spec for spec in runlog_data['spectrum'] if spec[15]=='a'])
     runlog_ingaas2_speclist = np.array([spec for spec in runlog_data['spectrum'] if spec[15]=='d']) # second InGaAs detector of em27s
@@ -2190,10 +2196,13 @@ def main():
                             sup = 'th'
                         att_dict['description'] += "{} is the {}{} isotopolog of {} as listed in GGG's isotopologs.dat file.".format(iso_gas,iso,sup,iso_gas[1:])
                 else:
-                    att_dict['description'] = '{} retrieved from the {} window centered at {} cm-1.'.format(var,gas_XXXX.split('_')[0],gas_XXXX.split('_')[1])
+                    att_dict['description'] = '{} retrieved from the {} window centered at {} cm-1.'.format(long_name_dict[var],gas_XXXX.split('_')[0],gas_XXXX.split('_')[1])
                 for key in special_description_dict.keys():
                     if key in varname:
                         att_dict['description'] += special_description_dict[key]
+                if varname.endswith('fs') or varname.endswith('sg'):
+                    att_dict['units'] = units_dict[varname[-2:]]
+                    att_dict['description'] += "The {} (wavenumber shift per spectral point) is in ppm of the spectral point spacing ({:.11f} cm-1)".format(long_name_dict[var],dnu)
                 nc_data[varname].setncatts(att_dict)
                 write_values(nc_data,varname,col_data[var].values,inds=inds)
             
