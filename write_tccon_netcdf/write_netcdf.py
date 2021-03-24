@@ -1071,10 +1071,10 @@ def main():
     # read runlog spectra; only read in the spectrum file names to make checks with the post_processing outputs
     nhead,ncol = file_info(runlog_file)
     runlog_data = pd.read_csv(runlog_file,delim_whitespace=True,skiprows=nhead,usecols=['Spectrum_File_Name','DELTA_NU']).rename(index=str,columns={'Spectrum_File_Name':'spectrum','DELTA_NU':'delta_nu'})
-    dnu_set = len(set(runlog_data['delta_nu']))
+    dnu_set = set(runlog_data['delta_nu'])
     dnu = 0
-    if dnu_set>1:
-        logging.warning('There are {} different spectral point spacings in the runlog'.format(dnu_set))
+    if len(dnu_set)>1:
+        logging.warning('There are {} different spectral point spacings in the runlog: {}'.format(len(dnu_set),dnu_set))
     else:
         dnu = runlog_data['delta_nu'][0]
     runlog_insb_speclist = np.array([spec for spec in runlog_data['spectrum'] if spec[15]=='c'])
