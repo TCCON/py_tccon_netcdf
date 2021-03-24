@@ -1033,7 +1033,6 @@ def main():
     tav_file = args.file
     mav_file = tav_file.replace('.tav','.mav')
     vav_file = tav_file.replace('.tav','.vav')
-    asw_file = tav_file.replace('.tav','.asw')
     vsw_file = tav_file.replace('.tav','.vsw')
     vsw_ada_file = vsw_file+'.ada'
     ada_file = vav_file+'.ada'
@@ -1046,6 +1045,11 @@ def main():
     header_file = os.path.join(GGGPATH,'tccon','{}_oof_header.dat'.format(siteID))
     lse_file = os.path.join(GGGPATH,'lse','gnd',os.path.basename(tav_file).replace('.tav','.lse'))
     pth_file = 'extract_pth.out'
+
+    for input_file in [tav_file,mav_file,vav_file,vsw_file,vsw_ada_file,ada_file,aia_file,esf_file,lse_file,pth_file,qc_file,header_file]:
+        if not os.path.exists(input_file):
+            logging.critical('Cannot find input file: {}'.format(input_file))
+            sys.exit()
 
     # need to check that the file ends with .col, not just that .col is in it, because
     # otherwise a .col elsewhere in the file name will cause a problem (e.g. if one is
