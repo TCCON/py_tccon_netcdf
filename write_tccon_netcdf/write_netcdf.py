@@ -1066,7 +1066,7 @@ def main():
 
     # read tccon_gases.json
     with open(os.path.join(code_dir,'tccon_gases.json'),'r') as f:
-    	tccon_gases = json.load(f)
+        tccon_gases = json.load(f)
 
     # if a gas is shared by InSb and Si, but not InGaAs, then the corresponding .col file should start with 'm' for InSb and 'v' for Si
     insb_only = set([gas for gas in tccon_gases['insb'] if (gas not in tccon_gases['ingaas']) and (gas not in tccon_gases['si'])])
@@ -1198,6 +1198,10 @@ def main():
     lse_data = pd.read_csv(lse_file,delim_whitespace=True,skiprows=nhead)
     lse_data['file'] = lse_file
     lse_data.rename(index=str,columns={'Specname':'spectrum'},inplace=True) # the other files use 'spectrum'
+    # check the .lse file has the same spectra as the runlog
+    if len(lse_data['spectrum'])!=len(runlog_data['spectrum']):
+        logging.critical("Different number of spectra in runlog ({}) and lse ({}) files".format(len(runlog_data['spectrum']),len(lse_data['spectrum'])))
+        sys.exit()
 
     # vav file: contains column amounts
     nhead, ncol = file_info(vav_file)
@@ -1681,11 +1685,11 @@ def main():
             gas = var.split('_')[0]
             # .vsw file
             if gas in insb_only:
-            	varname = 'vsw_{}_insb'.format(var)
+                varname = 'vsw_{}_insb'.format(var)
             elif center_wavenumber<4000:
                 varname = 'vsw_{}_insb'.format(var[1:])
             elif gas in si_only:
-            	varname = 'vsw_{}_si'.format(var)
+                varname = 'vsw_{}_si'.format(var)
             elif center_wavenumber>10000:
                 varname = 'vsw_{}_si'.format(var[1:])
             else:
@@ -1705,11 +1709,11 @@ def main():
                 if vsw_sf_check:
                     # write the data from the vsf= line ine the header of the vsw file
                     if gas in insb_only:
-                    	sf_var = 'vsw_sf_{}_insb'.format(var)
+                        sf_var = 'vsw_sf_{}_insb'.format(var)
                     elif center_wavenumber<4000:
                         sf_var = 'vsw_sf_{}_insb'.format(var[1:])
                     elif gas in si_only:
-                    	sf_var = 'vsw_sf_{}_si'.format(var)
+                        sf_var = 'vsw_sf_{}_si'.format(var)
                     elif center_wavenumber>10000:
                         sf_var = 'vsw_sf_{}_si'.format(var[1:])
                     else:
@@ -1730,11 +1734,11 @@ def main():
             # .vsw.ada file
             xvar = 'x'+var
             if gas in insb_only:
-            	varname = 'vsw_ada_x{}_insb'.format(var)
+                varname = 'vsw_ada_x{}_insb'.format(var)
             elif center_wavenumber<4000:
                 varname = 'vsw_ada_x{}_insb'.format(var[1:])
             elif gas in si_only:
-            	varname = 'vsw_ada_x{}_si'.format(var)
+                varname = 'vsw_ada_x{}_si'.format(var)
             elif center_wavenumber>10000:
                 varname = 'vsw_ada_x{}_si'.format(var[1:])
             else:
@@ -2111,7 +2115,7 @@ def main():
             gas_XXXX = col_file.split('.')[0] # gas_XXXX, suffix for nc_data variable names corresponding to each .col file (i.e. VSF_h2o from the 6220 co2 window becomes co2_6220_VSF_co2)
             gas = gas_XXXX.split('_')[0]
             if gas.startswith('m') or gas.startswith('v'):
-            	gas_XXXX = gas_XXXX[1:]
+                gas_XXXX = gas_XXXX[1:]
 
             # check if it is insb or ingaas window
             if center_wavenumber<4000: # InSb
