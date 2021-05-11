@@ -2318,7 +2318,7 @@ def main():
         write_eof(private_nc_file,eof_file,qc_file,ordered_var_list,show_progress)
     for handler in logger.handlers:
         handler.setFormatter(logging.Formatter('[%(levelname)s]: %(message)s at %(asctime)s',datefmt='%m/%d/%Y %I:%M:%S %p'))
-    logging.info('Finished write_eof log session')
+    logging.info('Finished write_netcdf log session')
 
 
 def compare_nc_files(base_file, other_file, log_file=None, log_level='INFO', ignore=('config_checksum','mav_checksum')):
