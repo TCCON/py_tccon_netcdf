@@ -1247,7 +1247,7 @@ def main():
             i = i+1
         else:
             logging.critical('Could not find the airmass-dependent and airmass-independent correction factors in the header of the .aia file')   
-    adcf_data = pd.read_csv(aia_file,delim_whitespace=True,skiprows=adcf_id,nrows=nrow_adcf,names=['xgas','adcf','adcf_error'])
+    adcf_data = pd.read_csv(aia_file,delim_whitespace=True,skiprows=adcf_id,nrows=nrow_adcf,names=['xgas','adcf','adcf_error', 'g', 'p'])
     aicf_data = pd.read_csv(aia_file,delim_whitespace=True,skiprows=aicf_id,nrows=nrow_aicf,names=['xgas','aicf','aicf_error','scale'])
     aicf_data.loc[:,'scale'] = aicf_data['scale'].apply(lambda x: '' if type(x)==float else x)
 
@@ -1863,7 +1863,7 @@ def main():
         # airmass-dependent corrections (from the .aia file header)
         correction_var_list = []
         for i,xgas in enumerate(adcf_data['xgas']):
-            for var in ['adcf','adcf_error']:
+            for var in ['adcf','adcf_error','g','p']:
                 varname = '{}_{}'.format(xgas,var)
                 correction_var_list += [varname]
                 nc_data.createVariable(varname,np.float32,('time',))
@@ -1874,6 +1874,10 @@ def main():
                 }
                 if 'error' in var:
                     att_dict["description"] = 'Error of the {} airmass-dependent correction factor'.format(xgas)
+                elif var.endswith('g'):
+                    att_dict['description'] = 'Polynomial 0 point SZA value for {} airmass-dependent correction factor'.format(xgas)
+                elif var.endswith('p'):
+                    att_dict['description'] = 'Polynomial order for {} airmass-dependent correction factor'.format(xgas)
                 else:
                     att_dict["description"] = '{} airmass-dependent correction factor'.format(xgas)
                 nc_data[varname].setncatts(att_dict)
