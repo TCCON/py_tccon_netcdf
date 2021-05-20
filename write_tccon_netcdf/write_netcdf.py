@@ -2165,7 +2165,7 @@ def main():
                         nc_data[checksum_var][i] = checksum_dict[checksum_var]
 
             # JLL 2020-05-19: need to check that the shapes are equal first, or get a very confusing error
-            if ingaas and not (all(col_data['spectrum'].values == np.array(runlog_ingaas_speclist)) or all(col_data['spectrum'].values == np.array(runlog_ingaas2_speclist))):
+            if ingaas and not (np.all(col_data['spectrum'].values == np.array(runlog_ingaas_speclist)) or np.all(col_data['spectrum'].values == np.array(runlog_ingaas2_speclist))):
                 logging.warning('Mismatch between .col file spectra and .grl spectra; col_file=%s',col_file)
                 continue # contine or exit here ? Might not need to exit if we can add in the results from the faulty col file afterwards
             if col_data.shape[0] != cbf_data.shape[0]:
