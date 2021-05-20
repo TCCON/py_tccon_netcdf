@@ -1361,6 +1361,7 @@ def main():
         nc_data.GGGtip = "The output of 'hg summary' from the GGG repository:\n"+gggtip
         nc_data.history = "Created {} (UTC)".format(time.asctime(time.gmtime(time.time())))
 
+        logging.info('Creating dimensions and coordinate variables')
         ## create dimensions
         """
         NOTE: when setting the time dimension as unlimited I get a segmentation fault when writing the prior data
@@ -1441,8 +1442,10 @@ def main():
         nc_data['ak_sza'][0:nsza_ak] = ak_data['co2'].columns[1:].values.astype(np.float32)
 
         ## create variables
+        logging.info('Creating variables')
 
         # averaging kernels
+        logging.info('\t- Averaging kernels')
         ak_var_list = ['ak_{}'.format(gas) for gas in ak_data.keys()]
         for gas in ak_data.keys():
             var = 'ak_{}'.format(gas)
@@ -1459,6 +1462,7 @@ def main():
                 nc_data[var][i,0:nlev_ak] = ak_data[gas][sza].values
  
         # priors and cell variables
+        logging.info('\t- Prior and cell variables')
         nc_data.createVariable('prior_index',np.int16,('time',))
         att_dict = {
             "standard_name": 'prior_index',
@@ -1553,6 +1557,7 @@ def main():
         nc_data['prior_mid_tropospheric_potential_temperature'].setncatts(att_dict)
 
         # checksums
+        logging.info('\t- Checksums')
         for var in checksum_var_list:
             if classic:
                 checksum_var = nc_data.createVariable(var+'_checksum','S1',('time','a32'))
@@ -1567,6 +1572,7 @@ def main():
             checksum_var.setncatts(att_dict)
 
         # code versions
+        logging.info('\t- Code versions')
         nc_data.createVariable('gfit_version',np.float32,('time',))
         att_dict = {
             "description": "version number of the GFIT code that generated the data",
@@ -1584,6 +1590,7 @@ def main():
         nc_data['gsetup_version'].setncatts(att_dict)
 
         # flags
+        logging.info('\t- Flags')
         nc_data.createVariable('flag',np.int16,('time',))
         att_dict = {
             "description": 'data quality flag, 0 = good',
@@ -1605,6 +1612,7 @@ def main():
         nc_data['flagged_var_name'].setncatts(att_dict)
 
         # spectrum file names
+        logging.info('\t- Spectrum file names')
         if classic:
             v = nc_data.createVariable('spectrum','S1',('time','specname'))
             v._Encoding = 'ascii'
@@ -1621,6 +1629,7 @@ def main():
             nc_data['spectrum'][i] = specname        
 
         # auxiliary variables
+        logging.info('\t- Auxiliary variables')
         aux_var_list = [tav_data.columns[i] for i in range(1,naux)]
         for var in aux_var_list: 
             qc_id = list(qc_data['variable']).index(var)
@@ -1647,6 +1656,7 @@ def main():
         nc_data['hour'].description = 'Fractional UT hours (zero path difference crossing time)'
 
         # get model surface values from the output of extract_pth.f
+        logging.info('\t- extract_pth')
         mod_var_dict = {'tmod':'tout','pmod':'pout'}
         for key,val in mod_var_dict.items(): # use a mapping to the equivalent runlog variables to querry their qc.dat info
             qc_id = list(qc_data['variable']).index(val)
@@ -1678,6 +1688,7 @@ def main():
         nc_data['h2o_dmf_mod'].description = "model external water vapour dry mole fraction"
 
         # write variables from the .vsw and .vsw.ada files
+        logging.info('\t- .vsw and vsw.ada')
         vsw_var_list = [vsw_data.columns[i] for i in range(naux,len(vsw_data.columns)-1)]  # minus 1 because I added the 'file' column
         full_vsw_var_list = []
         for var in vsw_var_list:
@@ -1759,6 +1770,7 @@ def main():
             write_values(nc_data,varname,vsw_ada_data[xvar])
 
         # averaged variables (from the different windows of each species)
+        logging.info('\t- averaged variables')
         main_var_list = [tav_data.columns[i] for i in range(naux,len(tav_data.columns)-1)]  # minus 1 because I added the 'file' column
         full_main_var_list = []
         for var in main_var_list:
@@ -1833,6 +1845,7 @@ def main():
                         nc_var.description += special_description_dict[key]
 
         # lse data
+        logging.info('\t- .lse')
         lse_dict = {
                     'lst':{'description':'The type of LSE correction applied (0=none; 1=InGaAs (disabled); 2=Si; 3=Dohe et al. (disabled); 4=Other (disabled))',
                             'precision':'e12.4',},
@@ -1859,7 +1872,8 @@ def main():
             }
             nc_data[var].setncatts(att_dict)
             write_values(nc_data,var,lse_data[var][common_spec].values)
-
+        
+        logging.info('\t- ADCF and AICF')
         # airmass-dependent corrections (from the .aia file header)
         correction_var_list = []
         for i,xgas in enumerate(adcf_data['xgas']):
@@ -2077,7 +2091,7 @@ def main():
         write_values(nc_data,'time',np.array([elem.total_seconds() for elem in (specdates-datetime(1970,1,1))]))
 
         # write data from .col and .cbf files
-        logging.info('Writing data:')
+        logging.info('Writing .col and .cbf data:')
         col_var_list = []
         # If there are InSb or Si windows fitted, get the indices along the time dimension of the spectra in the .col file
         insb_col_file_list = [i for i in col_file_list if int(''.join([j for j in i.split('.')[0].split('_')[1] if j.isdigit()]))<4000]
