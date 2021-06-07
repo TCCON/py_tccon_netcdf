@@ -225,6 +225,7 @@ def checksum(file_name,hexdigest):
         print('\n')
         logging.warning('Checksum mismatch for {}\nNew: {}\nOld: {}'.format(file_name,md5(file_name),hexdigest))
 
+
 def file_info(file_name,delimiter=''):
     """
     Read the first line of a file and get the number of header lines and number of data columns
@@ -972,7 +973,16 @@ def get_runlog_file(GGGPATH,tav_file,col_file):
             logging.critical('Could not find {}'.format(runlog_file))
             sys.exit()
 
-    return runlog_file
+    if runlog_file.startswith(GGGPATH):
+        lse_file = os.path.join(GGGPATH,'lse','gnd',os.path.basename(runlog_file).replace('.grl','.lse'))
+    else:
+        lse_file = runlog_file.replace('.grl','.lse')
+    
+    if not os.path.exists(lse_file):
+        logging.critical('Could not find {}'.format(lse_file))
+        sys.exit()
+
+    return runlog_file,lse_file
 
 def main():
     code_dir = os.path.dirname(__file__) # path to the tccon_netcdf repository
@@ -1043,13 +1053,17 @@ def main():
     siteID = os.path.basename(tav_file)[:2] # two letter site abbreviation
     qc_file = os.path.join(GGGPATH,'tccon','{}_qc.dat'.format(siteID))
     header_file = os.path.join(GGGPATH,'tccon','{}_oof_header.dat'.format(siteID))
-    lse_file = os.path.join(GGGPATH,'lse','gnd',os.path.basename(tav_file).replace('.tav','.lse'))
     pth_file = 'extract_pth.out'
 
-    for input_file in [tav_file,mav_file,vav_file,vsw_file,vsw_ada_file,ada_file,aia_file,esf_file,lse_file,pth_file,qc_file,header_file]:
+    skip_vsw = False
+    for input_file in [tav_file,mav_file,vav_file,vsw_file,vsw_ada_file,ada_file,aia_file,esf_file,pth_file,qc_file,header_file]:
         if not os.path.exists(input_file):
-            logging.critical('Cannot find input file: {}'.format(input_file))
-            sys.exit()
+            if input_file in [vsw_file,vsw_ada_file]:
+                logging.warning('Cannot find input file: {}'.format(input_file))
+                skip_vsw = True
+            else:
+                logging.critical('Cannot find input file: {}'.format(input_file))
+                sys.exit()
 
     # need to check that the file ends with .col, not just that .col is in it, because
     # otherwise a .col elsewhere in the file name will cause a problem (e.g. if one is
@@ -1060,7 +1074,7 @@ def main():
         logging.critical('No .col files in',os.getcwd())
         sys.exit()
 
-    runlog_file = get_runlog_file(GGGPATH,tav_file,col_file_list[0])
+    runlog_file, lse_file = get_runlog_file(GGGPATH,tav_file,col_file_list[0])
 
     ## read data, I add the file_name to the data dictionaries for some of them
 
@@ -1261,27 +1275,31 @@ def main():
     pth_data.loc[:,'tout'] = pth_data['tout']-273.15 # convert Kelvin to Celcius
     pth_data.loc[:,'tmod'] = pth_data['tmod']-273.15 # convert Kelvin to Celcius
 
-    # vsw file
-    nhead,ncol = file_info(vsw_file)
-    vsw_sf_check = False
-    with open(vsw_file,'r') as infile:
-        i = 0
-        while i<nhead:
-            line = infile.readline()
-            if 'sf=' in line:
-                vsw_sf_check = True
-                vsw_sf = (j for j in np.array(line.split()[1:]).astype(np.float))
-                break
-            i += 1
-    vsw_data = pd.read_csv(vsw_file,delim_whitespace=True,skiprows=nhead)
-    vsw_data['file'] = vsw_file
-    # vsw.ada file
-    nhead,ncol = file_info(vsw_ada_file)
-    vsw_ada_data = pd.read_csv(vsw_ada_file,delim_whitespace=True,skiprows=nhead)
-    vsw_ada_data['file'] = vsw_ada_file    
+    data_list = [tav_data,ada_data,aia_data]
+
+    # vsw files
+    if not skip_vsw:
+        nhead,ncol = file_info(vsw_file)
+        vsw_sf_check = False
+        with open(vsw_file,'r') as infile:
+            i = 0
+            while i<nhead:
+                line = infile.readline()
+                if 'sf=' in line:
+                    vsw_sf_check = True
+                    vsw_sf = (j for j in np.array(line.split()[1:]).astype(np.float))
+                    break
+                i += 1
+        vsw_data = pd.read_csv(vsw_file,delim_whitespace=True,skiprows=nhead)
+        vsw_data['file'] = vsw_file
+        # vsw.ada file
+        nhead,ncol = file_info(vsw_ada_file)
+        vsw_ada_data = pd.read_csv(vsw_ada_file,delim_whitespace=True,skiprows=nhead)
+        vsw_ada_data['file'] = vsw_ada_file
+
+        data_list += [vsw_data,vsw_ada_data]    
 
     ## check all files have the same spectrum lists
-    data_list = [tav_data,ada_data,aia_data,vsw_data,vsw_ada_data]
     check_spec = np.array([(data['spectrum']==vav_data['spectrum']).all() for data in data_list])
     if not check_spec.all():
         logging.critical('Files have inconsistent spectrum lists !')
@@ -1688,86 +1706,87 @@ def main():
         nc_data['h2o_dmf_mod'].description = "model external water vapour dry mole fraction"
 
         # write variables from the .vsw and .vsw.ada files
-        logging.info('\t- .vsw and vsw.ada')
-        vsw_var_list = [vsw_data.columns[i] for i in range(naux,len(vsw_data.columns)-1)]  # minus 1 because I added the 'file' column
-        full_vsw_var_list = []
-        for var in vsw_var_list:
-            center_wavenumber = int(''.join([i for i in var.split('_')[1] if i.isdigit()]))
-            gas = var.split('_')[0]
-            # .vsw file
-            if gas in insb_only:
-                varname = 'vsw_{}_insb'.format(var)
-            elif center_wavenumber<4000:
-                varname = 'vsw_{}_insb'.format(var[1:])
-            elif gas in si_only:
-                varname = 'vsw_{}_si'.format(var)
-            elif center_wavenumber>10000:
-                varname = 'vsw_{}_si'.format(var[1:])
-            else:
-                varname = 'vsw_{}'.format(var)
-            full_vsw_var_list += [varname]
-            nc_data.createVariable(varname,np.float32,('time',))
-            att_dict = {
-                "standard_name": varname,
-                "long_name": varname.replace('_',' '),
-                "units": '',
-                "precision": 'e12.4',
-            }
-            if 'error' in varname:
-                att_dict["description"] = "{0} scale factor {2} from the window centered at {1} cm-1.".format(*var.split('_'))
-            else:
-                att_dict["description"] = "{} scale factor from the window centered at {} cm-1".format(*var.split('_'))
-                if vsw_sf_check:
-                    # write the data from the vsf= line ine the header of the vsw file
-                    if gas in insb_only:
-                        sf_var = 'vsw_sf_{}_insb'.format(var)
-                    elif center_wavenumber<4000:
-                        sf_var = 'vsw_sf_{}_insb'.format(var[1:])
-                    elif gas in si_only:
-                        sf_var = 'vsw_sf_{}_si'.format(var)
-                    elif center_wavenumber>10000:
-                        sf_var = 'vsw_sf_{}_si'.format(var[1:])
-                    else:
-                        sf_var = 'vsw_sf_{}'.format(var)
-                    full_vsw_var_list += [sf_var]
-                    nc_data.createVariable(sf_var,np.float32,('time',))
-                    sf_att_dict = {
-                        "standard_name": sf_var,
-                        "long_name": sf_var.replace('_',' '),
-                        "description": "{} correction factor from the window centered at {} cm-1".format(*var.split('_')),
-                        "units": '',
-                    }
-                    nc_data[sf_var].setncatts(sf_att_dict)
-                    nc_data[sf_var][:] = next(vsw_sf)
-            nc_data[varname].setncatts(att_dict)
-            write_values(nc_data,varname,vsw_data[var])
+        if not skip_vsw:
+            logging.info('\t- .vsw and vsw.ada')
+            vsw_var_list = [vsw_data.columns[i] for i in range(naux,len(vsw_data.columns)-1)]  # minus 1 because I added the 'file' column
+            full_vsw_var_list = []
+            for var in vsw_var_list:
+                center_wavenumber = int(''.join([i for i in var.split('_')[1] if i.isdigit()]))
+                gas = var.split('_')[0]
+                # .vsw file
+                if gas in insb_only:
+                    varname = 'vsw_{}_insb'.format(var)
+                elif center_wavenumber<4000:
+                    varname = 'vsw_{}_insb'.format(var[1:])
+                elif gas in si_only:
+                    varname = 'vsw_{}_si'.format(var)
+                elif center_wavenumber>10000:
+                    varname = 'vsw_{}_si'.format(var[1:])
+                else:
+                    varname = 'vsw_{}'.format(var)
+                full_vsw_var_list += [varname]
+                nc_data.createVariable(varname,np.float32,('time',))
+                att_dict = {
+                    "standard_name": varname,
+                    "long_name": varname.replace('_',' '),
+                    "units": '',
+                    "precision": 'e12.4',
+                }
+                if 'error' in varname:
+                    att_dict["description"] = "{0} scale factor {2} from the window centered at {1} cm-1.".format(*var.split('_'))
+                else:
+                    att_dict["description"] = "{} scale factor from the window centered at {} cm-1".format(*var.split('_'))
+                    if vsw_sf_check:
+                        # write the data from the vsf= line ine the header of the vsw file
+                        if gas in insb_only:
+                            sf_var = 'vsw_sf_{}_insb'.format(var)
+                        elif center_wavenumber<4000:
+                            sf_var = 'vsw_sf_{}_insb'.format(var[1:])
+                        elif gas in si_only:
+                            sf_var = 'vsw_sf_{}_si'.format(var)
+                        elif center_wavenumber>10000:
+                            sf_var = 'vsw_sf_{}_si'.format(var[1:])
+                        else:
+                            sf_var = 'vsw_sf_{}'.format(var)
+                        full_vsw_var_list += [sf_var]
+                        nc_data.createVariable(sf_var,np.float32,('time',))
+                        sf_att_dict = {
+                            "standard_name": sf_var,
+                            "long_name": sf_var.replace('_',' '),
+                            "description": "{} correction factor from the window centered at {} cm-1".format(*var.split('_')),
+                            "units": '',
+                        }
+                        nc_data[sf_var].setncatts(sf_att_dict)
+                        nc_data[sf_var][:] = next(vsw_sf)
+                nc_data[varname].setncatts(att_dict)
+                write_values(nc_data,varname,vsw_data[var])
 
-            # .vsw.ada file
-            xvar = 'x'+var
-            if gas in insb_only:
-                varname = 'vsw_ada_x{}_insb'.format(var)
-            elif center_wavenumber<4000:
-                varname = 'vsw_ada_x{}_insb'.format(var[1:])
-            elif gas in si_only:
-                varname = 'vsw_ada_x{}_si'.format(var)
-            elif center_wavenumber>10000:
-                varname = 'vsw_ada_x{}_si'.format(var[1:])
-            else:
-                varname = 'vsw_ada_'+xvar
-            full_vsw_var_list += [varname]
-            nc_data.createVariable(varname,np.float32,('time',))
-            att_dict = {
-                "standard_name":varname,
-                "long_name":varname.replace('_',' '),
-                "units":'',
-                "precision":'e12.4',
-            }
-            if 'error' in varname:
-                att_dict["description"] = "{0} scale factor {2} from the window centered at {1} cm-1, after airmass dependence is removed, but before scaling to WMO.".format(*xvar.split('_'))
-            else:
-                att_dict["description"] = "{} scale factor from the window centered at {} cm-1, after airmass dependence is removed, but before scaling to WMO.".format(*xvar.split('_'))
-            nc_data[varname].setncatts(att_dict)
-            write_values(nc_data,varname,vsw_ada_data[xvar])
+                # .vsw.ada file
+                xvar = 'x'+var
+                if gas in insb_only:
+                    varname = 'vsw_ada_x{}_insb'.format(var)
+                elif center_wavenumber<4000:
+                    varname = 'vsw_ada_x{}_insb'.format(var[1:])
+                elif gas in si_only:
+                    varname = 'vsw_ada_x{}_si'.format(var)
+                elif center_wavenumber>10000:
+                    varname = 'vsw_ada_x{}_si'.format(var[1:])
+                else:
+                    varname = 'vsw_ada_'+xvar
+                full_vsw_var_list += [varname]
+                nc_data.createVariable(varname,np.float32,('time',))
+                att_dict = {
+                    "standard_name":varname,
+                    "long_name":varname.replace('_',' '),
+                    "units":'',
+                    "precision":'e12.4',
+                }
+                if 'error' in varname:
+                    att_dict["description"] = "{0} scale factor {2} from the window centered at {1} cm-1, after airmass dependence is removed, but before scaling to WMO.".format(*xvar.split('_'))
+                else:
+                    att_dict["description"] = "{} scale factor from the window centered at {} cm-1, after airmass dependence is removed, but before scaling to WMO.".format(*xvar.split('_'))
+                nc_data[varname].setncatts(att_dict)
+                write_values(nc_data,varname,vsw_ada_data[xvar])
 
         # averaged variables (from the different windows of each species)
         logging.info('\t- averaged variables')
@@ -2226,7 +2245,7 @@ def main():
                 for key in special_description_dict.keys():
                     if key in varname:
                         att_dict['description'] += special_description_dict[key]
-                if varname.endswith('fs') or varname.endswith('sg'):
+                if varname.endswith(('fs','sg')):
                     att_dict['units'] = units_dict[varname[-2:]]
                     att_dict['description'] += "The {} (wavenumber shift per spectral point) is in ppm of the spectral point spacing ({:.11f} cm-1)".format(long_name_dict[var],dnu)
                 nc_data[varname].setncatts(att_dict)
@@ -2319,7 +2338,8 @@ def main():
         ordered_var_list += full_main_var_list
         ordered_var_list += correction_var_list
         ordered_var_list += col_var_list
-        ordered_var_list += full_vsw_var_list
+        if not skip_vsw:
+            ordered_var_list += full_vsw_var_list
         ordered_var_list += ['gfit_version','gsetup_version']
         ordered_var_list += [var+'_checksum' for var in checksum_var_list]
 
