@@ -157,7 +157,7 @@ units_dict = {
 
 special_description_dict = {
     'lco2':' lco2 is the strong CO2 band centered at 4852.87 cm-1 and does not contribute to the xco2 calculation.',
-    'wco2':' wco2 is used for the weak CO2 bands centered at 6073.5 and 6500.4 cm-1 and does not contribute to the xco2 calculation.',
+    'wco2':' wco2 is the weak CO2 band centered at 6073.5 and does not contribute to the xco2 calculation.',
     'th2o':' th2o is used for temperature dependent H2O windows and does not contribute to the xh2o calculation.',
     'fco2':' fco2 is used for a spectral window chosen to estimate the channel fringe amplitude and period, it does not contribute to the xco2 calculation',
     'luft':' luft is used for "dry air"',
