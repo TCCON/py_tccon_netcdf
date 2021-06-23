@@ -24,6 +24,7 @@ import re
 import logging
 import warnings
 import json
+from shutil import copyfile
 
 wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-15; SR)\n'
 
@@ -770,7 +771,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
     # factor to convert the prior fields of the public archive into more intuitive units
     factor = {'temperature':1.0,'pressure':1.0,'density':1.0,'gravity':1.0,'1h2o':1.0,'1hdo':1.0,'1co2':1e6,'1n2o':1e9,'1co':1e9,'1ch4':1e9,'1hf':1e12,'1o2':1.0}
 
-    public_nc_file = private_nc_file.replace('private','public')
+    public_nc_file = private_nc_file.replace('private','public').replace('.qc','')
     logging.info('Writting {}'.format(public_nc_file))
     with netCDF4.Dataset(private_nc_file,'r') as private_data, netCDF4.Dataset(public_nc_file,'w',format=nc_format) as public_data:
         ## copy all the metadata
@@ -989,13 +990,14 @@ def get_runlog_file(GGGPATH,tav_file,col_file):
     return runlog_file,lse_file
 
 
-def set_manual_flags(nc_file,flag_file):
+def set_manual_flags(nc_file,flag_file,qc_file=''):
     """
     Using an input .json file to apply custom flags to specific time periods
 
     Inputs:
         - nc_file: full path to the private.nc file
         - flag_file: full path to the .json input file for setting manual flags
+        - qc_file: full path to the quality control file (.private.qc.nc)
     """
     site_ID = os.path.basename(nc_file)[:2]
     with open(flag_file,'r') as f:
@@ -1003,7 +1005,13 @@ def set_manual_flags(nc_file,flag_file):
     flags_data = {key:val for key,val in flags_data.items() if key.startswith(site_ID)}
     if not flags_data: # empty dictionary
         return
-    logging.info("Setting manual flags")
+
+    if qc_file:
+        logging.info('Creating {}'.format(qc_file))
+        copyfile(nc_file,qc_file)
+        nc_file = qc_file
+
+    logging.info("Setting manual flags using {}".format(flag_file))
 
     time_period_list = sorted(flags_data.keys())
     with netCDF4.Dataset(nc_file,'r+') as nc_data:
@@ -1068,6 +1076,7 @@ def main():
     parser.add_argument('--multiggg',default='multiggg.sh',help='Use this argument if you use differently named multiggg.sh files')
     parser.add_argument('--mode',default='TCCON',choices=['TCCON','em27'],help='Will be used to set TCCON specific or em27 specific metadata')
     parser.add_argument('--mflag',action='store_true',help='If given with a private.nc file as input, will modify (in place) the flags based on manual_flags.json')
+    parser.add_argument('--mflag-file',default=os.path.join(code_dir,'manual_flags.json'),help='Full path to the .json input file that sets manual flags')
 
     args = parser.parse_args()
     logger, show_progress, HEAD_commit = setup_logging(log_level=args.log_level, log_file=args.log_file, message=args.message)
@@ -1079,13 +1088,21 @@ def main():
         logging.info('A eof.csv file will be written')
     logging.info('Input file: %s',args.file)
 
-    if '.nc' in args.file:
+    if not args.mflag and args.mflag_file!=os.path.join(code_dir,'manual_flags.json'):
+        logging.warning('Specifying --flag-file without using --mflag has no effect')
+
+    if args.file.endswith('.nc'):
         private_nc_file = args.file
         if args.mflag:
-            set_manual_flags(private_nc_file,os.path.join(code_dir,'manual_flags.json'))
+            qc_file = private_nc_file.replace('.nc','.qc.nc')
+            set_manual_flags(private_nc_file,args.mflag_file,qc_file=qc_file)
             if not args.public:
                 sys.exit()
-        logging.info('Writting .public.nc file from the input .private.nc file')
+            else:
+                logging.info('Writting .public.nc file from the .private.qc.nc file')
+            private_nc_file = qc_file
+        else:
+            logging.info('Writting .public.nc file from the input .private.nc file')
         write_public_nc(private_nc_file,code_dir,nc_format)
         sys.exit()
 
@@ -2391,7 +2408,7 @@ def main():
         private_var_list = [v for v in nc_data.variables]
     # end of the "with open(private_nc_file)" statement
     
-    set_manual_flags(private_nc_file,os.path.join(code_dir,'manual_flags.json'))
+    set_manual_flags(private_nc_file,args.mflag_file)
     
     logging.info('Finished writing {} {:.2f} MB'.format(private_nc_file,os.path.getsize(private_nc_file)/1e6))
 
