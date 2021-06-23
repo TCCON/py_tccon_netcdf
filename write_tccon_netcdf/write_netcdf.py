@@ -1148,21 +1148,6 @@ def main():
     if 'luft' in col_file_list[0]: # the luft .col file has no checksum for the solar linelist, so if its the first window listed in multiggg.sh, rotate the list for the checksum checks to work
         col_file_list = np.roll(col_file_list,-1)
 
-    # averaging kernels
-    ak_file_list = os.listdir(os.path.join(code_dir,'lamont_averaging_kernels'))
-    ak_data = {} # will have keys as species 'h2o','co2' etc.
-    for ak_file in ak_file_list:
-        ak_file_path = os.path.join(code_dir,'lamont_averaging_kernels',ak_file)
-        nhead,col = file_info(ak_file_path)
-        ak_data[ak_file.split('_')[2]] = pd.read_csv(ak_file_path,delim_whitespace=True,skiprows=nhead)
-    # check all pressure levels are the same
-    check_ak_pres = np.array([(ak_data['co2']['P_hPa']==ak_data[gas]['P_hPa']).all() for gas in ak_data.keys()]).all()
-    if not check_ak_pres:
-        logging.critical('AK files have inconsistent pressure levels !')
-        sys.exit()
-    nlev_ak = ak_data['co2']['P_hPa'].size
-    nsza_ak = ak_data['co2'].columns.size -1 # minus one because of the pressure column
-
     # tav file: contains VSFs
     with open(tav_file,'r') as infile:
         nhead,ncol,nspec,naux = np.array(infile.readline().split()).astype(int)
@@ -1391,8 +1376,6 @@ def main():
         nc_data.createDimension('time',nspec)
         nc_data.createDimension('prior_time',nprior)
         nc_data.createDimension('prior_altitude',nlev) # used for the prior profiles
-        nc_data.createDimension('ak_pressure',nlev_ak)
-        nc_data.createDimension('ak_sza',nsza_ak)
         nc_data.createDimension('cell_index',ncell)
 
         if classic:
@@ -1439,45 +1422,77 @@ def main():
         nc_data['prior_altitude'].setncatts(att_dict)
         nc_data['prior_altitude'][0:nlev] = prior_data[list(prior_data.keys())[0]]['data']['altitude'].values
 
-        nc_data.createVariable('ak_pressure',np.float32,('ak_pressure'))
-        att_dict = {
-            "standard_name": "averaging_kernel_pressure_levels",
-            "long_name": "averaging kernel pressure levels",
-            "description": "fixed pressure levels for the Lamont (OK, USA) column averaging kernels",
-            "units": 'hPa',
-        }
-        nc_data['ak_pressure'].setncatts(att_dict)
-        nc_data['ak_pressure'][0:nlev_ak] = ak_data['co2']['P_hPa'].values
-
-        nc_data.createVariable('ak_sza',np.float32,('ak_sza'))
-        att_dict = {
-            "standard_name": "averaging_kernel_solar_zenith_angles",
-            "long_name": "averaging kernel solar zenith_angles",
-            "description": "fixed solar zenith angles for the Lamont (OK, USA) column averaging kernels",
-            "units": 'degrees',
-        }
-        nc_data['ak_sza'].setncatts(att_dict)
-        nc_data['ak_sza'][0:nsza_ak] = ak_data['co2'].columns[1:].values.astype(np.float32)
-
-        ## create variables
-        logging.info('Creating variables')
-
         # averaging kernels
-        logging.info('\t- Averaging kernels')
-        ak_var_list = ['ak_{}'.format(gas) for gas in ak_data.keys()]
-        for gas in ak_data.keys():
-            var = 'ak_{}'.format(gas)
-            nc_data.createVariable(var,np.float32,('ak_sza','ak_pressure'))
+        with netCDF4.Dataset(os.path.join(code_dir,'ak_tables.nc'),'r') as ak_nc:
+            nlev_ak = ak_nc['z'].size
+            nbins_ak = ak_nc['slant_xgas_bin'].size
+
+            # dimensions
+            nc_data.createDimension('ak_altitude',nlev_ak) # make it separate from prior_altitude just in case we ever generate new files with different altitudes
+            nc_data.createDimension('ak_slant_xgas_bin',nbins_ak)
+
+            # coordinate variables
+            nc_data.createVariable('ak_altitude',np.float32,('ak_altitude'))
             att_dict = {
-                "standard_name": '{}_column_averaging_kernel'.format(gas),
-                "long_name": '{} column averaging kernel'.format(gas),
-                "description": '{} column averaging kernel over Lamont (OK, USA)'.format(gas),
+                "standard_name": "averaging_kernel_altitude_levels",
+                "long_name": "averaging kernel altitude levels",
+                "description": "Altitude levels for column averaging kernels",
+                "units": 'km',
+            }
+            nc_data['ak_altitude'].setncatts(att_dict)
+            nc_data['ak_altitude'][0:nlev_ak] = ak_nc['z'][:].data
+
+            nc_data.createVariable('ak_slant_xgas_bin',np.int16,('ak_slant_xgas_bin'))
+            att_dict = {
+                "standard_name": "averaging_kernel_slant_xgas_bin_index",
+                "long_name": "averaging kernel slant xgas bin index",
+                "description": "Index of the slant xgas bins for the column averaging kernels",
                 "units": '',
             }
-            nc_data[var].setncatts(att_dict)
-            # write it now
-            for i,sza in enumerate(ak_data[gas].columns[1:]):
-                nc_data[var][i,0:nlev_ak] = ak_data[gas][sza].values
+            nc_data['ak_slant_xgas_bin'].setncatts(att_dict)
+            nc_data['ak_slant_xgas_bin'][0:nbins_ak] = np.arange(nbins_ak).astype(np.int16)
+
+            ## create variables
+            logging.info('Creating variables')
+            logging.info('\t- Averaging kernels')
+
+            nc_data.createVariable('ak_pressure',np.float32,('ak_altitude'))
+            att_dict = {
+                "standard_name": "averaging_kernel_pressure_levels",
+                "long_name": "averaging kernel pressure levels",
+                "description": "Median pressure for the column averaging kernels vertical grid",
+                "units": 'hPa',
+            }
+            nc_data['ak_pressure'].setncatts(att_dict)
+            nc_data['ak_pressure'][0:nlev_ak] = ak_nc['pressure'][:].data
+
+            for ak_bin_var in [i for i in ak_nc.variables if i.startswith('slant') and i!="slant_xgas_bin"]:
+                var = 'ak_{}'.format(ak_bin_var)
+                nc_data.createVariable(var,np.float32,('ak_slant_xgas_bin'))
+                att_dict = {
+                    "standard_name": var,
+                    "long_name": var.replace('_',' '),
+                    "description": ak_nc[ak_bin_var].description.lower()+" (slant_xgas=xgas*airmass)",
+                    "units": ak_nc[ak_bin_var].units,
+                }
+                nc_data[var].setncatts(att_dict)
+                nc_data[var][0:nbins_ak] = ak_nc[ak_bin_var][:].data.astype(np.float32)
+
+            for ak_var in [i for i in ak_nc.variables if i.endswith('aks')]:
+                var = 'ak_{}'.format(ak_var.strip('_aks'))
+                nc_data.createVariable(var,np.float32,('ak_altitude','ak_slant_xgas_bin'))
+                att_dict = {
+                    "standard_name": "{}_column_averaging_kernel".format(ak_var.strip('_aks')),
+                    "long_name": "{} column averaging kernel".format(ak_var.strip('_aks')),
+                    "description": ak_nc[ak_var].description.lower()+'. ',
+                    "units": '',
+                }
+                if 'lco2' in var:
+                    att_dict['description'] = att_dict['description']+special_description_dict['lco2']
+                elif 'wco2' in var:
+                    att_dict['description'] = att_dict['description']+special_description_dict['wco2']
+                nc_data[var].setncatts(att_dict)
+                nc_data[var][:] = ak_nc[ak_var][:].data.astype(np.float32)
  
         # priors and cell variables
         logging.info('\t- Prior and cell variables')
