@@ -776,7 +776,10 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
         ## copy all the metadata
         private_attributes = private_data.__dict__
         public_attributes = private_attributes.copy()
-        for attr in ['flag_info','release_lag','GGGtip','number_of_spectral_windows']: # remove attributes that are only meant for private files
+        manual_flag_attr_list = [i for i in private_attributes if not i.startswith('manual_flags')]
+        for attr in ['flag_info','release_lag','GGGtip','number_of_spectral_windows']+manual_flag_attr_list: # remove attributes that are only meant for private files
+            if attr not in public_attributes:
+                continue
             public_attributes.pop(attr)
 
         # update the history to indicate that the public file is a subset of the private file
@@ -961,6 +964,7 @@ def setup_logging(log_level, log_file, message=''):
     logging.info('cwd=%s', os.getcwd())
     return logger, show_progress, HEAD_commit
 
+
 def get_runlog_file(GGGPATH,tav_file,col_file):
     with open(col_file,'r') as infile:
         for i in range(6): # read up to the runlog line in the .col file header
@@ -983,6 +987,47 @@ def get_runlog_file(GGGPATH,tav_file,col_file):
         sys.exit()
 
     return runlog_file,lse_file
+
+
+def set_manual_flags(nc_file,flag_file):
+    """
+    Using an input .json file to apply custom flags to specific time periods
+
+    Inputs:
+        - nc_file: full path to the private.nc file
+        - flag_file: full path to the .json input file for setting manual flags
+    """
+    site_ID = os.path.basename(nc_file)[:2]
+    with open(flag_file,'r') as f:
+        flags_data = json.load(f)
+    flags_data = {key:val for key,val in flags_data.items() if key.startswith(site_ID)}
+    if not flags_data: # empty dictionary
+        return
+    logging.info("Setting manual flags")
+
+    time_period_list = sorted(flags_data.keys())
+    with netCDF4.Dataset(nc_file,'r+') as nc_data:
+        for i,time_period in enumerate(time_period_list):
+            start_dt, end_dt = [datetime.strptime(elem,'%Y%m%d') for elem in time_period.split('_')[2:]]
+            start,end = [(elem-datetime(1970,1,1)).total_seconds() for elem in [start_dt,end_dt]]
+
+            # must index netCDF datasets for the < comparison to work: comparison between netCDF4.Variable and float not allowed
+            # indexing with a tuple() rather than : slightly more robust: a colon won't work for a scalar variable
+            # use a set to allow us to compute the intersection between the time indices and the fill indices
+            replace_time_ids = list(set(np.where((start < nc_data['time'][tuple()]) & (nc_data['time'][tuple()] < end))[0]))
+            if not replace_time_ids:
+                continue
+            start_id = np.min(replace_time_ids)
+            end_id = np.max(replace_time_ids)+1 # add 1 so it's included in the slice
+
+            logging.info("\t- From {} to {}: flag={}; name='{}'; comment='{}'".format(str(start_dt)[:10],str(end_dt)[:10],flags_data[time_period]['value'],flags_data[time_period]['name'],flags_data[time_period]['comment']))
+
+            nc_data['flag'][start_id:end_id] = flags_data[time_period]['value']
+            for i in range(start_id,end_id):
+                nc_data['flagged_var_name'][i] = flags_data[time_period]['name']
+
+            setattr(nc_data,"manual_flags_{}_{}".format(*time_period.split('_')[2:]),"flag={}; name='{}'; comment='{}'".format(flags_data[time_period]['value'],flags_data[time_period]['name'],flags_data[time_period]['comment']))
+
 
 def main():
     code_dir = os.path.dirname(__file__) # path to the tccon_netcdf repository
@@ -1010,7 +1055,7 @@ def main():
     parser.add_argument('--format',default='NETCDF4_CLASSIC',choices=['NETCDF4_CLASSIC','NETCDF4'],help='the format of the NETCDF files')
     parser.add_argument('-r','--read-only',action='store_true',help="Convenience for python interactive shells; sys.exit() right after reading all the input files")
     parser.add_argument('--eof',action='store_true',help='If given, will also write the .eof.csv file')
-    parser.add_argument('--public',action='store_true',help='if given, will write a .public.nc file from the .private.nc')
+    parser.add_argument('--public',action='store_true',help='If given, will write a .public.nc file from the .private.nc')
     parser.add_argument('--log-level',default='INFO',type=lambda x: x.upper(),help="Log level for the screen (it is always DEBUG for the log file)",choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL'])
     parser.add_argument(
         '--log-file',
@@ -1018,10 +1063,11 @@ def main():
         help="""Full path to the log file, by default write_netcdf.log is written to in append mode in the current working directory.
         If you want to write the logs of all your write_netcdf.py runs to a signle file, you can use this argument to specify the path.""",
         )
-    parser.add_argument('--skip-checksum',action='store_true',help='option to not make a check on the checksums, for example to run the code on outputs generated by someone else or on a different machine')
+    parser.add_argument('--skip-checksum',action='store_true',help='Option to not make a check on the checksums, for example to run the code on outputs generated by someone else or on a different machine')
     parser.add_argument('-m','--message',default='',help='Add an optional message to be kept in the log file to remember why you ran post-processing e.g. "2020 Eureka R3 processing" ')
     parser.add_argument('--multiggg',default='multiggg.sh',help='Use this argument if you use differently named multiggg.sh files')
     parser.add_argument('--mode',default='TCCON',choices=['TCCON','em27'],help='Will be used to set TCCON specific or em27 specific metadata')
+    parser.add_argument('--mflag',action='store_true',help='If given with a private.nc file as input, will modify (in place) the flags based on manual_flags.json')
 
     args = parser.parse_args()
     logger, show_progress, HEAD_commit = setup_logging(log_level=args.log_level, log_file=args.log_file, message=args.message)
@@ -1034,8 +1080,12 @@ def main():
     logging.info('Input file: %s',args.file)
 
     if '.nc' in args.file:
-        logging.info('Writting .public.nc file from the input .private.nc file')
         private_nc_file = args.file
+        if args.mflag:
+            set_manual_flags(private_nc_file,os.path.join(code_dir,'manual_flags.json'))
+            if not args.public:
+                sys.exit()
+        logging.info('Writting .public.nc file from the input .private.nc file')
         write_public_nc(private_nc_file,code_dir,nc_format)
         sys.exit()
 
@@ -2340,7 +2390,9 @@ def main():
         # get a list of all the variables written to the private netcdf file, will be used below to check for missing variables before writing an eof.csv file
         private_var_list = [v for v in nc_data.variables]
     # end of the "with open(private_nc_file)" statement
-
+    
+    set_manual_flags(private_nc_file,os.path.join(code_dir,'manual_flags.json'))
+    
     logging.info('Finished writing {} {:.2f} MB'.format(private_nc_file,os.path.getsize(private_nc_file)/1e6))
 
     if args.public:
