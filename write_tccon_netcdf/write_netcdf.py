@@ -1047,7 +1047,9 @@ def set_manual_flags(nc_file,flag_file,qc_file=''):
             elif flag_value in manual_flags_dict:
                 flag_name = manual_flags_dict[flag_value]
             else:
-                flag_name = "other"
+                logging.warning('You tried setting a new manual flag ({}) without a name. Setting flag=1100 ("other") instead for {}'.format(flag_value,time_period))
+                flag_value = 1100
+                flag_name = manual_flags_dict[flag_value]
 
             logging.info("\t- From {} to {}: flag={}; name='{}'; comment='{}'".format(str(start_dt)[:10],str(end_dt)[:10],flag_value,flag_name,flags_data[time_period]['comment']))
 
