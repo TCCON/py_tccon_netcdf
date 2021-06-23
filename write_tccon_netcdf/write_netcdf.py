@@ -1075,8 +1075,8 @@ def main():
     parser.add_argument('-m','--message',default='',help='Add an optional message to be kept in the log file to remember why you ran post-processing e.g. "2020 Eureka R3 processing" ')
     parser.add_argument('--multiggg',default='multiggg.sh',help='Use this argument if you use differently named multiggg.sh files')
     parser.add_argument('--mode',default='TCCON',choices=['TCCON','em27'],help='Will be used to set TCCON specific or em27 specific metadata')
-    parser.add_argument('--mflag',action='store_true',help='If given with a private.nc file as input, will modify (in place) the flags based on manual_flags.json')
-    parser.add_argument('--mflag-file',default=os.path.join(code_dir,'manual_flags.json'),help='Full path to the .json input file that sets manual flags')
+    parser.add_argument('--mflag',action='store_true',help='If given with a private.nc file as input, will create a separate private.qc.nc file with updated flags based on the --mflag-file')
+    parser.add_argument('--mflag-file',default=os.path.join(code_dir,'manual_flags.json'),help='Full path to the .json input file that sets manual flags (has no effect without --mflag)')
 
     args = parser.parse_args()
     logger, show_progress, HEAD_commit = setup_logging(log_level=args.log_level, log_file=args.log_file, message=args.message)

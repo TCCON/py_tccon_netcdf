@@ -41,6 +41,8 @@ Code to compile the outputs of GGG in a netCDF file
 >
 >                       [--mflag]
 >
+>                       [--mflag-file FLAG_FILE]
+>
 >                       file
 >
 >write_netcdf.py (Version 1.0; 2019-11-15; SR)
@@ -78,7 +80,9 @@ Code to compile the outputs of GGG in a netCDF file
 >
 >       --mode {TCCON,em27}   Will be used to set TCCON specific or em27 specific metadata
 >
->       --mflag               If given with a private.nc file as input, will modify (in place) the flags based on manual_flags.json
+>       --mflag               If given with a private.nc file as input, will create a separate private.qc.nc file with updated flags based on the --mflag-file
+>
+>       --mlfag-file          Full path to the .json input file that sets manual flags (has no effect without --mflag)
 
 Run from the directory where the GFIT outputs are saved with:
 
