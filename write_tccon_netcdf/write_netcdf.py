@@ -1098,11 +1098,8 @@ def main():
             set_manual_flags(private_nc_file,args.mflag_file,qc_file=qc_file)
             if not args.public:
                 sys.exit()
-            else:
-                logging.info('Writting .public.nc file from the .private.qc.nc file')
             private_nc_file = qc_file
-        else:
-            logging.info('Writting .public.nc file from the input .private.nc file')
+        logging.info('Writting .public.nc file from {}'.format(private_nc_file))
         write_public_nc(private_nc_file,code_dir,nc_format)
         sys.exit()
 
