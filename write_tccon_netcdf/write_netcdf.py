@@ -2228,6 +2228,9 @@ def main():
                     varname = var
                     ingaas = True
 
+                nnan = np.count_nonzero(np.isnan(aia_data[var]))
+                if ingaas and nnan>=1 and esf_id==0:
+                    logging.warning('{} NAN values for {}'.format(nnan,var))
                 nmiss = len(aia_data[var][aia_data[var]>=9e29])
                 if ingaas and nmiss >= 1 and esf_id==0: # only show this for InGaAs spectra
                     logging.warning('{} ({}%) missing values for {}'.format(nmiss,np.round(100*nmiss/nspec,2),var))
