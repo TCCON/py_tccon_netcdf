@@ -384,7 +384,7 @@ def get_duplicates(a):
     return dupes
 
 
-def read_mav(path,GGGPATH,maxspec):
+def read_mav(path,GGGPATH,maxspec,show_progress):
     """
     read .mav files into a dictionary with spectrum filnames as keys (from each "Next spectrum" block in the .mav file)
     values are dataframes with the prior data
@@ -432,7 +432,9 @@ def read_mav(path,GGGPATH,maxspec):
     eflat, mid_trop_pt = get_eflat(os.path.join(GGGPATH,'vmrs','gnd',vmr_file))
     DATA[spectrum]['effective_latitude'] = eflat
     DATA[spectrum]['mid_tropospheric_potential_temperature'] = mid_trop_pt
-        
+    
+    nlines = d['altitude'].size - nlev # the number of lines in the .mav file starting from "Next spectrum" of the SECOND block
+    nblocks = int(nlines/(nlev+7)) # number of mav blacks (starting at the SECOND block)
     ispec = 1
     while True:
         if ispec>maxspec:
@@ -445,6 +447,8 @@ def read_mav(path,GGGPATH,maxspec):
             spectrum = d['temperature'][block_id].split(':')[1]
         except (KeyError, IndexError) as e:
             break
+        if show_progress:
+            progress(ispec-1,nblocks,word='.mav blocks')
         tropalt = float(d['pressure'][block_id+2])
         oblat = float(d['pressure'][block_id+3])
         vmr_file = os.path.basename(d['altitude'][block_id+4])
@@ -490,8 +494,8 @@ def read_mav(path,GGGPATH,maxspec):
                     ingaas_spec = ''.join(ingaas_spec)
                     logging.warning('{} was processed with {} but the prior_index will refer to the InGaAs spectrum prior {}'.format(spec,vmr_file,DATA[ingaas_spec]['vmr_file']))
                     del DATA[spec]
-               
-    logging.info('Finished reading MAV file')
+    if not show_progress: # it's obsolete to print this if we show the progress bar
+        logging.info('Finished reading MAV file')
     return DATA, nlev, ncell
 
 
@@ -1257,7 +1261,7 @@ def main():
         logging.warning('{} ingaas spectra in runlog; {} spectra in .tav file'.format(ningaas,nspec))
 
     # read prior data
-    prior_data, nlev, ncell = read_mav(mav_file,GGGPATH,tav_data['spectrum'].size)
+    prior_data, nlev, ncell = read_mav(mav_file,GGGPATH,tav_data['spectrum'].size,show_progress)
     nprior = len(prior_data.keys())
 
     # header file: it contains general information and comments.
