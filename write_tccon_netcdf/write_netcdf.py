@@ -1375,7 +1375,6 @@ def main():
         aia_ref_speclist = np.array([i.replace('c.','a.').replace('b.','a.').replace('d.','a.') for i in aia_data['spectrum']]) # this is the .aia spectrum list but with only ingaas names
         if not np.array_equal(hash_array(aia_ref_speclist),hash_runlog_ingaas_speclist):
             logging.warning('The spectra in the .aia file are inconsistent with the runlog spectra:\n {}'.format(set(aia_ref_speclist).symmetric_difference(set(runlog_ingaas_speclist))))       
-        #ingaas_runlog_slice = list(np.where(np.isin(runlog_data['spectrum'],aia_ref_speclist))[0]) # indices to slice the runlog arrays for the ingaas spectra that made it to the .tav file
         ingaas_runlog_slice = get_slice(runlog_data['spectrum'],aia_ref_speclist)
         if ninsb:
             aia_ref_speclist_insb = np.array([i.replace('a.','c.') for i in aia_data['spectrum']]) # will be used to get .col file spectra indices along the time dimension
@@ -2384,7 +2383,6 @@ def main():
                 continue
 
             if ingaas and (col_data.shape[0] != vav_data.shape[0]):
-                #inds = list(np.where(np.isin(vav_data['spectrum'],col_data['spectrum']))[0]) # handle case when the .col file has more spectra listed than the .vav file
                 inds = get_slice(vav_data['spectrum'],col_data['spectrum'].apply(lambda x: x.replace('d.','a.')))
                 dif = col_data['spectrum'].size - len(inds)
                 logging.warning('\nThere are {} more spectra in {} than in {}, recommend checking this col/vav file'.format(dif,col_file, vav_file))
