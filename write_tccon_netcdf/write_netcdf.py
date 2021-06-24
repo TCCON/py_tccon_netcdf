@@ -1073,6 +1073,44 @@ def set_manual_flags(nc_file,flag_file,qc_file=''):
             setattr(nc_data,"manual_flags_{}_{}".format(*time_period.split('_')[2:]),"flag={}; name='{}'; comment='{}'".format(flag_value,flag_name,flags_data[time_period]['comment']))
 
 
+def get_slice(a,b):
+    """
+    Inputs:
+        - a: array of unique hashables
+        - b: array of unique hashables (all its elements should also be included in a)
+    Outputs:
+        - ids: array of indices that can be used to slice array a to get its elements that correspond to those in array b (such that a[ids] == b)
+    """
+
+    hash_a = hash_array(a)
+    hash_b = hash_array(b)
+
+    ids = list(np.where(np.isin(hash_a,hash_b))[0])
+
+    if not np.array_equal(hash_a[ids],hash_b):
+        logging.warning('get_slice: it is unexpected that elements in the second array are not included in the first array')
+
+    return ids
+
+
+def hash_array(x):
+    """
+    Elementwise hash of x
+
+    Inputs:
+        - x: array of unique hashables
+    Outputs:
+        - hash_x: array of of hashed elements from x
+    """
+
+    hash_x = np.array([hash(i) for i in x])
+    if not np.unique(hash_x).size==hash_x.size:
+        logging.critical("hash_array: could not generate unique hashes for all elements")
+        sys.exit()
+
+    return hash_x
+
+
 def main():
     signal(SIGINT,signal_handler)
     code_dir = os.path.dirname(__file__) # path to the tccon_netcdf repository
@@ -1199,6 +1237,9 @@ def main():
     runlog_insb_speclist = np.array([spec for spec in runlog_data['spectrum'] if spec[15]=='c'])
     runlog_ingaas_speclist = np.array([spec for spec in runlog_data['spectrum'] if spec[15]=='a'])
     runlog_ingaas2_speclist = np.array([spec for spec in runlog_data['spectrum'] if spec[15]=='d']) # second InGaAs detector of em27s
+    # use hash() to convert the arrays of strings to arrays of integers for faster array comparisons
+    hash_runlog_ingaas_speclist = hash_array(runlog_ingaas_speclist) 
+    hash_runlog_ingaas2_speclist = hash_array(runlog_ingaas2_speclist)
     runlog_si_speclist = np.array([spec for spec in runlog_data['spectrum'] if spec[15]=='b'])
     nsi = len(runlog_si_speclist)
     ninsb = len(runlog_insb_speclist)
@@ -1323,9 +1364,10 @@ def main():
         aia_data[object_columns] = aia_data[object_columns].astype(np.float64)
     if ningaas: # check for consistency with the runlog spectra
         aia_ref_speclist = np.array([i.replace('c.','a.').replace('b.','a.').replace('d.','a.') for i in aia_data['spectrum']]) # this is the .aia spectrum list but with only ingaas names
-        if not np.array_equal(aia_ref_speclist,runlog_ingaas_speclist):
+        if not np.array_equal(hash_array(aia_ref_speclist),hash_runlog_ingaas_speclist):
             logging.warning('The spectra in the .aia file are inconsistent with the runlog spectra:\n {}'.format(set(aia_ref_speclist).symmetric_difference(set(runlog_ingaas_speclist))))       
-        ingaas_runlog_slice = list(np.where(np.isin(runlog_data['spectrum'],aia_ref_speclist))[0]) # indices to slice the runlog arrays for the ingaas spectra that made it to the .tav file
+        #ingaas_runlog_slice = list(np.where(np.isin(runlog_data['spectrum'],aia_ref_speclist))[0]) # indices to slice the runlog arrays for the ingaas spectra that made it to the .tav file
+        ingaas_runlog_slice = get_slice(runlog_data['spectrum'],aia_ref_speclist)
         if ninsb:
             aia_ref_speclist_insb = np.array([i.replace('a.','c.') for i in aia_data['spectrum']]) # will be used to get .col file spectra indices along the time dimension
         if nsi:
@@ -1386,8 +1428,10 @@ def main():
         data_list += [vsw_data,vsw_ada_data]    
 
     ## check all files have the same spectrum lists
-    check_spec = np.array([(data['spectrum']==vav_data['spectrum']).all() for data in data_list])
-    if not check_spec.all():
+    logging.info('Check spectrum array consistency ...')
+    hash_vav = hash_array(vav_data['spectrum'])
+    check_spec = np.alltrue([np.array_equal(hash_array(data['spectrum']),hash_vav) for data in data_list])
+    if not check_spec:
         logging.critical('Files have inconsistent spectrum lists !')
         for data in data_list:
             logging.critical(len(data['spectrum']),'spectra in',data['file'][0])
@@ -1400,7 +1444,7 @@ def main():
     private_nc_file = '{}{}_{}.private.nc'.format(siteID,start_date,end_date) # the final output file
 
     # make all the column names consistent between the different files
-    for dataframe in [qc_data,esf_data,lse_data,vav_data,ada_data,aia_data]: #preavg_correction_data,postavg_correction_data,insitu_correction_data,
+    for dataframe in [qc_data,esf_data,lse_data,vav_data,ada_data,aia_data]:
         dataframe.rename(str.lower,axis='columns',inplace=True) # all lower case
         if 'doy' in dataframe.columns: # all use 'day' and not 'doy'
             dataframe.rename(index=str,columns={'doy':'day'},inplace=True)
@@ -2312,19 +2356,22 @@ def main():
                     checksum_var = var+'_checksum'
                     for i in range(aia_data['spectrum'].size):
                         nc_data[checksum_var][i] = checksum_dict[checksum_var]
+            # end of if col_file == col_file_list[0]:
 
             # JLL 2020-05-19: need to check that the shapes are equal first, or get a very confusing error
-            if ingaas and not (np.all(col_data['spectrum'].values == np.array(runlog_ingaas_speclist)) or np.all(col_data['spectrum'].values == np.array(runlog_ingaas2_speclist))):
-                logging.warning('Mismatch between .col file spectra and .grl spectra; col_file=%s',col_file)
+            hash_col = hash_array(col_data['spectrum'])
+            if ingaas and not (np.all(hash_col==hash_runlog_ingaas_speclist) or np.all(hash_col==hash_runlog_ingaas2_speclist)):
+                logging.warning('\nMismatch between .col file spectra and .grl spectra; col_file=%s',col_file)
                 continue # contine or exit here ? Might not need to exit if we can add in the results from the faulty col file afterwards
             if col_data.shape[0] != cbf_data.shape[0]:
-                logging.warning('Different number of spectra in %s and %s, recommend checking this col/cbf pair', col_file, cbf_file)
+                logging.warning('\nDifferent number of spectra in %s and %s, recommend checking this col/cbf pair', col_file, cbf_file)
                 continue
 
             if ingaas and (col_data.shape[0] != vav_data.shape[0]):
-                inds = list(np.where(np.isin(vav_data['spectrum'],col_data['spectrum'].apply(lambda x: x.replace('d.','a.'))))[0]) # handle case when the .col file has more spectra listed than the .vav file
+                #inds = list(np.where(np.isin(vav_data['spectrum'],col_data['spectrum']))[0]) # handle case when the .col file has more spectra listed than the .vav file
+                inds = get_slice(vav_data['spectrum'],col_data['spectrum'].apply(lambda x: x.replace('d.','a.')))
                 dif = col_data['spectrum'].size - len(inds)
-                logging.warning('There are {} more spectra in {} than in {}, recommend checking this col/vav file'.format(dif,col_file, vav_file))
+                logging.warning('\nThere are {} more spectra in {} than in {}, recommend checking this col/vav file'.format(dif,col_file, vav_file))
 
             # create window specific variables
             for var in col_data.columns[1:]: # skip the first one ("spectrum")
@@ -2399,7 +2446,7 @@ def main():
         """
         It is a dictionary with siteID as keys, values are dictionaries of variable:fill_value
 
-        If a site has different null values defined for different time period the key has format siteID_ii_YYYYMMDD_YYYYMMDD
+        If a site has different null values defined for different time periods the key has format siteID_ii_YYYYMMDD_YYYYMMDD
         with ii just the period index (e.g. 01 ) so that they come in order when the keys get sorted
         """
         with open(os.path.join(code_dir,'missing_data.json'),'r') as f:
