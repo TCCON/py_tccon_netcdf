@@ -82,7 +82,7 @@ Code to compile the outputs of GGG in a netCDF file
 >
 >       --mflag               If given with a private.nc file as input, will create a separate private.qc.nc file with updated flags based on the --mflag-file
 >
->       --mlfag-file          Full path to the .json input file that sets manual flags (has no effect without --mflag)
+>       --mflag-file          Full path to the .json input file that sets manual flags (has no effect without --mflag)
 
 Run from the directory where the GFIT outputs are saved with:
 
