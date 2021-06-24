@@ -1305,11 +1305,14 @@ def main():
     prior_data, nlev, ncell = read_mav(mav_file,GGGPATH,tav_data['spectrum'].size,show_progress)
     nprior = len(prior_data.keys())
 
+    logging.info('Reading input files:')
     # header file: it contains general information and comments.
+    logging.info('\t- {}'.format(header_file))
     with open(header_file,'r') as infile:
         header_content = infile.read()
 
     # qc file: it contains information on some variables as well as their flag limits
+    logging.info('\t- {}'.format(qc_file))
     nhead, ncol = file_info(qc_file)
     qc_data = pd.read_fwf(qc_file,widths=[15,3,8,7,10,9,10,45],skiprows=nhead+1,names='Variable Output Scale Format Unit Vmin Vmax Description'.split())
     for key in ['Variable','Format','Unit']:
@@ -1329,34 +1332,40 @@ def main():
             logging.critical('Could not convert all of {} to floats from the {} file; please check for misaligned columns in the file'.format(qc_var,os.path.basename(qc_file)))
             logging.critical('Python error: "{}"'.format(short_error(qc_err)))
             sys.exit()
-
-    # error scale factors: 
+    
+    # error scale factors:
+    logging.info('\t- {}'.format(esf_file)) 
     nhead, ncol = file_info(esf_file)
     esf_data = pd.read_csv(esf_file,delim_whitespace=True,skiprows=nhead)
 
     # lse file: contains laser sampling error data
+    logging.info('\t- {}'.format(lse_file))
     nhead, ncol = file_info(lse_file)
     lse_data = pd.read_csv(lse_file,delim_whitespace=True,skiprows=nhead)
     lse_data['file'] = lse_file
     lse_data.rename(index=str,columns={'Specname':'spectrum'},inplace=True) # the other files use 'spectrum'
-    # check the .lse file has the same spectra as the runlog
+    # check the .lse file has the same number of spectra as the runlog
     if len(lse_data['spectrum'])!=len(runlog_data['spectrum']):
         logging.critical("Different number of spectra in runlog ({}) and lse ({}) files".format(len(runlog_data['spectrum']),len(lse_data['spectrum'])))
         sys.exit()
 
     # vav file: contains column amounts
+    logging.info('\t- {}'.format(vav_file))
     nhead, ncol = file_info(vav_file)
     vav_data = pd.read_csv(vav_file,delim_whitespace=True,skiprows=nhead)
     vav_data['file'] = vav_file
 
     # ada file: contains column-average dry-air mole fractions
+    logging.info('\t- {}'.format(ada_file))
     nhead, ncol = file_info(ada_file)
     ada_data = pd.read_csv(ada_file,delim_whitespace=True,skiprows=nhead)
     ada_data['file'] = ada_file
     
     # aia file: ada file with scale factor applied
+    logging.info('\t- {}'.format(aia_file))
     nhead, ncol = file_info(aia_file)
     aia_data = pd.read_csv(aia_file,delim_whitespace=True,skiprows=nhead)
+
     if 'Infinity' in aia_data.values:
         logging.warning('Found "Infinity" values in {}'.format(aia_file))
         object_columns = [i for i in aia_data.select_dtypes(include=np.object).columns if i.startswith('x')]
@@ -1394,6 +1403,7 @@ def main():
     aicf_data.loc[:,'scale'] = aicf_data['scale'].apply(lambda x: '' if type(x)==float else x)
 
     # read pth data
+    logging.info('\t- {}'.format(pth_file))
     nhead,ncol = file_info(pth_file)
     pth_data = pd.read_csv(pth_file,delim_whitespace=True,skiprows=nhead)
     # extract_pth lines correspond to runlog lines, so use the ingaas_runlog_slice to get the values along the time dimension
@@ -1407,6 +1417,7 @@ def main():
 
     # vsw files
     if not skip_vsw:
+        logging.info('\t- {}'.format(vsw_file))
         nhead,ncol = file_info(vsw_file)
         vsw_sf_check = False
         with open(vsw_file,'r') as infile:
@@ -1421,6 +1432,7 @@ def main():
         vsw_data = pd.read_csv(vsw_file,delim_whitespace=True,skiprows=nhead)
         vsw_data['file'] = vsw_file
         # vsw.ada file
+        logging.info('\t- {}'.format(vsw_ada_file))
         nhead,ncol = file_info(vsw_ada_file)
         vsw_ada_data = pd.read_csv(vsw_ada_file,delim_whitespace=True,skiprows=nhead)
         vsw_ada_data['file'] = vsw_ada_file
@@ -1466,6 +1478,7 @@ def main():
     if os.path.exists(private_nc_file):
         os.remove(private_nc_file)
 
+    logging.info('Writing {} ...'.format(private_nc_file))
     with netCDF4.Dataset(private_nc_file,'w',format=nc_format) as nc_data:
         
         ## global attributes
