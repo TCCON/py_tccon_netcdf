@@ -25,6 +25,7 @@ import logging
 import warnings
 import json
 from shutil import copyfile
+from signal import signal, SIGINT
 
 wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-15; SR)\n'
 
@@ -170,6 +171,14 @@ manual_flags_dict = {
     1000:"ils",
     1100:"other"
 }
+
+
+def signal_handler(sig,frame):
+    """
+    When the program is interruped (e.g. with kill or ctrl-c), write it to the .log file
+    """
+    logging.critical('The code was interrupted')
+    sys.exit()
 
 
 def progress(i,tot,bar_length=20,word=''):
@@ -1061,6 +1070,7 @@ def set_manual_flags(nc_file,flag_file,qc_file=''):
 
 
 def main():
+    signal(SIGINT,signal_handler)
     code_dir = os.path.dirname(__file__) # path to the tccon_netcdf repository
     GGGPATH = get_ggg_path()
 
