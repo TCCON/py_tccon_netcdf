@@ -1959,6 +1959,8 @@ def main():
                     att_dict["description"] = "{} scale factor from the window centered at {} cm-1, after airmass dependence is removed, but before scaling to WMO.".format(*xvar.split('_'))
                 nc_data[varname].setncatts(att_dict)
                 write_values(nc_data,varname,vsw_ada_data[xvar])
+            # end of for var in vsw_var_list
+        # end of if not skip_vsw
 
         # averaged variables (from the different windows of each species)
         logging.info('\t- averaged variables')
@@ -2052,7 +2054,7 @@ def main():
                             'precision':'f9.4',},
                     }
 
-        common_spec = np.intersect1d(aia_data['spectrum'],lse_data['spectrum'],return_indices=True)[2]
+        common_spec = np.intersect1d(hash_array(aia_data['spectrum']),hash_array(lse_data['spectrum']),return_indices=True)[2]
         for var in lse_dict.keys():
             nc_data.createVariable(var,np.float32,('time',))
             att_dict = {
