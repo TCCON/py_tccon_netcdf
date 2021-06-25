@@ -2066,7 +2066,7 @@ def main():
             nc_data[var].setncatts(att_dict)
             write_values(nc_data,var,lse_data[var][common_spec].values)
         
-        logging.info('\t- ADCF and AICF')
+        logging.info('\t- ADCF')
         # airmass-dependent corrections (from the .aia file header)
         correction_var_list = []
         for i,xgas in enumerate(adcf_data['xgas']):
@@ -2089,6 +2089,8 @@ def main():
                     att_dict["description"] = '{} airmass-dependent correction factor'.format(xgas)
                 nc_data[varname].setncatts(att_dict)
                 nc_data[varname][:] = adcf_data[var][i]
+
+        logging.info('\t- AICF')
         # airmass-independent corrections (from the .aia file header)
         for i,xgas in enumerate(aicf_data['xgas']):
             for var in ['aicf','aicf_error']:
@@ -2119,6 +2121,8 @@ def main():
                 "description":"{} traceability".format(xgas),
             }
             nc_data[varname].setncatts(att_dict)
+            if aicf_data['scale'][i]=='':
+                continue
             for j in range(nc_data['time'].size):
                 nc_data[varname][j] = aicf_data['scale'][i]
 
