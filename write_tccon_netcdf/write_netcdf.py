@@ -2379,14 +2379,15 @@ def main():
                         nc_data[checksum_var][i] = checksum_dict[checksum_var]
             # end of if col_file == col_file_list[0]:
 
+            if col_data.shape[0] != cbf_data.shape[0]: # do this first since it's faster than the check on spectra
+                logging.warning('\nDifferent number of spectra in %s and %s, recommend checking this col/cbf pair', col_file, cbf_file)
+                continue
+
             # JLL 2020-05-19: need to check that the shapes are equal first, or get a very confusing error
             hash_col = hash_array(col_data['spectrum'])
             if ingaas and not (np.all(hash_col==hash_runlog_ingaas_speclist) or np.all(hash_col==hash_runlog_ingaas2_speclist)):
                 logging.warning('\nMismatch between .col file spectra and .grl spectra; col_file=%s',col_file)
                 continue # contine or exit here ? Might not need to exit if we can add in the results from the faulty col file afterwards
-            if col_data.shape[0] != cbf_data.shape[0]:
-                logging.warning('\nDifferent number of spectra in %s and %s, recommend checking this col/cbf pair', col_file, cbf_file)
-                continue
 
             if ingaas and (col_data.shape[0] != vav_data.shape[0]):
                 inds = get_slice(vav_data['spectrum'],col_data['spectrum'].apply(lambda x: x.replace('d.','a.')))
