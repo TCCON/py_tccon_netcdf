@@ -26,6 +26,7 @@ import warnings
 import json
 from shutil import copyfile
 from signal import signal, SIGINT
+import gc
 
 wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-15; SR)\n'
 
@@ -1354,6 +1355,8 @@ def main():
     nhead, ncol = file_info(vav_file)
     vav_data = pd.read_csv(vav_file,delim_whitespace=True,skiprows=nhead)
     vav_data['file'] = vav_file
+    vav_shape = vav_data.shape[0]
+    vav_spec_list = vav_data['spectrum']
 
     # ada file: contains column-average dry-air mole fractions
     logging.info('\t- {}'.format(ada_file))
@@ -1412,7 +1415,7 @@ def main():
     pth_data.loc[:,'tout'] = pth_data['tout']-273.15 # convert Kelvin to Celcius
     pth_data.loc[:,'tmod'] = pth_data['tmod']-273.15 # convert Kelvin to Celcius
 
-    data_list = [tav_data,ada_data,aia_data]
+    data_list = [tav_data,vav_data,ada_data,aia_data]
 
     # vsw files
     if not skip_vsw:
@@ -1440,12 +1443,12 @@ def main():
 
     ## check all files have the same spectrum lists
     logging.info('Check spectrum array consistency ...')
-    hash_vav = hash_array(vav_data['spectrum'])
+    hash_vav = hash_array(vav_spec_list)
     check_spec = np.alltrue([np.array_equal(hash_array(data['spectrum']),hash_vav) for data in data_list])
     if not check_spec:
         logging.critical('Files have inconsistent spectrum lists !')
         for data in data_list:
-            logging.critical(len(data['spectrum']),'spectra in',data['file'][0])
+            logging.critical("{} spectra in {}".format(len(data['spectrum']),data['file'][0]))
         sys.exit()
 
     specdates = np.array([datetime(int(round(aia_data['year'][i]-aia_data['day'][i]/366.0)),1,1)+timedelta(days=aia_data['day'][i]-1) for i in range(nspec)])
@@ -1876,6 +1879,8 @@ def main():
             write_values(nc_data,key,np.array(pth_data[val]))
         nc_data['h2o_dmf_out'].description = "external water vapour dry mole fraction"
         nc_data['h2o_dmf_mod'].description = "model external water vapour dry mole fraction"
+        del pth_data
+        gc.collect()
 
         # write variables from the .vsw and .vsw.ada files
         if not skip_vsw:
@@ -1960,6 +1965,9 @@ def main():
                 nc_data[varname].setncatts(att_dict)
                 write_values(nc_data,varname,vsw_ada_data[xvar])
             # end of for var in vsw_var_list
+            del vsw_data
+            del vsw_ada_data
+            gc.collect()
         # end of if not skip_vsw
 
         # averaged variables (from the different windows of each species)
@@ -2036,6 +2044,8 @@ def main():
                 if key in var:
                     for nc_var in [nc_data[xvarname],nc_data['vsf_'+varname],nc_data['column_'+varname],nc_data['ada_'+xvarname]]:
                         nc_var.description += special_description_dict[key]
+        del tav_data, vav_data, ada_data
+        gc.collect()
 
         # lse data
         logging.info('\t- .lse')
@@ -2065,6 +2075,8 @@ def main():
             }
             nc_data[var].setncatts(att_dict)
             write_values(nc_data,var,lse_data[var][common_spec].values)
+        del lse_data
+        gc.collect()
         
         logging.info('\t- ADCF')
         # airmass-dependent corrections (from the .aia file header)
@@ -2125,7 +2137,8 @@ def main():
                 continue
             for j in range(nc_data['time'].size):
                 nc_data[varname][j] = aicf_data['scale'][i]
-
+        del aicf_data,adcf_data
+        gc.collect()
 
         ## write data
 
@@ -2184,6 +2197,8 @@ def main():
             nc_data['prior_mid_tropospheric_potential_temperature'][prior_spec_id] = prior_data[prior_spectrum]['mid_tropospheric_potential_temperature']
 
         logging.info('Finished writing prior data')
+        del prior_data
+        gc.collect()
 
         # update data with new scale factors and determine flags
         logging.info('Writing scaled aia data and determining qc flags')
@@ -2272,6 +2287,9 @@ def main():
                         nc_data['flagged_var_name'][i] = 'x{}_si'.format(flagged_var_name[2:])
                     else:
                         nc_data['flagged_var_name'][i] = flagged_var_name
+        # end of for esf_id in range(esf_data['year'].size)
+        del esf_data
+        gc.collect()
 
         flag_list = [i for i in set(nc_data['flag'][:]) if i!=0]
         nflag = np.count_nonzero(nc_data['flag'][:])
@@ -2377,6 +2395,8 @@ def main():
                     checksum_var = var+'_checksum'
                     for i in range(aia_data['spectrum'].size):
                         nc_data[checksum_var][i] = checksum_dict[checksum_var]
+                del aia_data
+                gc.collect()
             # end of if col_file == col_file_list[0]:
 
             if col_data.shape[0] != cbf_data.shape[0]: # do this first since it's faster than the check on spectra
@@ -2385,12 +2405,12 @@ def main():
 
             # JLL 2020-05-19: need to check that the shapes are equal first, or get a very confusing error
             hash_col = hash_array(col_data['spectrum'])
-            if ingaas and not (np.all(hash_col==hash_runlog_ingaas_speclist) or np.all(hash_col==hash_runlog_ingaas2_speclist)):
+            if ingaas and not (np.array_equal(hash_col,hash_runlog_ingaas_speclist) or np.array_equal(hash_col,hash_runlog_ingaas2_speclist)):
                 logging.warning('\nMismatch between .col file spectra and .grl spectra; col_file=%s',col_file)
                 continue # contine or exit here ? Might not need to exit if we can add in the results from the faulty col file afterwards
 
-            if ingaas and (col_data.shape[0] != vav_data.shape[0]):
-                inds = get_slice(vav_data['spectrum'],col_data['spectrum'].apply(lambda x: x.replace('d.','a.')))
+            if ingaas and (col_data.shape[0] != vav_shape):
+                inds = get_slice(vav_spec_list,col_data['spectrum'].apply(lambda x: x.replace('d.','a.')))
                 dif = col_data['spectrum'].size - len(inds)
                 logging.warning('\nThere are {} more spectra in {} than in {}, recommend checking this col/vav file'.format(dif,col_file, vav_file))
 
@@ -2462,6 +2482,9 @@ def main():
                     att_dict['units'] = units_dict[var]
                 nc_data[varname].setncatts(att_dict)
                 write_values(nc_data,varname,cbf_data[var].values,inds=inds)
+        # end of for col_id,col_file in enumerate(col_file_list)
+        del col_data, cbf_data
+        gc.collect()
 
         # read the data from missing_data.json and update data with fill values to the netCDF4 default fill value
         """
