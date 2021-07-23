@@ -33,7 +33,21 @@ def num2date(x,units,calendar):
     return np.array([datetime(*cftime.timetuple()[:6]) for cftime in netCDF4.num2date(x,units=units,calendar=calendar)])
 
 
-def progress(i,tot,bar_length=20,word=''):
+def progress(i,tot,bar_length=20,word='',simple=False):
+    if simple:
+        _simple_progress(i,tot)
+    else:
+        _fancy_progress(i,tot,bar_length=bar_length,word=word)
+
+
+def _simple_progress(i,tot,freq=250):
+    if (i % freq == 0) or i == (tot-1):
+        percent = i / tot * 100
+        sys.stdout.write('Concatenation {:.0f}% complete\n'.format(percent))
+        sys.stdout.flush()
+
+
+def _fancy_progress(i,tot,bar_length=20,word=''):
     """
     a fancy loadbar to be displayed in the prompt while executing a time consuming loop
     """
@@ -54,6 +68,7 @@ def main():
     parser.add_argument('path',help='full path to a folder containing netCDF files')
     parser.add_argument('--out',default='',help='full path to the directory where the output file will be saved, default to same as the "path" argument')
     parser.add_argument('--prefix',default='',help='if given, only use files starting with the given prefix')
+    parser.add_argument('--simple-progress',action='store_true',help='Print percentage complete every 250 variables copied instead of the fancy progress bar. (Useful for logging to a file.)')
     args = parser.parse_args()
 
     if not os.path.exists(args.path):
@@ -120,7 +135,7 @@ def main():
         varcount = 0
         nvar = len(ncin_list[0].variables)
         for name,variable in ncin_list[0].variables.items():
-            progress(varcount,nvar,word=name)
+            progress(varcount,nvar,word=name,simple=args.simple_progress)
             varcount += 1
             var = ncout.createVariable(name,variable.datatype,variable.dimensions)
             ncout[name].setncatts(ncin_list[0][name].__dict__)
