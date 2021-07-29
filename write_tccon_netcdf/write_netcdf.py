@@ -850,7 +850,9 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
     # factor to convert the prior fields of the public archive into more intuitive units
     factor = {'temperature':1.0,'pressure':1.0,'density':1.0,'gravity':1.0,'1h2o':1.0,'1hdo':1.0,'1co2':1e6,'1n2o':1e9,'1co':1e9,'1ch4':1e9,'1hf':1e12,'1o2':1.0}
 
-    public_nc_file = private_nc_file.replace('private','public').replace('.qc','')
+    # Using this regex ensures that we only replace "private" in the extension of the netCDF
+    # file, not elsewhere in the path. It allows for .private.nc or .private.qc.nc extensions.
+    public_nc_file = re.sub(r'\.private((\.qc)?\.nc)$', r'.public\1', private_nc_file)
     logging.info('Writting {}'.format(public_nc_file))
     with netCDF4.Dataset(private_nc_file,'r') as private_data, netCDF4.Dataset(public_nc_file,'w',format=nc_format) as public_data:
         ## copy all the metadata
@@ -1082,7 +1084,7 @@ def set_manual_flags(nc_file,flag_file,qc_file=''):
     with open(flag_file,'r') as f:
         flags_data = json.load(f)
     flags_data = {key:val for key,val in flags_data.items() if key.startswith(site_ID)}
-    if not flags_data: # empty dictionary
+    if not flags_data and not qc_file: # empty dictionary and path to output file - ok to abort
         return
 
     if qc_file:
@@ -1232,7 +1234,9 @@ def main():
     if args.file.endswith('.nc'):
         private_nc_file = args.file
         if args.mflag:
-            qc_file = private_nc_file.replace('.nc','.qc.nc')
+            # This regex ensures that we only replace the .nc at the end
+            # of the filename, never earlier in the path (just in case)
+            qc_file = re.sub(r'\.nc$', '.qc.nc', private_nc_file)
             set_manual_flags(private_nc_file,args.mflag_file,qc_file=qc_file)
             if not args.public:
                 sys.exit()
