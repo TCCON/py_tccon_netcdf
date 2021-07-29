@@ -3,6 +3,7 @@ import platform
 import os
 import numpy as np
 import netCDF4
+import re
 import argparse
 from contextlib import ExitStack
 import time
@@ -102,8 +103,14 @@ def main():
 
         start = datetime.strftime(num2date([ncin_list[0]['time'][0]],ncin_list[0]['time'].units,ncin_list[0]['time'].calendar)[0],'%Y%m%d')
         end = datetime.strftime(num2date([ncin_list[-1]['time'][-1]],ncin_list[-1]['time'].units,ncin_list[-1]['time'].calendar)[0],'%Y%m%d')
+        ext_regex = re.compile(r'\.(private|public)(\.qc)?.nc')
+        extension = set(ext_regex.search(nc_file).group() for nc_file in nc_list)
+        if len(extension) != 1:
+            print('WARNING: different types of netCDF file (e.g. public vs. private) detected! Extension defaulting to ".nc".')
+        else:
+            extension = list(extension)[0]
 
-        outfile = '{}{}_{}.nc'.format(site_abbrv,start,end)
+        outfile = '{}{}_{}{}'.format(site_abbrv,start,end,extension)
         outpath = os.path.join(args.out,outfile)
         print('Output netCDF file will be saved as',outpath)
 
