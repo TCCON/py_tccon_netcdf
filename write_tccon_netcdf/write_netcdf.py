@@ -182,6 +182,66 @@ def signal_handler(sig,frame):
     sys.exit()
 
 
+def get_json_path(env_var, default, default_in_code_dir=True, none_allowed=False):
+    if default_in_code_dir:
+        code_dir = os.path.dirname(__file__)
+        default = os.path.join(code_dir, default)
+
+    # transform e.g. "public_variables.json" to "public variables"
+    file_quantity = os.path.splitext(os.path.basename(default))[0].replace('_', ' ')
+    json_path = os.getenv(env_var, default)
+
+    if json_path is None and none_allowed:
+        return json_path
+    elif json_path is None:
+        logging.critical('No path defined for %s, aborting.', file_quantity)
+        sys.exit()
+
+    if not os.path.exists(json_path) and json_path == default:
+        logging.critical('The default file for %s (%s) does not exist and no %s environmental variable is defined', file_quantity, default, env_var)
+        sys.exit()
+    elif not os.path.exists(json_path):
+        logging.critical('The %s file path given by the %s environmental variable (%s) does not exist. Correct it, or unset the environmental variable to use the default file.', file_quantity, env_var, default)
+        sys.exit()
+    else:
+        logging.info('Will use %s for %s.', json_path, file_quantity)
+        return json_path
+
+
+def missing_data_json():
+    return get_json_path('TCCON_NETCDF_MISSING_DATA', 'missing_data.json')
+
+
+def public_variables_json():
+    return get_json_path('TCCON_NETCDF_PUB_VARS', 'public_variables.json')
+
+
+def site_info_json():
+    return get_json_path('TCCON_NETCDF_SITE_INFO', 'site_info.json')
+
+
+def tccon_gases_json():
+    return get_json_path('TCCON_NETCDF_GASES', 'tccon_gases.json')
+
+
+def manual_flags_json(cmd_line_value):
+    default_in_code_dir = cmd_line_value is None
+    cmd_line_value = 'manual_flags.json' if cmd_line_value is None else cmd_line_value
+    return get_json_path('TCCON_NETCDF_MFLAGS', cmd_line_value, default_in_code_dir=default_in_code_dir)
+
+
+def read_site_info(siteID):
+    with open(site_info_json(),'r') as f:
+        try:
+            site_data = json.load(f)[siteID]
+        except KeyError:
+            logging.warning('{} is not in the site_info.json file. Using empty metadata.'.format(siteID))
+            site_data = {key:"" for key in ['long_name', 'release_lag', 'location', 'contact', 'site_reference', 'data_doi', 'data_reference', 'data_revision']}
+            site_data['release_lag'] = "0"
+    site_data['release_lag'] = '{} days'.format(site_data['release_lag'])
+    return site_data
+
+
 def progress(i,tot,bar_length=20,word=''):
     """
     a fancy loadbar to be displayed in the prompt while executing a time consuming loop
@@ -831,7 +891,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
                 public_data.createDimension(name, (len(dimension) if not dimension.isunlimited() else None))
 
         ## copy variables based on the info in public_variables.json
-        with open(os.path.join(code_dir,'public_variables.json')) as f:
+        with open(public_variables_json()) as f:
             public_variables = json.load(f)
 
         for name,variable in private_data.variables.items():
@@ -1152,10 +1212,15 @@ def main():
     parser.add_argument('--multiggg',default='multiggg.sh',help='Use this argument if you use differently named multiggg.sh files')
     parser.add_argument('--mode',default='TCCON',choices=['TCCON','em27'],help='Will be used to set TCCON specific or em27 specific metadata')
     parser.add_argument('--mflag',action='store_true',help='If given with a private.nc file as input, will create a separate private.qc.nc file with updated flags based on the --mflag-file')
-    parser.add_argument('--mflag-file',default=os.path.join(code_dir,'manual_flags.json'),help='Full path to the .json input file that sets manual flags (has no effect without --mflag)')
+    parser.add_argument('--mflag-file',help='Full path to the .json input file that sets manual flags (has no effect without --mflag)')
 
     args = parser.parse_args()
     logger, show_progress, HEAD_commit = setup_logging(log_level=args.log_level, log_file=args.log_file, message=args.message)
+    
+    if not args.mflag and args.mflag_file is not None:
+        logging.warning('Specifying --flag-file without using --mflag has no effect')
+    args.mflag_file = manual_flags_json(args.mflag_file)
+    
 
     nc_format = args.format
     classic = nc_format == 'NETCDF4_CLASSIC'
@@ -1163,9 +1228,6 @@ def main():
     if args.eof:
         logging.info('A eof.csv file will be written')
     logging.info('Input file: %s',args.file)
-
-    if not args.mflag and args.mflag_file!=os.path.join(code_dir,'manual_flags.json'):
-        logging.warning('Specifying --flag-file without using --mflag has no effect')
 
     if args.file.endswith('.nc'):
         private_nc_file = args.file
@@ -1219,7 +1281,7 @@ def main():
     ## read data, I add the file_name to the data dictionaries for some of them
 
     # read tccon_gases.json
-    with open(os.path.join(code_dir,'tccon_gases.json'),'r') as f:
+    with open(tccon_gases_json(),'r') as f:
         tccon_gases = json.load(f)
 
     # if a gas is shared by InSb and Si, but not InGaAs, then the corresponding .col file should start with 'm' for InSb and 'v' for Si
@@ -2493,7 +2555,7 @@ def main():
         If a site has different null values defined for different time periods the key has format siteID_ii_YYYYMMDD_YYYYMMDD
         with ii just the period index (e.g. 01 ) so that they come in order when the keys get sorted
         """
-        with open(os.path.join(code_dir,'missing_data.json'),'r') as f:
+        with open(missing_data_json(),'r') as f:
             missing_data = json.load(f)
         missing_data = {key:val for key,val in missing_data.items() if siteID in key}
         if len(missing_data.keys())>1: # if there are different null values for different time periods
