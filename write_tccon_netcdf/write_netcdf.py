@@ -168,9 +168,12 @@ special_description_dict = {
     'zco2':' zco2 is used to test zero level offset (zo) fits in the strong CO2 window, zco2_4852 is without zo, and zco2_4852a is with zo. it does not contribute to the xco2 calculation'
 }
 
+manual_flag_other = 9
 manual_flags_dict = {
-    1000:"ils",
-    1100:"other"
+    1:"ils",
+    2:"tracking",
+    3:"surface pressure",
+    manual_flag_other:"other"
 }
 
 
@@ -1110,28 +1113,32 @@ def set_manual_flags(nc_file,flag_file,qc_file=''):
             end_id = np.max(replace_time_ids)+1 # add 1 so it's included in the slice
 
             flag_value = flags_data[time_period]['value']
-            if flag_value<1000:
-                logging.warning('flag<1000 is reserved for standard flags, you tried to set a manual flag={}. Setting flag=1100 ("other") instead for {}. Check your .json flag file'.format(flag_value,time_period))
-                flag_value = 1100
+            if flag_value<1 or flag_value>9:
+                logging.warning('Manual flag values only allowed between 1 and 9, you tried to set a manual flag={}. Setting flag=1100 ("other") instead for {}. Check your .json flag file'.format(flag_value,time_period))
+                flag_value = manual_flag_other
                 del flags_data[time_period]['name']               
             if 'name' in flags_data[time_period]:
                 flag_name = flags_data[time_period]['name'].lower()
                 if flag_name != manual_flags_dict[flag_value]:
-                    logging.warning('flag={} is reserved for "{}", you tried to set it for "{}". Setting flag=1100 ("other") instead for {}. Check your .json flag file'.format(flag_value,manual_flags_dict[flag_value],flag_name,time_period))
-                    flag_value = 1100
+                    logging.warning('flag={} is reserved for "{}", you tried to set it for "{}". Setting flag={} ("other") instead for {}. Check your .json flag file'.format(flag_value,manual_flags_dict[flag_value],flag_name,manual_flag_other,time_period))
+                    flag_value = manual_flag_other
                     flag_name = manual_flags_dict[flag_value]
             elif flag_value in manual_flags_dict:
                 flag_name = manual_flags_dict[flag_value]
             else:
-                logging.warning('You tried setting a new manual flag ({}) without a name. Setting flag=1100 ("other") instead for {}'.format(flag_value,time_period))
-                flag_value = 1100
+                logging.warning('You tried setting a new manual flag ({}) without a name. Setting flag={} ("other") instead for {}'.format(flag_value,manual_flag_other,time_period))
+                flag_value = manual_flag_other
                 flag_name = manual_flags_dict[flag_value]
 
-            logging.info("\t- From {} to {}: flag={}; name='{}'; comment='{}'".format(str(start_dt)[:10],str(end_dt)[:10],flag_value,flag_name,flags_data[time_period]['comment']))
+            logging.info("\t- From {} to {}: manual flag={}; name='{}'; comment='{}'".format(str(start_dt)[:10],str(end_dt)[:10],flag_value,flag_name,flags_data[time_period]['comment']))
 
-            nc_data['flag'][start_id:end_id] = flag_value
+            nc_data['flag'][start_id:end_id] = nc_data['flag'][start_id:end_id] + 1000*flag_value
             for i in range(start_id,end_id):
-                nc_data['flagged_var_name'][i] = flag_name
+                current_flagged_var = nc_data['flagged_var_name'][i].item()
+                if len(current_flagged_var) == 0:
+                    nc_data['flagged_var_name'][i] = flag_name
+                else:
+                    nc_data['flagged_var_name'][i] = '{} + {}'.format(current_flagged_var, flag_name)
 
             setattr(nc_data,"manual_flags_{}_{}".format(*time_period.split('_')[2:]),"flag={}; name='{}'; comment='{}'".format(flag_value,flag_name,flags_data[time_period]['comment']))
 
@@ -2359,7 +2366,7 @@ def main():
 
         flag_list = [i for i in set(nc_data['flag'][:]) if i!=0]
         nflag = np.count_nonzero(nc_data['flag'][:])
-        logging.info('Summary of flags:')
+        logging.info('Summary of automatic QC flags:')
         logging.info('  #  Parameter              N_flag      %')
         kflag_list = [nc_data['flag'][nc_data['flag']==flag].size for flag in flag_list]
         sorted_kflags_id = np.argsort(kflag_list)[::-1]
