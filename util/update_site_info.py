@@ -16,7 +16,7 @@ def custom_update(nc_file,info_file):
     """
     Update the netcdf file using a given input file formatted like the site_info.json file hosted on tccon_data.org
     """
-    siteID = nc_file[:2]
+    siteID = os.path.basename(nc_file)[:2]
     with open(info_file,'r') as f:
         site_data = json.load(f)[siteID]
     site_data['release_lag'] = '{} days'.format(site_data['release_lag'])

@@ -858,7 +858,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
         ## copy all the metadata
         private_attributes = private_data.__dict__
         public_attributes = private_attributes.copy()
-        manual_flag_attr_list = [i for i in private_attributes if not i.startswith('manual_flags')]
+        manual_flag_attr_list = [i for i in private_attributes if i.startswith('manual_flags')]
         for attr in ['flag_info','release_lag','GGGtip','number_of_spectral_windows']+manual_flag_attr_list: # remove attributes that are only meant for private files
             if attr not in public_attributes:
                 continue
@@ -1192,7 +1192,7 @@ def main():
         """
         ext = os.path.splitext(file_name)[1][1:]
         if ext not in choices:
-            parser.error("file doesn't end with one of {}".format(choices))
+            parser.error("file '{}' doesn't end with one of {}".format(file_name, choices))
         if ext == 'nc' and 'private' not in file_name:
             parser.error('The .private.nc file is needed to write the .public.nc file')
         return file_name
