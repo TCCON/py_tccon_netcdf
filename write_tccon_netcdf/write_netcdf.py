@@ -856,7 +856,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
     # Using this regex ensures that we only replace "private" in the extension of the netCDF
     # file, not elsewhere in the path. It allows for .private.nc or .private.qc.nc extensions.
     public_nc_file = re.sub(r'\.private((\.qc)?\.nc)$', r'.public\1', private_nc_file)
-    logging.info('Writting {}'.format(public_nc_file))
+    logging.info('Writing {}'.format(public_nc_file))
     with netCDF4.Dataset(private_nc_file,'r') as private_data, netCDF4.Dataset(public_nc_file,'w',format=nc_format) as public_data:
         ## copy all the metadata
         private_attributes = private_data.__dict__
@@ -1101,10 +1101,22 @@ def set_release_flags(nc_file,flag_file,qc_file=''):
         flags_data = json.load(f)
     flags_data = {key:val for key,val in flags_data.items() if key.startswith(site_ID)}
     if not flags_data and not qc_file: # empty dictionary and path to output file - ok to abort
-        return
+        return nc_file
 
     logging.info("Setting release flags using {}".format(flag_file))
-    _set_extra_flags(nc_file,flags_data,'release',qc_file=qc_file)
+    return _set_extra_flags(nc_file,flags_data,'release',qc_file=qc_file)
+
+
+def set_manual_flags(nc_file,qc_file=''):
+    siteID = os.path.basename(nc_file)[:2]
+    gggpath = get_ggg_path()
+    mflag_file = os.path.join(gggpath, 'tccon', '{}_manual_flagging.dat'.format(siteID))
+    if not os.path.exists(mflag_file):
+        raise IOError('A manual flagging file ({}) is required even if no periods require manual flagging'.format(mflag_file))
+
+    logging.info('Reading manual flags from {}'.format(mflag_file))
+    flags_data = _read_manual_flags_file(mflag_file)
+    return _set_extra_flags(nc_file,flags_data,'manual',qc_file=qc_file)    
 
 
 def _set_extra_flags(nc_file,flags_data,flag_type,qc_file=''):
@@ -1123,7 +1135,10 @@ def _set_extra_flags(nc_file,flags_data,flag_type,qc_file=''):
         copyfile(nc_file,qc_file)
         nc_file = qc_file
 
-
+    # The manual flags set the 1000s place in the .oof file, so the release flags
+    # should set the 10,000s place. We'll reserve the 100,000s place, and if you
+    # try to set some other flag type it will set the 1,000,000s place.
+    flag_multiplier = {'manual': 1000, 'release': 10000}.get(flag_type, 1000000)
     time_period_list = sorted(flags_data.keys())
     with netCDF4.Dataset(nc_file,'r+') as nc_data:
         for i,time_period in enumerate(time_period_list):
@@ -1163,7 +1178,7 @@ def _set_extra_flags(nc_file,flags_data,flag_type,qc_file=''):
 
             logging.info("\t- From {start} to {end}: {type} flag={value}; name='{name}'; comment='{comment}'".format(start=start_str,end=end_str,type=flag_type,value=flag_value,name=flag_name,comment=comment))
 
-            nc_data['flag'][start_id:end_id] = nc_data['flag'][start_id:end_id] + 1000*flag_value
+            nc_data['flag'][start_id:end_id] = nc_data['flag'][start_id:end_id] + flag_multiplier*flag_value
             for i in range(start_id,end_id):
                 current_flagged_var = nc_data['flagged_var_name'][i].item()
                 if len(current_flagged_var) == 0:
@@ -1172,6 +1187,34 @@ def _set_extra_flags(nc_file,flags_data,flag_type,qc_file=''):
                     nc_data['flagged_var_name'][i] = '{} + {}'.format(current_flagged_var, flag_name)
 
             setattr(nc_data,"{type}_flags_{start}_{end}".format(type=flag_type, start=start_str, end=end_str), "flag={value}; name='{name}'; comment='{comment}'".format(value=flag_value,name=flag_name,comment=comment))
+
+    return nc_file
+
+
+def _read_manual_flags_file(mflag_file):
+    siteID = os.path.basename(mflag_file)[:2]
+
+    with open(mflag_file) as f:
+        nhead = int(f.readline().split()[0])
+
+        # move past the header
+        for _ in range(1, nhead):
+            f.readline()
+
+        flags_data = dict()
+        
+        for iline, line in enumerate(f, start=1):
+            start_str, end_str, flag = line.strip().split()[:3]
+            key = '{site}_{idx:02d}_{start}_{end}'.format(site=siteID, idx=iline, start=start_str, end=end_str)
+            flag = int(flag)
+            if '!' in line:
+                comment = line.split('!', maxsplit=1)[1].strip()
+            else:
+                comment = ''
+
+            flags_data[key] = {'value': flag, 'comment': comment}
+    return flags_data
+
 
 
 def get_slice(a,b):
@@ -1275,11 +1318,15 @@ def main():
             # This regex ensures that we only replace the .nc at the end
             # of the filename, never earlier in the path (just in case)
             qc_file = re.sub(r'\.nc$', '.qc.nc', private_nc_file)
-            set_release_flags(private_nc_file,args.rflag_file,qc_file=qc_file)
+
+            # For public files, we only want to set the release flags now. The regular
+            # manual flags require GGG be present with a $GGGPATH/tccon/xx_manual_flags.dat
+            # file. Since public file production occurs on tccondata.org, we don't want to
+            # rely on a GGG installation.
+            private_nc_file = set_release_flags(private_nc_file,args.rflag_file,qc_file=qc_file)
             if not args.public:
                 sys.exit()
-            private_nc_file = qc_file
-        logging.info('Writting .public.nc file from {}'.format(private_nc_file))
+        logging.info('Writing .public.nc file from {}'.format(private_nc_file))
         write_public_nc(private_nc_file,code_dir,nc_format)
         sys.exit()
 
@@ -2637,7 +2684,11 @@ def main():
         private_var_list = [v for v in nc_data.variables]
     # end of the "with open(private_nc_file)" statement
     
-    set_release_flags(private_nc_file,args.rflag_file)
+    # both function return the path where the flags were written, so 
+    # overriding the `private_nc_file` variable ensures any future steps
+    # take the correct file.
+    private_nc_file = set_manual_flags(private_nc_file)
+    private_nc_file = set_release_flags(private_nc_file,args.rflag_file)
     
     logging.info('Finished writing {} {:.2f} MB'.format(private_nc_file,os.path.getsize(private_nc_file)/1e6))
 
