@@ -227,9 +227,9 @@ def tccon_gases_json():
     return get_json_path('TCCON_NETCDF_GASES', 'tccon_gases.json')
 
 
-def manual_flags_json(cmd_line_value):
+def release_flags_json(cmd_line_value):
     default_in_code_dir = cmd_line_value is None
-    cmd_line_value = 'manual_flags.json' if cmd_line_value is None else cmd_line_value
+    cmd_line_value = 'release_flags.json' if cmd_line_value is None else cmd_line_value
     return get_json_path('TCCON_NETCDF_MFLAGS', cmd_line_value, default_in_code_dir=default_in_code_dir)
 
 
@@ -1074,14 +1074,27 @@ def get_runlog_file(GGGPATH,tav_file,col_file):
     return runlog_file,lse_file
 
 
-def set_manual_flags(nc_file,flag_file,qc_file=''):
+def set_release_flags(nc_file,flag_file,qc_file=''):
     """
-    Using an input .json file to apply custom flags to specific time periods
+    Use an input .json file to apply release flags to specific time periods.
 
     Inputs:
-        - nc_file: full path to the private.nc file
+        - nc_file: full path to the .private.nc file to add release flags to
         - flag_file: full path to the .json input file for setting manual flags
-        - qc_file: full path to the quality control file (.private.qc.nc)
+        - qc_file: full path to the quality controlled file (.private.qc.nc). If
+          this is an empty string, `nc_file` is modified in place.
+
+    Notes:
+        The `flag_file` needs the following format:
+
+        * The top level is a dictionary where the keys have the form `xx_NN_YYYYMMDD_YYYYMMDD`.
+          `xx` must be the site ID. `NN` is a unique number for entry for the same site. The
+          two `YYYYMMDD` are start and end dates in year-month-day format. The end date is
+          exclusive.
+        * The values of the top level are also dictionaries with the keys "value", "name",
+          and "comment". "value" must point to a numeric value between 1 and 9. "name" is
+          a short string describing the reason for the flag. "comment" is a longer description
+          of why this flag was needed.
     """
     site_ID = os.path.basename(nc_file)[:2]
     with open(flag_file,'r') as f:
@@ -1090,18 +1103,36 @@ def set_manual_flags(nc_file,flag_file,qc_file=''):
     if not flags_data and not qc_file: # empty dictionary and path to output file - ok to abort
         return
 
+    logging.info("Setting release flags using {}".format(flag_file))
+    _set_extra_flags(nc_file,flags_data,'release',qc_file=qc_file)
+
+
+def _set_extra_flags(nc_file,flags_data,flag_type,qc_file=''):
+    """
+    Using an input flag dictionary file to apply custom flags to specific time periods
+
+    Inputs:
+        - nc_file: full path to the private.nc file
+        - flags_data: dictionary with flag periods as keys and flag information as values.
+        - flag_type: a string indicating which type of flag this is; usually "manual" or
+          "release".
+        - qc_file: full path to the quality control file (.private.qc.nc)
+    """
     if qc_file:
         logging.info('Creating {}'.format(qc_file))
         copyfile(nc_file,qc_file)
         nc_file = qc_file
 
-    logging.info("Setting manual flags using {}".format(flag_file))
 
     time_period_list = sorted(flags_data.keys())
     with netCDF4.Dataset(nc_file,'r+') as nc_data:
         for i,time_period in enumerate(time_period_list):
             start_dt, end_dt = [datetime.strptime(elem,'%Y%m%d') for elem in time_period.split('_')[2:]]
             start,end = [(elem-datetime(1970,1,1)).total_seconds() for elem in [start_dt,end_dt]]
+            start_str, end_str = time_period.split('_')[2:]
+            comment = flags_data[time_period].get('comment', '')
+            if len(comment) == 0:
+                logging.warning('No comment provided for {time}. Consider adding a comment to the {type} flag file.'.format(time=time_period, type=flag_type))
 
             # must index netCDF datasets for the < comparison to work: comparison between netCDF4.Variable and float not allowed
             # indexing with a tuple() rather than : slightly more robust: a colon won't work for a scalar variable
@@ -1114,23 +1145,23 @@ def set_manual_flags(nc_file,flag_file,qc_file=''):
 
             flag_value = flags_data[time_period]['value']
             if flag_value<1 or flag_value>9:
-                logging.warning('Manual flag values only allowed between 1 and 9, you tried to set a manual flag={}. Setting flag=1100 ("other") instead for {}. Check your .json flag file'.format(flag_value,time_period))
+                logging.warning('{type} flag values only allowed between 1 and 9, you tried to set a {type} flag={value}. Setting flag={other} ("other") instead for {time}. Check your {type} flag file'.format(type=flag_type, value=flag_value, other=manual_flag_other, time=time_period))
                 flag_value = manual_flag_other
                 del flags_data[time_period]['name']               
             if 'name' in flags_data[time_period]:
                 flag_name = flags_data[time_period]['name'].lower()
                 if flag_name != manual_flags_dict[flag_value]:
-                    logging.warning('flag={} is reserved for "{}", you tried to set it for "{}". Setting flag={} ("other") instead for {}. Check your .json flag file'.format(flag_value,manual_flags_dict[flag_value],flag_name,manual_flag_other,time_period))
+                    logging.warning('flag={value} is reserved for "{name}", you tried to set it for "{wrongname}". Setting flag={other} ("other") instead for {time}. Check your {type} flag file'.format(value=flag_value,name=manual_flags_dict[flag_value],wrongname=flag_name,other=manual_flag_other,time=time_period))
                     flag_value = manual_flag_other
                     flag_name = manual_flags_dict[flag_value]
             elif flag_value in manual_flags_dict:
                 flag_name = manual_flags_dict[flag_value]
             else:
-                logging.warning('You tried setting a new manual flag ({}) without a name. Setting flag={} ("other") instead for {}'.format(flag_value,manual_flag_other,time_period))
+                logging.warning('You tried setting a new {type} flag ({value}) without a name. Setting flag={other} ("other") instead for {time}'.format(type=flag_type,value=flag_value,other=manual_flag_other,time=time_period))
                 flag_value = manual_flag_other
                 flag_name = manual_flags_dict[flag_value]
 
-            logging.info("\t- From {} to {}: manual flag={}; name='{}'; comment='{}'".format(str(start_dt)[:10],str(end_dt)[:10],flag_value,flag_name,flags_data[time_period]['comment']))
+            logging.info("\t- From {start} to {end}: {type} flag={value}; name='{name}'; comment='{comment}'".format(start=start_str,end=end_str,type=flag_type,value=flag_value,name=flag_name,comment=comment))
 
             nc_data['flag'][start_id:end_id] = nc_data['flag'][start_id:end_id] + 1000*flag_value
             for i in range(start_id,end_id):
@@ -1140,7 +1171,7 @@ def set_manual_flags(nc_file,flag_file,qc_file=''):
                 else:
                     nc_data['flagged_var_name'][i] = '{} + {}'.format(current_flagged_var, flag_name)
 
-            setattr(nc_data,"manual_flags_{}_{}".format(*time_period.split('_')[2:]),"flag={}; name='{}'; comment='{}'".format(flag_value,flag_name,flags_data[time_period]['comment']))
+            setattr(nc_data,"{type}_flags_{start}_{end}".format(type=flag_type, start=start_str, end=end_str), "flag={value}; name='{name}'; comment='{comment}'".format(value=flag_value,name=flag_name,comment=comment))
 
 
 def get_slice(a,b):
@@ -1220,15 +1251,15 @@ def main():
     parser.add_argument('-m','--message',default='',help='Add an optional message to be kept in the log file to remember why you ran post-processing e.g. "2020 Eureka R3 processing" ')
     parser.add_argument('--multiggg',default='multiggg.sh',help='Use this argument if you use differently named multiggg.sh files')
     parser.add_argument('--mode',default='TCCON',choices=['TCCON','em27'],help='Will be used to set TCCON specific or em27 specific metadata')
-    parser.add_argument('--mflag',action='store_true',help='If given with a private.nc file as input, will create a separate private.qc.nc file with updated flags based on the --mflag-file')
-    parser.add_argument('--mflag-file',help='Full path to the .json input file that sets manual flags (has no effect without --mflag)')
+    parser.add_argument('--rflag',action='store_true',help='If given with a private.nc file as input, will create a separate private.qc.nc file with updated flags based on the --rflag-file')
+    parser.add_argument('--rflag-file',help='Full path to the .json input file that sets release flags (has no effect without --rflag)')
 
     args = parser.parse_args()
     logger, show_progress, HEAD_commit = setup_logging(log_level=args.log_level, log_file=args.log_file, message=args.message)
     
-    if not args.mflag and args.mflag_file is not None:
-        logging.warning('Specifying --flag-file without using --mflag has no effect')
-    args.mflag_file = manual_flags_json(args.mflag_file)
+    if not args.rflag and args.rflag_file is not None:
+        logging.warning('Specifying --rflag-file without using --rflag has no effect')
+    args.rflag_file = release_flags_json(args.rflag_file)
     
 
     nc_format = args.format
@@ -1240,11 +1271,11 @@ def main():
 
     if args.file.endswith('.nc'):
         private_nc_file = args.file
-        if args.mflag:
+        if args.rflag:
             # This regex ensures that we only replace the .nc at the end
             # of the filename, never earlier in the path (just in case)
             qc_file = re.sub(r'\.nc$', '.qc.nc', private_nc_file)
-            set_manual_flags(private_nc_file,args.mflag_file,qc_file=qc_file)
+            set_release_flags(private_nc_file,args.rflag_file,qc_file=qc_file)
             if not args.public:
                 sys.exit()
             private_nc_file = qc_file
@@ -2606,7 +2637,7 @@ def main():
         private_var_list = [v for v in nc_data.variables]
     # end of the "with open(private_nc_file)" statement
     
-    set_manual_flags(private_nc_file,args.mflag_file)
+    set_release_flags(private_nc_file,args.rflag_file)
     
     logging.info('Finished writing {} {:.2f} MB'.format(private_nc_file,os.path.getsize(private_nc_file)/1e6))
 
