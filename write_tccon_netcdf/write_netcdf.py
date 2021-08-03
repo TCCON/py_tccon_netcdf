@@ -1141,9 +1141,11 @@ def _set_extra_flags(nc_file,flags_data,flag_type,qc_file=''):
     flag_multiplier = {'manual': 1000, 'release': 10000}.get(flag_type, 1000000)
     time_period_list = sorted(flags_data.keys())
     with netCDF4.Dataset(nc_file,'r+') as nc_data:
+        # We want to filter which spectra to apply the extra flags to based on the local
+        # date in the spectrum names, rather than the UTC date in the "time" variable.
+        spectrum_dates = pd.to_datetime([s[2:10] for s in nc_data['spectrum'][tuple()]])
         for i,time_period in enumerate(time_period_list):
             start_dt, end_dt = [datetime.strptime(elem,'%Y%m%d') for elem in time_period.split('_')[2:]]
-            start,end = [(elem-datetime(1970,1,1)).total_seconds() for elem in [start_dt,end_dt]]
             start_str, end_str = time_period.split('_')[2:]
             comment = flags_data[time_period].get('comment', '')
             if len(comment) == 0:
@@ -1152,7 +1154,7 @@ def _set_extra_flags(nc_file,flags_data,flag_type,qc_file=''):
             # must index netCDF datasets for the < comparison to work: comparison between netCDF4.Variable and float not allowed
             # indexing with a tuple() rather than : slightly more robust: a colon won't work for a scalar variable
             # use a set to allow us to compute the intersection between the time indices and the fill indices
-            replace_time_ids = list(set(np.where((start < nc_data['time'][tuple()]) & (nc_data['time'][tuple()] < end))[0]))
+            replace_time_ids = list(set(np.where((start_dt <= spectrum_dates) & (spectrum_dates <= end_dt))[0]))
             if not replace_time_ids:
                 continue
             start_id = np.min(replace_time_ids)
