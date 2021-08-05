@@ -2557,7 +2557,8 @@ def main():
                 continue
 
             # JLL 2020-05-19: need to check that the shapes are equal first, or get a very confusing error
-            hash_col = hash_array(col_data['spectrum'])
+            col_ref_speclist = np.array([i.replace('c.','a.').replace('b.','a.').replace('d.','a.') for i in col_data['spectrum']]) # this is the .col spectrum list but with only ingaas names
+            hash_col = hash_array(col_ref_speclist)
             if ingaas and not (np.array_equal(hash_col,hash_runlog_ingaas_speclist) or np.array_equal(hash_col,hash_runlog_ingaas2_speclist)):
                 logging.warning('\nMismatch between .col file spectra and .grl spectra; col_file=%s',col_file)
                 continue # contine or exit here ? Might not need to exit if we can add in the results from the faulty col file afterwards
