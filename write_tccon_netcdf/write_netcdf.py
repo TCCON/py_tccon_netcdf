@@ -589,6 +589,25 @@ def read_col(col_file,speclength):
     return col_data, gfit_version, gsetup_version
 
 
+def get_program_versions(output_file):
+    versions = dict()
+    with open(output_file) as f:
+        for line in f:
+            line = line.strip()
+            if 'version' in line.lower():
+                program, info = line.split(maxsplit=1)
+                program = program.strip().lower()
+                info = re.sub(r'^[Vv]ersion ', '', info)
+                info = re.sub(r'\s+', ' ', info)
+                info = re.sub(r'(\d)\s', r'\1; ', info)
+                
+                versions['{}_version'.format(program)] = info
+            elif 'Airmass-Dependent' in line:
+                break
+            
+    return versions
+
+
 def write_eof(private_nc_file,eof_file,qc_file,nc_var_list,show_progress):
     """
     Convert the private netcdf file into an eof.csv file
@@ -862,7 +881,8 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
         private_attributes = private_data.__dict__
         public_attributes = private_attributes.copy()
         manual_flag_attr_list = [i for i in private_attributes if i.startswith('manual_flags')]
-        for attr in ['flag_info','release_lag','GGGtip','number_of_spectral_windows']+manual_flag_attr_list: # remove attributes that are only meant for private files
+        pgrm_versions_attr_list = [i for i in private_attributes if i.endswith('_version')]
+        for attr in ['flag_info','release_lag','GGGtip','number_of_spectral_windows']+manual_flag_attr_list+pgrm_versions_attr_list: # remove attributes that are only meant for private files
             if attr not in public_attributes:
                 continue
             public_attributes.pop(attr)
@@ -2682,6 +2702,9 @@ def main():
                 logging.info('Convert fill value for {} to {}'.format(var,netCDF4.default_fillvals['f4']))
                 for id in replace_ids:
                     nc_data[var][id] = netCDF4.default_fillvals['f4']
+
+        pgrm_versions = get_program_versions(aia_file)
+        nc_data.setncatts(pgrm_versions)
 
         # get a list of all the variables written to the private netcdf file, will be used below to check for missing variables before writing an eof.csv file
         private_var_list = [v for v in nc_data.variables]
