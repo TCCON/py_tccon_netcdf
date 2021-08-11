@@ -168,6 +168,7 @@ special_description_dict = {
     'zco2':' zco2 is used to test zero level offset (zo) fits in the strong CO2 window, zco2_4852 is without zo, and zco2_4852a is with zo. it does not contribute to the xco2 calculation'
 }
 
+"""
 manual_flag_other = 9
 manual_flags_dict = {
     1:"ils",
@@ -175,6 +176,11 @@ manual_flags_dict = {
     3:"surface pressure",
     manual_flag_other:"other"
 }
+"""
+with open(os.path.join(os.path.dirname(__file__), 'release_flag_definitions.json')) as f:
+    tmp = json.load(f)
+    manual_flags_dict = {v: k for k, v in tmp['definitions'].items()}
+    manual_flag_other = tmp['other_flag']
 
 
 def signal_handler(sig,frame):

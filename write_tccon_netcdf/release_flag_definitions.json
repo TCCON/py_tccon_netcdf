@@ -1,0 +1,9 @@
+{
+  "definitions": {
+    "ils": 1,
+    "tracking": 2,
+    "surface pressure": 3,
+    "other": 9
+  },
+  "other_flag": 9
+}
