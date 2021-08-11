@@ -1853,14 +1853,14 @@ def main():
             att_dict = {}
             att_dict["standard_name"] = '{}_profile'.format(prior_var)
             att_dict["long_name"] = att_dict["standard_name"].replace('_',' ')
-            if var not in ['temperature','density','pressure','gravity']:
+            if var in ['temperature','density','pressure','gravity','equivalent_latitude']:
                 att_dict["description"] = att_dict["long_name"]
             else:
                 att_dict["description"] = 'a priori concentration profile of {}, in parts'.format(var)
             att_dict["units"] = units_dict[prior_var]
             nc_data[prior_var].setncatts(att_dict)
 
-            if var == 'gravity':
+            if var in ['gravity', 'equivalent_latitude']:
                 continue
             cell_var = 'cell_{}'.format(var)
             cell_var_list += [cell_var]
@@ -1868,7 +1868,7 @@ def main():
             att_dict = {}
             att_dict["standard_name"] = cell_var
             att_dict["long_name"] = att_dict["standard_name"].replace('_',' ')
-            if var in ['temperature','density','pressure']:
+            if var in ['temperature','density','pressure','equivalent_latitude']:
                 att_dict["description"] = '{} in gas cell'.format(var)
             else:
                 att_dict["description"] = 'concentration of {} in gas cell, in parts'.format(var)
@@ -2089,9 +2089,9 @@ def main():
                     "precision": 'e12.4',
                 }
                 if 'error' in varname:
-                    att_dict["description"] = "{0} scale factor {2} from the window centered at {1} cm-1.".format(*var.split('_'))
+                    att_dict["description"] = "{0} total column density {2} from the window centered at {1} cm-1.".format(*var.split('_'))
                 else:
-                    att_dict["description"] = "{} scale factor from the window centered at {} cm-1".format(*var.split('_'))
+                    att_dict["description"] = "{} total column density from the window centered at {} cm-1".format(*var.split('_'))
                     if vsw_sf_check:
                         # write the data from the vsf= line ine the header of the vsw file
                         if gas in insb_only:
@@ -2138,9 +2138,9 @@ def main():
                     "precision":'e12.4',
                 }
                 if 'error' in varname:
-                    att_dict["description"] = "{0} scale factor {2} from the window centered at {1} cm-1, after airmass dependence is removed, but before scaling to WMO.".format(*xvar.split('_'))
+                    att_dict["description"] = "{0} column-average mole fraction {2} from the window centered at {1} cm-1, after airmass dependence is removed, but before scaling to WMO.".format(*xvar.split('_'))
                 else:
-                    att_dict["description"] = "{} scale factor from the window centered at {} cm-1, after airmass dependence is removed, but before scaling to WMO.".format(*xvar.split('_'))
+                    att_dict["description"] = "{} column-average mole fraction from the window centered at {} cm-1, after airmass dependence is removed, but before scaling to WMO.".format(*xvar.split('_'))
                 nc_data[varname].setncatts(att_dict)
                 write_values(nc_data,varname,vsw_ada_data[xvar])
             # end of for var in vsw_var_list
@@ -2190,7 +2190,7 @@ def main():
             full_main_var_list += ['vsf_'+varname]
             nc_data.createVariable('vsf_'+varname,np.float32,('time',))
             att_dict = {
-                "description": varname+" Volume Scale Factor.",
+                "description": varname+" VMR Scale Factor.",
                 "precision": 'e12.4',
             }
             nc_data['vsf_'+varname].setncatts(att_dict)
@@ -2309,7 +2309,7 @@ def main():
             att_dict = {
                 "standard_name":"aicf_scale",
                 "long_name":"aicf scale",
-                "description":"{} traceability".format(xgas),
+                "description":"{} traceability, indicates which WMO scale this gas is tied to".format(xgas),
             }
             nc_data[varname].setncatts(att_dict)
             if aicf_data['scale'][i]=='':
