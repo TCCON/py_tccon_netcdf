@@ -887,6 +887,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
         private_attributes = private_data.__dict__
         public_attributes = private_attributes.copy()
         manual_flag_attr_list = [i for i in private_attributes if i.startswith('manual_flags')]
+        release_flag_attr_list = [i for i in private_attributes if i.startswith('release_flags')]
         pgrm_versions_attr_list = [i for i in private_attributes if i.endswith('_version')]
         for attr in ['flag_info','release_lag','GGGtip','number_of_spectral_windows']+manual_flag_attr_list+pgrm_versions_attr_list: # remove attributes that are only meant for private files
             if attr not in public_attributes:
@@ -895,6 +896,22 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
 
         # update the history to indicate that the public file is a subset of the private file
         public_attributes['history'] = "Created {} (UTC) from the engineering file {}".format(time.asctime(time.gmtime(time.time())),private_nc_file.split(os.sep)[-1])
+
+        # if any time periods were rejected by the manual or release flags, make a note in the
+        # attributes so that users can contact the site PIs to access that data.
+        all_flag_attr_list = manual_flag_attr_list + release_flag_attr_list
+        if len(all_flag_attr_list) > 0:
+            time_periods = []
+            for attr in all_flag_attr_list:
+                start, end = attr.split('_')[-2:]
+                start = '{}-{}-{}'.format(start[:4], start[4:6], start[6:8])
+                end = '{}-{}-{}'.format(end[:4], end[4:6], end[6:8])
+                time_periods.append('  - {} to {}'.format(start, end))
+            time_periods.sort()
+            public_attributes['withheld_data'] = ('Some time periods have been withheld due to data quality concerns. '
+                                                  'If you require access to this data for your research, please reach out to '
+                                                  'the site representative listed in the `contact` attribute. Time periods '
+                                                  'withheld (possibly overlapping) are:\n') + '\n'.join(time_periods)
 
         public_data.setncatts(public_attributes)
 
