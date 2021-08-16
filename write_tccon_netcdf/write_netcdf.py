@@ -1108,11 +1108,16 @@ def get_runlog_file(GGGPATH,tav_file,col_file):
     if runlog_file.startswith(GGGPATH):
         lse_file = os.path.join(GGGPATH,'lse','gnd',os.path.basename(runlog_file).replace('.grl','.lse'))
     else:
-        logging.warning('Path to runlog ({}) does not start with GGGPATH ({}), may not be able to find the .lse file. If so, make sure your GGGPATH environmental variable is set correctly.'.format(runlog_file, GGGPATH))
-        lse_file = runlog_file.replace('.grl','.lse')
+        logging.warning('Path to runlog ({}) does not start with GGGPATH ({}). If you did not expect this, make sure your GGGPATH environmental variable is set correctly.'.format(runlog_file, GGGPATH))
+        # If the runlog is at $GGGPATH/runlogs/gnd/<runlog>.grl, then
+        # removing the last three parts after splitting on the path
+        # separator should give us its GGGPATH
+        runlog_parts = runlog_file.split(os.sep)
+        runlog_ggg_path = os.sep.join(runlog_parts[:-3])
+        lse_file = os.path.join(runlog_ggg_path, 'lse', 'gnd', os.path.basename(runlog_file).replace('.grl','.lse'))
     
     if not os.path.exists(lse_file):
-        logging.critical('Could not find {}'.format(lse_file))
+        logging.critical('Could not find the .lse file: {}'.format(lse_file))
         sys.exit()
 
     return runlog_file,lse_file
@@ -2261,7 +2266,16 @@ def main():
                             'precision':'f9.4',},
                     }
 
-        common_spec = np.intersect1d(hash_array(aia_data['spectrum']),hash_array(lse_data['spectrum']),return_indices=True)[2]
+        _, aia_spec_inds, common_spec = np.intersect1d(hash_array(aia_data['spectrum']),hash_array(lse_data['spectrum']),return_indices=True)
+        # np.intersect1d sorts the returned indices by the hash value, meaning that by default they will not be in the 
+        # correct order to match the spectra. To fix this, get the indices needed to sort the .aia spectra, then use
+        # those to sort the LSE data. Will check that this means the .lse spectra match the .aia spectra.
+        tmp_inds = np.argsort(aia_spec_inds)
+        common_spec = common_spec[tmp_inds]
+        if not np.array_equal(np.array(aia_data['spectrum']), np.array(lse_data['spectrum'][common_spec])):
+            logging.critical('Unable to match .aia and .lse spectra')
+            sys.exit()
+
         for var in lse_dict.keys():
             nc_data.createVariable(var,np.float32,('time',))
             att_dict = {
