@@ -1437,6 +1437,7 @@ def main():
         logging.warning('There are {} different spectral point spacings in the runlog: {}'.format(len(dnu_set),dnu_set))
     else:
         dnu = runlog_data['delta_nu'][0]
+    runlog_all_speclist = np.array([spec for spec in runlog_data['spectrum']])
     runlog_insb_speclist = np.array([spec for spec in runlog_data['spectrum'] if spec[15]=='c'])
     runlog_ingaas_speclist = np.array([spec for spec in runlog_data['spectrum'] if spec[15]=='a'])
     runlog_ingaas2_speclist = np.array([spec for spec in runlog_data['spectrum'] if spec[15]=='d']) # second InGaAs detector of em27s
@@ -2356,37 +2357,22 @@ def main():
         # prior data
         logging.info('Writing prior data ...')
         prior_spec_list = list(prior_data.keys())
-        prior_spec_gen = (spectrum for spectrum in prior_spec_list)
-        prior_spectrum = next(prior_spec_gen)
-        if nprior>1: # if there isn't more than 1 block in the .mav file, don't look for the second block...
-            next_spectrum = next(prior_spec_gen)
-        prior_index = 0
-        
         spec_list = nc_data['spectrum'][:]
-        # need the time not affected by esf data
-        aia_time = np.array([elem.total_seconds() for elem in (specdates-datetime(1970,1,1))])
-        
-        if nprior==1: # if there is just one block in the .mav file, set it as the prior index for all spectra
+        if nprior == 1:
+            # if there is just one block in the .mav file, set it as the prior index for all spectra
             nc_data['prior_index'][:] = 0
         else:
-            for spec_id,spectrum in enumerate(spec_list):
-                if spectrum==next_spectrum:
-                    prior_spectrum = next_spectrum
-                    try:
-                        next_spectrum = next(prior_spec_gen)
-                    except StopIteration:
-                        pass
-                    
-                    prior_index += 1
-
-                    if next_spectrum not in spec_list:
-                        logging.warning('The "Next spectrum" of a block in the .mav file is not part of the outputs: {}'.format(next_spectrum))
-                        logging.warning('Find the spectrum in the .tav file closest to the model time minus 1.5 hour')
-                        model_coinc_time = netCDF4.date2num(datetime.strptime(prior_data[next_spectrum]['mod_file'].split('_')[1],'%Y%m%d%HZ')-timedelta(hours=1.5),nc_data['time'].units,calendar=nc_data['time'].calendar)
-                        next_spectrum = nc_data['spectrum'][aia_time>model_coinc_time][0]
-                        logging.warning('The "Next spectrum" was replaced with: {}'.format(next_spectrum))
-
+            prior_runlog_inds = get_slice(runlog_all_speclist, prior_spec_list)
+            aia_runlog_inds = get_slice(runlog_all_speclist, spec_list)
+            nspec = len(spec_list)
+            for spec_id, spectrum in enumerate(spec_list):
+                if show_progress:
+                    progress(spec_id,nspec,word=spectrum)
+                # The .mav blocks should always be in runlog order. Set the prior index to point to
+                # the last .mav block with a spectrum that comes before the .aia spectrum in the runlog.
+                prior_index = np.flatnonzero(prior_runlog_inds <= aia_runlog_inds[spec_id])[-1]
                 nc_data['prior_index'][spec_id] = prior_index
+
         
         # write prior and cell data
         for prior_spec_id, prior_spectrum in enumerate(prior_spec_list):
