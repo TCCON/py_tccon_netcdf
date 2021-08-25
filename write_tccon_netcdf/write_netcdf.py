@@ -1480,7 +1480,7 @@ def main():
 
     # multiggg.sh; use it to get the number of windows fitted and check they all have a .col file
     with open(args.multiggg,'r') as infile:
-        content = [line for line in infile.readlines() if line[0]!=':' or line.strip()!=''] # the the file without blank lines or commented out lines starting with ':'
+        content = [line for line in infile.readlines() if line[0]!=':' and line.strip()!=''] # the the file without blank lines or commented out lines starting with ':'
     ncol = len(content)
     multiggg_list = [line.split()[1].split('.ggg')[0]+'.col' for line in content]
     if ncol!=len(col_file_list):
@@ -2355,7 +2355,7 @@ def main():
         ## write data
 
         # prior data
-        logging.info('Writing prior data ...')
+        logging.info('Computing prior index ...')
         prior_spec_list = list(prior_data.keys())
         spec_list = nc_data['spectrum'][:]
         if nprior == 1:
@@ -2366,8 +2366,6 @@ def main():
             aia_runlog_inds = get_slice(runlog_all_speclist, spec_list)
             nspec = len(spec_list)
             for spec_id, spectrum in enumerate(spec_list):
-                if show_progress:
-                    progress(spec_id,nspec,word=spectrum)
                 # The .mav blocks should always be in runlog order. Set the prior index to point to
                 # the last .mav block with a spectrum that comes before the .aia spectrum in the runlog.
                 prior_index = np.flatnonzero(prior_runlog_inds <= aia_runlog_inds[spec_id])[-1]
@@ -2375,6 +2373,7 @@ def main():
 
         
         # write prior and cell data
+        logging.info('Writing prior data ...')
         for prior_spec_id, prior_spectrum in enumerate(prior_spec_list):
             #for var in ['temperature','pressure','density','gravity','1h2o','1hdo','1co2','1n2o','1co','1ch4','1hf','1o2']:
             for var in prior_var_list:
