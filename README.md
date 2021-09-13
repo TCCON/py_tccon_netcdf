@@ -39,9 +39,9 @@ Code to compile the outputs of GGG in a netCDF file
 >
 >						[--mode {TCCON,em27}]
 >
->                       [--mflag]
+>                       [--rflag]
 >
->                       [--mflag-file FLAG_FILE]
+>                       [--rflag-file FLAG_FILE]
 >
 >                       file
 >
@@ -80,9 +80,9 @@ Code to compile the outputs of GGG in a netCDF file
 >
 >       --mode {TCCON,em27}   Will be used to set TCCON specific or em27 specific metadata
 >
->       --mflag               If given with a private.nc file as input, will create a separate private.qc.nc file with updated flags based on the --mflag-file
+>       --rflag               If given with a private.nc file as input, will create a separate private.qc.nc file with updated flags based on the --rflag-file
 >
->       --mflag-file          Full path to the .json input file that sets manual flags (has no effect without --mflag)
+>       --rflag-file          Full path to the .json input file that sets release flags (has no effect without --rflag)
 
 Run from the directory where the GFIT outputs are saved with:
 
