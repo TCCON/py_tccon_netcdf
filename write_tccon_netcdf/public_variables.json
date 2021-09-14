@@ -67,5 +67,8 @@
 		"_vmrfile",
 		"xtco2_",
 		"xfco2_",
-		"xth2o_"]
+		"xth2o_"],
+	"exclude_regex": [
+		"_g$",
+		"_p$"]
 }

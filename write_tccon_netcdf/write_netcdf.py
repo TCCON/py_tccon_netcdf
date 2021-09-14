@@ -875,6 +875,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
     """
     Take a private netcdf file and write the public file using the public_variables.json file
     """
+    logging.profile('Profiling output enabled')
     # factor to convert the prior fields of the public archive into more intuitive units
     factor = {'temperature':1.0,'pressure':1.0,'density':1.0,'gravity':1.0,'1h2o':1.0,'1hdo':1.0,'1co2':1e6,'1n2o':1e9,'1co':1e9,'1ch4':1e9,'1hf':1e12,'1o2':1.0}
 
@@ -884,6 +885,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
     logging.info('Writing {}'.format(public_nc_file))
     with netCDF4.Dataset(private_nc_file,'r') as private_data, netCDF4.Dataset(public_nc_file,'w',format=nc_format) as public_data:
         ## copy all the metadata
+        logging.info('Copying attributes')
         private_attributes = private_data.__dict__
         public_attributes = private_attributes.copy()
         manual_flag_attr_list = [i for i in private_attributes if i.startswith('manual_flags')]
@@ -914,36 +916,44 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
                                                   'withheld (possibly overlapping) are:\n') + '\n'.join(time_periods)
 
         public_data.setncatts(public_attributes)
+        logging.info('  -> Done copying attributes')
 
         # get indices of data to copy based on the release_lag
+        logging.info('Finding data to make public based on release lag')
         release_lag = int(private_data.release_lag.split()[0])
         last_public_time = (datetime.utcnow()-datetime(1970,1,1)).total_seconds() - timedelta(days=release_lag).total_seconds()
-        release_ids = np.where(private_data['time'][:]<last_public_time)[0]
+        release_ids = private_data['time'][:]<last_public_time
 
         # get indices of data with flag = 0
-        no_flag_ids = np.where(private_data['flag'][:]==0)[0]
+        no_flag_ids = private_data['flag'][:]==0
         
-        # get the intersection of release_lag and flag constrained indices
-        public_ids = list(set(release_ids).intersection(set(no_flag_ids)))
-
         nspec = private_data['time'].size
-        public_slice = np.array([i in public_ids for i in np.arange(nspec) ]) # boolean array to slice the private variables on the public ids
+        public_slice = np.array(release_ids & no_flag_ids) # boolean array to slice the private variables on the public ids
 
-        nspec_public = len(public_ids)
+        nspec_public = np.sum(public_slice)
 
         ## copy dimensions
+        logging.info('Copying {} dimensions'.format(len(private_data.dimensions)))
         for name, dimension in private_data.dimensions.items():
             if name == 'time':
                 public_data.createDimension(name, nspec_public)
             else:
                 public_data.createDimension(name, (len(dimension) if not dimension.isunlimited() else None))
+        logging.info('  -> Done copying dimensions')
 
         ## copy variables based on the info in public_variables.json
+        nprivate = len(private_data.variables)
+        logging.info('Copying variables. {} variables in private file.'.format(nprivate))
         with open(public_variables_json()) as f:
             public_variables = json.load(f)
 
+        ivariable = -1
         for name,variable in private_data.variables.items():
-            
+            ivariable += 1
+            if ivariable % 100 == 0:
+                logging.info(' - Done copying {} of {} variables'.format(ivariable, nprivate))
+
+            # NB: these don't need to be numpy arrays - could just do any(elem in name for elem in ...)
             contain_check = np.array([elem in name for elem in public_variables['contains']]).any()
             startswith_check = np.array([name.startswith(elem) for elem in public_variables['startswith']]).any()
             endswith_check = np.array([name.endswith(elem) for elem in public_variables['endswith']]).any()
@@ -952,7 +962,9 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
             insb_group_check = np.array([(name.startswith(elem) and name.endswith('_insb')) for elem in public_variables['insb_group_startswith']]).any()
             si_group_check = np.array([(name.startswith(elem) and name.endswith('_si')) for elem in public_variables['si_group_startswith']]).any()
 
-            excluded = np.array([elem in name for elem in public_variables['exclude']]).any()
+            excluded_simple = np.array([elem in name for elem in public_variables['exclude']]).any()
+            excluded_regex = np.array([re.search(elem, name) is not None for elem in public_variables.get('exclude_regex', [])]).any()
+            excluded = excluded_simple or excluded_regex
 
             public = np.array([contain_check,isequalto_check,startswith_check,endswith_check,experimental_group_startswith_check,insb_group_check,si_group_check]).any() and not excluded
 
@@ -968,10 +980,15 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
                 public_data.createGroup('si_experimental')
                 public_data['si_experimental'].description = 'This data is EXPERIMENTAL.\nIn the root group of this file, all data is obtained from an InGaAs detector while data in this group is obtained from an Si detector.'
 
+            # JLL 2021-09-13: For some reason, it is much faster to read the whole variable
+            # in from the private file, then subset it to the public IDs once it is in as
+            # a regular numpy (masked) array. There must be either some inefficiency in 
+            # the netCDF library to read a subset or an optimization to read the whole array.
             if public and not experimental_group_startswith_check and not (insb_group_check or si_group_check):
                 if 'time' in variable.dimensions: # only the variables along the 'time' dimension need to be sampled with public_ids
                     public_data.createVariable(name, variable.datatype, variable.dimensions)
-                    public_data[name][:] = private_data[name][public_slice]
+                    this_var_data = private_data[name][:]
+                    public_data[name][:] = this_var_data[public_slice] #private_data[name][public_slice]
                 else:
                     public_data.createVariable(name, variable.datatype, variable.dimensions)
                     public_data[name][:] = private_data[name][:]
@@ -979,19 +996,23 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
                 public_data[name].setncatts(private_data[name].__dict__)
             elif nc_format=='NETCDF4' and public and experimental_group_startswith_check: # ingaas experimental variables
                 public_data['ingaas_experimental'].createVariable(name, variable.datatype, variable.dimensions)
-                public_data['ingaas_experimental'][name][:] = private_data[name][public_slice]
+                this_var_data = private_data[name][:]
+                public_data['ingaas_experimental'][name][:] = this_var_data[public_slice]
                 public_data['ingaas_experimental'][name].setncatts(private_data[name].__dict__)
             elif nc_format=='NETCDF4' and public and insb_group_check: # insb experimental variables
                 public_data['insb_experimental'].createVariable(name.replace('_insb',''), variable.datatype, variable.dimensions)
-                public_data['insb_experimental'][name.replace('_insb','')][:] = private_data[name][public_slice]
+                this_var_data = private_data[name][:]
+                public_data['insb_experimental'][name.replace('_insb','')][:] = this_var_data[public_slice]
                 public_data['insb_experimental'][name.replace('_insb','')].setncatts(private_data[name].__dict__)
             elif nc_format=='NETCDF4' and public and si_group_check: # si experimental variables
                 public_data['si_experimental'].createVariable(name.replace('_si',''), variable.datatype, variable.dimensions)
-                public_data['si_experimental'][name.replace('_si','')][:] = private_data[name][public_slice]
+                this_var_data = private_data[name][:]
+                public_data['si_experimental'][name.replace('_si','')][:] = this_var_data[public_slice]
                 public_data['si_experimental'][name.replace('_si','')].setncatts(private_data[name].__dict__)
             elif nc_format=='NETCDF4_CLASSIC' and public and (experimental_group_startswith_check or insb_group_check or si_group_check):
                 public_data.createVariable(name+'_experimental', variable.datatype, variable.dimensions)
-                public_data[name+'_experimental'][:] = private_data[name][public_slice]
+                this_var_data = private_data[name][:]
+                public_data[name+'_experimental'][:] = this_var_data[public_slice]
                 public_data[name+'_experimental'].setncatts(private_data[name].__dict__)
                 if hasattr(public_data[name+'_experimental'],'description'):
                     public_data[name+'_experimental'].description += ' This data is EXPERIMENTAL'
@@ -1007,6 +1028,8 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
                 public_data[public_name].description = "a priori profile of {}".format(public_name.replace('prior_',''))
                 public_data[public_name].units = units_dict[public_name]
 
+            logging.profile('    > Done copying %s', name)
+
         private_var_list = [v for v in private_data.variables]
 
         # special cases
@@ -1020,7 +1043,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
             public_data['airmass'].long_name = 'airmass'
             public_data['airmass'].standard_name = 'airmass'
             public_data['airmass'].units = ''
-
+    logging.info('  --> Done copying variables')
     logging.info('Finished writing {} {:.2f} MB'.format(public_nc_file,os.path.getsize(public_nc_file)/1e6))
 
 
@@ -1041,7 +1064,7 @@ def get_ggg_path():
     return GGGPATH
 
 
-def setup_logging(log_level, log_file, message=''):
+def setup_logging(log_level, log_file, message='', to_stdout=False):
     """
     Set up the logger to use for this program
 
@@ -1058,28 +1081,49 @@ def setup_logging(log_level, log_file, message=''):
 
     :return: the logger created and a boolean indicating if progress bars should be displayed
     """
-    LEVELS = {'DEBUG': logging.DEBUG,
+    LEVELS = {'PROFILE': 1,
+              'DEBUG': logging.DEBUG,
               'INFO': logging.INFO,
               'WARNING': logging.WARNING,
               'ERROR': logging.ERROR,
               'CRITICAL': logging.CRITICAL,
               }
+
+    # add an extra level below DEBUG
+    logging.addLevelName(1, 'PROFILE')
+    def _log_profile(self, message, *args, **kwargs):
+        if self.isEnabledFor(1):
+            # it is correct - *args in is passes just as args
+            self._log(1, message, args, **kwargs)
+
+    def _root_profile(msg, *args, **kwargs):
+        logging.log(1, msg, *args, **kwargs)
+
+
+    logging.Logger.profile = _log_profile
+    logging.profile = _root_profile
+
     # will only display the progress bar for log levels below ERROR
     if LEVELS[log_level] >= 40:
         show_progress = False
     else:
         show_progress = True
     logger = logging.getLogger()
-    handlers = [logging.StreamHandler()]
+    handlers = [logging.StreamHandler(sys.stdout if to_stdout else sys.stderr)]
     if log_file:
         handlers.append(logging.FileHandler(log_file))
     logging.basicConfig(handlers=handlers,
                         level="DEBUG",
                         format='\n%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
     logger.handlers[0].setLevel(LEVELS[log_level])
+    if LEVELS[log_level] < logger.level:
+        logger.setLevel(LEVELS[log_level])
     logging.info('New write_netcdf log session')
     for handler in logger.handlers:
-        handler.setFormatter(logging.Formatter('[%(levelname)s]: %(message)s'))
+        if LEVELS[log_level] > LEVELS['PROFILE']:
+            handler.setFormatter(logging.Formatter('[%(levelname)s]: %(message)s'))
+        else:
+            handler.setFormatter(logging.Formatter('[%(levelname)s @ %(asctime)s]: %(message)s'))
     if message:
         logging.info('Note: %s', message)
     logging.info('Running %s', wnc_version.strip())
@@ -1334,13 +1378,14 @@ def main():
     parser.add_argument('-r','--read-only',action='store_true',help="Convenience for python interactive shells; sys.exit() right after reading all the input files")
     parser.add_argument('--eof',action='store_true',help='If given, will also write the .eof.csv file')
     parser.add_argument('--public',action='store_true',help='If given, will write a .public.nc file from the .private.nc')
-    parser.add_argument('--log-level',default='INFO',type=lambda x: x.upper(),help="Log level for the screen (it is always DEBUG for the log file)",choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL'])
+    parser.add_argument('--log-level',default='INFO',type=lambda x: x.upper(),help="Log level for the screen (it is always DEBUG for the log file)",choices=['PROFILE', 'DEBUG','INFO','WARNING','ERROR','CRITICAL'])
     parser.add_argument(
         '--log-file',
         default='write_netcdf.log',
         help="""Full path to the log file, by default write_netcdf.log is written to in append mode in the current working directory.
         If you want to write the logs of all your write_netcdf.py runs to a signle file, you can use this argument to specify the path.""",
         )
+    parser.add_argument('--log-to-stdout',action='store_true',help='By default, terminal logging pipes through stderr. Use this flag to send it through stdout instead.')
     parser.add_argument('--skip-checksum',action='store_true',help='Option to not make a check on the checksums, for example to run the code on outputs generated by someone else or on a different machine')
     parser.add_argument('-m','--message',default='',help='Add an optional message to be kept in the log file to remember why you ran post-processing e.g. "2020 Eureka R3 processing" ')
     parser.add_argument('--multiggg',default='multiggg.sh',help='Use this argument if you use differently named multiggg.sh files')
@@ -1349,7 +1394,7 @@ def main():
     parser.add_argument('--rflag-file',help='Full path to the .json input file that sets release flags (has no effect without --rflag)')
 
     args = parser.parse_args()
-    logger, show_progress, HEAD_commit = setup_logging(log_level=args.log_level, log_file=args.log_file, message=args.message)
+    logger, show_progress, HEAD_commit = setup_logging(log_level=args.log_level, log_file=args.log_file, message=args.message, to_stdout=args.log_to_stdout)
     
     if not args.rflag and args.rflag_file is not None:
         logging.warning('Specifying --rflag-file without using --rflag has no effect')
