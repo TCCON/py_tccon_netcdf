@@ -871,6 +871,53 @@ def write_values(nc_data,var,values,inds=[]):
         nc_data[var][:] = full_array.astype(nc_data[var].dtype)
 
 
+def update_attrs_for_public_files(ds, is_public):
+    _add_prior_long_units(ds, is_public)
+    _fix_co2_description(ds)
+
+
+def _add_prior_long_units(ds, is_public):
+    """
+    Add a field that describes that the prior gases are wet mole fraction
+    """
+    logging.info('Adding long_units attributes to prior VMR profile variables')
+    unit_long_str = {
+        '': 'parts',
+        'ppm': 'parts per million',
+        'ppb': 'parts per billion',
+        'ppt': 'parts per trillion'
+    }
+    if is_public:
+        # there's not a clear pattern to distinguish gases from other variables
+        # in the public files, so must specify the gas names
+        regex = re.compile(r'prior_(h2o|co2|n2o|co|ch4|o2|hf|hdo)$')
+        h2o_prior = 'prior_h2o'
+        units_note = ' (Be sure to convert the H2O and gas priors to compatible units.)'
+    else:
+        # look for variables of the form "prior_1co2" - must have a number then immediately
+        # after "prior_". This excludes things like "prior_gravity"
+        regex = re.compile(r'prior_\d+[a-z][a-z0-9]+$')
+        h2o_prior = 'prior_1h2o'
+        units_note = ''
+
+    for varname in ds.variables.keys():
+        if not regex.match(varname):
+            continue
+
+        units = ds[varname].units
+        long_str = unit_long_str.get(units, units)
+        ds[varname].long_units = '{} (wet mole fraction)'.format(long_str)
+        ds[varname].note = 'Prior VMRs are given in wet mole fractions. To convert to dry mole fractions, you must calculate H2O_dry = H2O_wet/(1 - H2O_wet) and then gas_dry = gas_wet * (1 + H2O_dry), where H2O_wet is the {} variable.{}'.format(h2o_prior, units_note)
+
+
+def _fix_co2_description(ds):
+    # The default pa_qc.dat file with GGG2020 has the description for XCO2 refer to
+    # column_*w*co2. If that slips through, fix it.
+    if ds['xco2'].description == '0.2095*column_wco2/column_o2':
+        logging.info('Corrected description of "xco2" variable')
+        ds['xco2'].description = '0.2095*column_co2/column_o2'
+
+
 def write_public_nc(private_nc_file,code_dir,nc_format):
     """
     Take a private netcdf file and write the public file using the public_variables.json file
@@ -950,7 +997,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
         ivariable = -1
         for name,variable in private_data.variables.items():
             ivariable += 1
-            if ivariable % 100 == 0:
+            if ivariable % 500 == 0:
                 logging.info(' - Done copying {} of {} variables'.format(ivariable, nprivate))
 
             # NB: these don't need to be numpy arrays - could just do any(elem in name for elem in ...)
@@ -1037,13 +1084,15 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
             logging.warning('The O2 window is missing, the "airmass" variable will not be in the public file')
         else:
             public_data.createVariable('airmass',private_data['o2_7885_am_o2'].datatype,private_data['o2_7885_am_o2'].dimensions)
-            public_data['airmass'][:] = private_data['o2_7885_am_o2'][public_slice]
+            public_data['airmass'][:] = private_data['o2_7885_am_o2'][:][public_slice]
             public_data['airmass'].setncatts(private_data['o2_7885_am_o2'].__dict__)
             public_data['airmass'].description = "airmass computed as the total vertical column of O2 divided by the total slant column of O2 retrieved from the window centered at 7885 cm-1. To compute the slant column of a given gas use Xgas*airmass"
             public_data['airmass'].long_name = 'airmass'
             public_data['airmass'].standard_name = 'airmass'
             public_data['airmass'].units = ''
-    logging.info('  --> Done copying variables')
+
+        logging.info('  --> Done copying variables')
+        update_attrs_for_public_files(public_data, is_public=True)
     logging.info('Finished writing {} {:.2f} MB'.format(public_nc_file,os.path.getsize(public_nc_file)/1e6))
 
 
@@ -1420,6 +1469,8 @@ def main():
             # file. Since public file production occurs on tccondata.org, we don't want to
             # rely on a GGG installation.
             private_nc_file = set_release_flags(private_nc_file,args.rflag_file,qc_file=qc_file)
+            with netCDF4.Dataset(private_nc_file, 'a') as privds:
+                update_attrs_for_public_files(privds, is_public=False)
             if not args.public:
                 sys.exit()
         logging.info('Writing .public.nc file from {}'.format(private_nc_file))
