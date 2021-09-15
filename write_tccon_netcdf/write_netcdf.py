@@ -918,7 +918,7 @@ def _fix_co2_description(ds):
         ds['xco2'].description = '0.2095*column_co2/column_o2'
 
 
-def write_public_nc(private_nc_file,code_dir,nc_format):
+def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None):
     """
     Take a private netcdf file and write the public file using the public_variables.json file
     """
@@ -928,7 +928,11 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
 
     # Using this regex ensures that we only replace "private" in the extension of the netCDF
     # file, not elsewhere in the path. It allows for .private.nc or .private.qc.nc extensions.
-    public_nc_file = re.sub(r'\.private((\.qc)?\.nc)$', r'.public\1', private_nc_file)
+    if include_experimental and public_nc_file is None:
+        public_nc_file = re.sub(r'\.private((\.qc)?\.nc)$', r'.experimental.public\1', private_nc_file)
+    elif not include_experimental and public_nc_file is None:
+        public_nc_file = re.sub(r'\.private((\.qc)?\.nc)$', r'.public\1', private_nc_file)
+
     logging.info('Writing {}'.format(public_nc_file))
     with netCDF4.Dataset(private_nc_file,'r') as private_data, netCDF4.Dataset(public_nc_file,'w',format=nc_format) as public_data:
         ## copy all the metadata
@@ -1017,15 +1021,15 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
 
             if nc_format=='NETCDF4' and experimental_group_startswith_check and 'ingaas_experimental' not in public_data.groups:
                 public_data.createGroup('ingaas_experimental')
-                public_data['ingaas_experimental'].description = 'This data is EXPERIMENTAL.\nIn the root group of this file, the Xgas variables are obtained by combining columns retrieved from multiple spectral windows.\n In this ingaas_experimental group we include Xgas derived from spectral windows that do not contribute to the Xgas variables of the root group'
+                public_data['ingaas_experimental'].description = 'These data are EXPERIMENTAL.\nIn the root group of this file, the Xgas variables are obtained by combining columns retrieved from multiple spectral windows.\n In this ingaas_experimental group we include Xgas derived from spectral windows that do not contribute to the Xgas variables of the root group. If you plan to use these data, please work with the site PI.'
 
-            if nc_format=='NETCDF4' and insb_group_check and 'insb_experimental' not in public_data.groups:
+            if include_experimental and nc_format=='NETCDF4' and insb_group_check and 'insb_experimental' not in public_data.groups:
                 public_data.createGroup('insb_experimental')
-                public_data['insb_experimental'].description = 'This data is EXPERIMENTAL.\nIn the root group of this file, all data is obtained from an InGaAs detector while data is this group is obtained from an InSb detector.'
+                public_data['insb_experimental'].description = 'These data are EXPERIMENTAL.\nIn the root group of this file, all data is obtained from an InGaAs detector while data is this group is obtained from an InSb detector. If you plan to use these data, please work with the site PI.'
 
-            if nc_format=='NETCDF4' and si_group_check and 'si_experimental' not in public_data.groups:
+            if include_experimental and nc_format=='NETCDF4' and si_group_check and 'si_experimental' not in public_data.groups:
                 public_data.createGroup('si_experimental')
-                public_data['si_experimental'].description = 'This data is EXPERIMENTAL.\nIn the root group of this file, all data is obtained from an InGaAs detector while data in this group is obtained from an Si detector.'
+                public_data['si_experimental'].description = 'These data are EXPERIMENTAL.\nIn the root group of this file, all data is obtained from an InGaAs detector while data in this group is obtained from an Si detector. If you plan to use these data, please work with the site PI.'
 
             # JLL 2021-09-13: For some reason, it is much faster to read the whole variable
             # in from the private file, then subset it to the public IDs once it is in as
@@ -1046,25 +1050,28 @@ def write_public_nc(private_nc_file,code_dir,nc_format):
                 this_var_data = private_data[name][:]
                 public_data['ingaas_experimental'][name][:] = this_var_data[public_slice]
                 public_data['ingaas_experimental'][name].setncatts(private_data[name].__dict__)
-            elif nc_format=='NETCDF4' and public and insb_group_check: # insb experimental variables
+            elif include_experimental and nc_format=='NETCDF4' and public and insb_group_check: # insb experimental variables
                 public_data['insb_experimental'].createVariable(name.replace('_insb',''), variable.datatype, variable.dimensions)
                 this_var_data = private_data[name][:]
                 public_data['insb_experimental'][name.replace('_insb','')][:] = this_var_data[public_slice]
                 public_data['insb_experimental'][name.replace('_insb','')].setncatts(private_data[name].__dict__)
-            elif nc_format=='NETCDF4' and public and si_group_check: # si experimental variables
+            elif include_experimental and nc_format=='NETCDF4' and public and si_group_check: # si experimental variables
                 public_data['si_experimental'].createVariable(name.replace('_si',''), variable.datatype, variable.dimensions)
                 this_var_data = private_data[name][:]
                 public_data['si_experimental'][name.replace('_si','')][:] = this_var_data[public_slice]
                 public_data['si_experimental'][name.replace('_si','')].setncatts(private_data[name].__dict__)
-            elif nc_format=='NETCDF4_CLASSIC' and public and (experimental_group_startswith_check or insb_group_check or si_group_check):
+            elif nc_format=='NETCDF4_CLASSIC' and public and (experimental_group_startswith_check or (include_experimental and (insb_group_check or si_group_check))):
+                # For CLASSIC type files, if the variable should go in the public file but it belongs to one of the
+                # experimental groups, add extra annotations to its name and attributes. Allow InGaAs "experimental"
+                # variables into the standard files, but keep InSb or Si variables to the expt+std files only.
                 public_data.createVariable(name+'_experimental', variable.datatype, variable.dimensions)
                 this_var_data = private_data[name][:]
                 public_data[name+'_experimental'][:] = this_var_data[public_slice]
                 public_data[name+'_experimental'].setncatts(private_data[name].__dict__)
                 if hasattr(public_data[name+'_experimental'],'description'):
-                    public_data[name+'_experimental'].description += ' This data is EXPERIMENTAL'
+                    public_data[name+'_experimental'].description += ' These data are EXPERIMENTAL. If you plan to use them, please work with the site PI.'
                 else:
-                    public_data[name+'_experimental'].description = ' This data is EXPERIMENTAL'
+                    public_data[name+'_experimental'].description = ' These data are EXPERIMENTAL. If you plan to use them, please work with the site PI.'
 
             # prior variables
             elif name in ['prior_{}'.format(var) for var in factor.keys()]: # for the a priori profile, only the ones listed in the "factor" dictionary make it to the public file
@@ -1426,7 +1433,8 @@ def main():
     parser.add_argument('--format',default='NETCDF4_CLASSIC',choices=['NETCDF4_CLASSIC','NETCDF4'],help='the format of the NETCDF files')
     parser.add_argument('-r','--read-only',action='store_true',help="Convenience for python interactive shells; sys.exit() right after reading all the input files")
     parser.add_argument('--eof',action='store_true',help='If given, will also write the .eof.csv file')
-    parser.add_argument('--public',action='store_true',help='If given, will write a .public.nc file from the .private.nc')
+    parser.add_argument('--public',action='store_true',help='If given, will write a .public.nc or .experimental.public.nc file from the .private.nc')
+    parser.add_argument('-s', '--std-only',action='store_true',help='If given with --public, only writes standard TCCON product gases to the public file')
     parser.add_argument('--log-level',default='INFO',type=lambda x: x.upper(),help="Log level for the screen (it is always DEBUG for the log file)",choices=['PROFILE', 'DEBUG','INFO','WARNING','ERROR','CRITICAL'])
     parser.add_argument(
         '--log-file',
@@ -1473,8 +1481,8 @@ def main():
                 update_attrs_for_public_files(privds, is_public=False)
             if not args.public:
                 sys.exit()
-        logging.info('Writing .public.nc file from {}'.format(private_nc_file))
-        write_public_nc(private_nc_file,code_dir,nc_format)
+        logging.info('Writing public file from {}'.format(private_nc_file))
+        write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=not args.std_only)
         sys.exit()
 
     # input and output file names
