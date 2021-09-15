@@ -204,14 +204,14 @@ def get_json_path(env_var, default, default_in_code_dir=True, none_allowed=False
         return json_path
     elif json_path is None:
         logging.critical('No path defined for %s, aborting.', file_quantity)
-        sys.exit()
+        sys.exit(1)
 
     if not os.path.exists(json_path) and json_path == default:
         logging.critical('The default file for %s (%s) does not exist and no %s environmental variable is defined', file_quantity, default, env_var)
-        sys.exit()
+        sys.exit(1)
     elif not os.path.exists(json_path):
         logging.critical('The %s file path given by the %s environmental variable (%s) does not exist. Correct it, or unset the environmental variable to use the default file.', file_quantity, env_var, default)
-        sys.exit()
+        sys.exit(1)
     else:
         logging.info('Will use %s for %s.', json_path, file_quantity)
         return json_path
@@ -1196,7 +1196,7 @@ def get_runlog_file(GGGPATH,tav_file,col_file):
         runlog_file = os.path.join(GGGPATH,'runlogs','gnd',tav_file.replace('.tav','.grl'))
         if not os.path.exists(runlog_file):
             logging.critical('Could not find {}'.format(runlog_file))
-            sys.exit()
+            sys.exit(1)
 
     if runlog_file.startswith(GGGPATH):
         lse_file = os.path.join(GGGPATH,'lse','gnd',os.path.basename(runlog_file).replace('.grl','.lse'))
@@ -1211,7 +1211,7 @@ def get_runlog_file(GGGPATH,tav_file,col_file):
     
     if not os.path.exists(lse_file):
         logging.critical('Could not find the .lse file: {}'.format(lse_file))
-        sys.exit()
+        sys.exit(1)
 
     return runlog_file,lse_file
 
@@ -1394,7 +1394,7 @@ def hash_array(x):
     hash_x = np.array([hash(i) for i in x])
     if not np.unique(hash_x).size==hash_x.size:
         logging.critical("hash_array: could not generate unique hashes for all elements")
-        sys.exit()
+        sys.exit(1)
 
     return hash_x
 
@@ -1501,7 +1501,7 @@ def main():
                 skip_vsw = True
             else:
                 logging.critical('Cannot find input file: {}'.format(input_file))
-                sys.exit()
+                sys.exit(1)
 
     # need to check that the file ends with .col, not just that .col is in it, because
     # otherwise a .col elsewhere in the file name will cause a problem (e.g. if one is
@@ -1510,7 +1510,7 @@ def main():
 
     if not col_file_list: # [] evaluates to False
         logging.critical('No .col files in',os.getcwd())
-        sys.exit()
+        sys.exit(1)
 
     runlog_file, lse_file = get_runlog_file(GGGPATH,tav_file,col_file_list[0])
 
@@ -1558,10 +1558,10 @@ def main():
 
     if ningaas!=0 and ninsb and ninsb>ningaas:
         logging.critical('Having more InSb than InGaAs spectra is not supported')
-        sys.exit()
+        sys.exit(1)
     if ningaas!=0 and nsi and nsi>ningaas:
         logging.critical('Having more Si than InGaAs spectra is not supported')
-        sys.exit()
+        sys.exit(1)
 
     # read site specific data from the tccon_netcdf repository
     # the .apply and .rename bits are just strip the columns from leading and tailing white spaces
@@ -1585,7 +1585,7 @@ def main():
         for elem in multiggg_list:
             if elem not in col_file_list:
                 logging.critical('{} does not exist'.format(elem))
-                sys.exit()
+                sys.exit(1)
     col_file_list = multiggg_list
     if 'luft' in col_file_list[0]: # the luft .col file has no checksum for the solar linelist, so if its the first window listed in multiggg.sh, rotate the list for the checksum checks to work
         col_file_list = np.roll(col_file_list,-1)
@@ -1631,7 +1631,7 @@ def main():
         except ValueError as qc_err:
             logging.critical('Could not convert all of {} to floats from the {} file; please check for misaligned columns in the file'.format(qc_var,os.path.basename(qc_file)))
             logging.critical('Python error: "{}"'.format(short_error(qc_err)))
-            sys.exit()
+            sys.exit(1)
     
     # error scale factors:
     logging.info('\t- {}'.format(esf_file)) 
@@ -1647,7 +1647,7 @@ def main():
     # check the .lse file has the same number of spectra as the runlog
     if len(lse_data['spectrum'])!=len(runlog_data['spectrum']):
         logging.critical("Different number of spectra in runlog ({}) and lse ({}) files".format(len(runlog_data['spectrum']),len(lse_data['spectrum'])))
-        sys.exit()
+        sys.exit(1)
 
     # vav file: contains column amounts
     logging.info('\t- {}'.format(vav_file))
@@ -1748,7 +1748,7 @@ def main():
         logging.critical('Files have inconsistent spectrum lists !')
         for data in data_list:
             logging.critical("{} spectra in {}".format(len(data['spectrum']),data['file'][0]))
-        sys.exit()
+        sys.exit(1)
 
     specdates = np.array([datetime(int(round(aia_data['year'][i]-aia_data['day'][i]/366.0)),1,1)+timedelta(days=aia_data['day'][i]-1) for i in range(nspec)])
     start_date = datetime.strftime(specdates[0],'%Y%m%d')
@@ -2371,7 +2371,7 @@ def main():
         common_spec = common_spec[tmp_inds]
         if not np.array_equal(np.array(aia_data['spectrum']), np.array(lse_data['spectrum'][common_spec])):
             logging.critical('Unable to match .aia and .lse spectra')
-            sys.exit()
+            sys.exit(1)
 
         for var in lse_dict.keys():
             nc_data.createVariable(var,np.float32,('time',))
