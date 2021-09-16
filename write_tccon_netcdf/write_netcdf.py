@@ -918,7 +918,7 @@ def _fix_co2_description(ds):
         ds['xco2'].description = '0.2095*column_co2/column_o2'
 
 
-def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None):
+def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False):
     """
     Take a private netcdf file and write the public file using the public_variables.json file
     """
@@ -932,6 +932,11 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
         public_nc_file = re.sub(r'\.private((\.qc)?\.nc)$', r'.experimental.public\1', private_nc_file)
     elif not include_experimental and public_nc_file is None:
         public_nc_file = re.sub(r'\.private((\.qc)?\.nc)$', r'.public\1', private_nc_file)
+
+    if not include_experimental:
+        remove_if_no_experimental = False
+
+    has_experimental = False
 
     logging.info('Writing {}'.format(public_nc_file))
     with netCDF4.Dataset(private_nc_file,'r') as private_data, netCDF4.Dataset(public_nc_file,'w',format=nc_format) as public_data:
@@ -1051,11 +1056,13 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                 public_data['ingaas_experimental'][name][:] = this_var_data[public_slice]
                 public_data['ingaas_experimental'][name].setncatts(private_data[name].__dict__)
             elif include_experimental and nc_format=='NETCDF4' and public and insb_group_check: # insb experimental variables
+                has_experimental = True
                 public_data['insb_experimental'].createVariable(name.replace('_insb',''), variable.datatype, variable.dimensions)
                 this_var_data = private_data[name][:]
                 public_data['insb_experimental'][name.replace('_insb','')][:] = this_var_data[public_slice]
                 public_data['insb_experimental'][name.replace('_insb','')].setncatts(private_data[name].__dict__)
             elif include_experimental and nc_format=='NETCDF4' and public and si_group_check: # si experimental variables
+                has_experimental = True
                 public_data['si_experimental'].createVariable(name.replace('_si',''), variable.datatype, variable.dimensions)
                 this_var_data = private_data[name][:]
                 public_data['si_experimental'][name.replace('_si','')][:] = this_var_data[public_slice]
@@ -1064,6 +1071,8 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                 # For CLASSIC type files, if the variable should go in the public file but it belongs to one of the
                 # experimental groups, add extra annotations to its name and attributes. Allow InGaAs "experimental"
                 # variables into the standard files, but keep InSb or Si variables to the expt+std files only.
+                if insb_group_check or si_group_check:
+                    has_experimental = True
                 public_data.createVariable(name+'_experimental', variable.datatype, variable.dimensions)
                 this_var_data = private_data[name][:]
                 public_data[name+'_experimental'][:] = this_var_data[public_slice]
@@ -1100,7 +1109,11 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
 
         logging.info('  --> Done copying variables')
         update_attrs_for_public_files(public_data, is_public=True)
-    logging.info('Finished writing {} {:.2f} MB'.format(public_nc_file,os.path.getsize(public_nc_file)/1e6))
+    if include_experimental and not has_experimental and remove_if_no_experimental:
+        logging.info('{} contains no non-standard TCCON data, removing as requested'.format(public_nc_file))
+        os.remove(public_nc_file)
+    else:
+        logging.info('Finished writing {} {:.2f} MB'.format(public_nc_file,os.path.getsize(public_nc_file)/1e6))
 
 
 def get_ggg_path():
@@ -1435,6 +1448,7 @@ def main():
     parser.add_argument('--eof',action='store_true',help='If given, will also write the .eof.csv file')
     parser.add_argument('--public',action='store_true',help='If given, will write a .public.nc or .experimental.public.nc file from the .private.nc')
     parser.add_argument('-s', '--std-only',action='store_true',help='If given with --public, only writes standard TCCON product gases to the public file')
+    parser.add_argument('--remove-no-expt',action='store_true',help='If given with --public but without --std-only, if the output file contains only standard TCCON data, it is removed')
     parser.add_argument('--log-level',default='INFO',type=lambda x: x.upper(),help="Log level for the screen (it is always DEBUG for the log file)",choices=['PROFILE', 'DEBUG','INFO','WARNING','ERROR','CRITICAL'])
     parser.add_argument(
         '--log-file',
@@ -1482,7 +1496,7 @@ def main():
             if not args.public:
                 sys.exit()
         logging.info('Writing public file from {}'.format(private_nc_file))
-        write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=not args.std_only)
+        write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=not args.std_only,remove_if_no_experimental=args.remove_no_expt)
         sys.exit()
 
     # input and output file names
