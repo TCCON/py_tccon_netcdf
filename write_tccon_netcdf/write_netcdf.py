@@ -988,6 +988,8 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                                                   'the site representative listed in the `contact` attribute. Time periods '
                                                   'withheld (possibly overlapping) are:\n') + '\n'.join(time_periods)
 
+        if 'data_doi' in public_attributes and include_experimental:
+            public_attributes['data_doi'] = 'These data are associated with {}'.format(public_attributes['data_doi'])
         public_data.setncatts(public_attributes)
         logging.info('  -> Done copying attributes')
 
