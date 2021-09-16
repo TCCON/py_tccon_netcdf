@@ -918,6 +918,23 @@ def _fix_co2_description(ds):
         ds['xco2'].description = '0.2095*column_co2/column_o2'
 
 
+def _add_aicf_scale_attr(variable_name, pub_variable, priv_data):
+    scale_variable = 'aicf_{}_scale'.format(variable_name)
+    if scale_variable not in priv_data.variables:
+        logging.warning('Cannot add AICF scale to {}, as {} is not a variable in the private data'.format(variable_name, scale_variable))
+        return
+
+    scale = priv_data[scale_variable][0].item()
+
+    if not np.all(scale == priv_data[scale_variable][:]):
+        logging.warning('Multiple scale strings found in {}'.format(scale_variable))
+        pub_variable.wmo_or_analogous_scale = 'various'
+    else:
+        if len(scale) == 0:
+            scale = 'Not used'
+        pub_variable.wmo_or_analogous_scale = scale
+
+
 def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False):
     """
     Take a private netcdf file and write the public file using the public_variables.json file
@@ -1024,6 +1041,8 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
 
             public = np.array([contain_check,isequalto_check,startswith_check,endswith_check,experimental_group_startswith_check,insb_group_check,si_group_check]).any() and not excluded
 
+            aicf_scale_check = name in public_variables.get('has_aicf_scale', [])
+
             if nc_format=='NETCDF4' and experimental_group_startswith_check and 'ingaas_experimental' not in public_data.groups:
                 public_data.createGroup('ingaas_experimental')
                 public_data['ingaas_experimental'].description = 'These data are EXPERIMENTAL.\nIn the root group of this file, the Xgas variables are obtained by combining columns retrieved from multiple spectral windows.\n In this ingaas_experimental group we include Xgas derived from spectral windows that do not contribute to the Xgas variables of the root group. If you plan to use these data, please work with the site PI.'
@@ -1050,38 +1069,63 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                     public_data[name][:] = private_data[name][:]
                 # copy variable attributes all at once via dictionary
                 public_data[name].setncatts(private_data[name].__dict__)
+
+                # add WMO or comparable scale attribute if needed
+                if aicf_scale_check:
+                    _add_aicf_scale_attr(name, public_data[name], private_data)
             elif nc_format=='NETCDF4' and public and experimental_group_startswith_check: # ingaas experimental variables
                 public_data['ingaas_experimental'].createVariable(name, variable.datatype, variable.dimensions)
                 this_var_data = private_data[name][:]
                 public_data['ingaas_experimental'][name][:] = this_var_data[public_slice]
                 public_data['ingaas_experimental'][name].setncatts(private_data[name].__dict__)
+                
+                # add WMO or comparable scale attribute if needed
+                if aicf_scale_check:
+                    _add_aicf_scale_attr(name, public_data['ingaas_experimental'][name], private_data)
             elif include_experimental and nc_format=='NETCDF4' and public and insb_group_check: # insb experimental variables
                 has_experimental = True
                 public_data['insb_experimental'].createVariable(name.replace('_insb',''), variable.datatype, variable.dimensions)
                 this_var_data = private_data[name][:]
                 public_data['insb_experimental'][name.replace('_insb','')][:] = this_var_data[public_slice]
                 public_data['insb_experimental'][name.replace('_insb','')].setncatts(private_data[name].__dict__)
+                
+                # add WMO or comparable scale attribute if needed
+                if aicf_scale_check:
+                    _add_aicf_scale_attr(name, public_data['insb_experimental'][name], private_data)
             elif include_experimental and nc_format=='NETCDF4' and public and si_group_check: # si experimental variables
                 has_experimental = True
-                public_data['si_experimental'].createVariable(name.replace('_si',''), variable.datatype, variable.dimensions)
+                public_name = name.replace('_si', '')
+                
+                public_data['si_experimental'].createVariable(public_name, variable.datatype, variable.dimensions)
                 this_var_data = private_data[name][:]
-                public_data['si_experimental'][name.replace('_si','')][:] = this_var_data[public_slice]
-                public_data['si_experimental'][name.replace('_si','')].setncatts(private_data[name].__dict__)
+
+                public_data['si_experimental'][public_name][:] = this_var_data[public_slice]
+                public_data['si_experimental'][public_name].setncatts(private_data[name].__dict__)
+                
+                # add WMO or comparable scale attribute if needed
+                if aicf_scale_check:
+                    _add_aicf_scale_attr(name, public_data['si_experimental'][public_name], private_data)
             elif nc_format=='NETCDF4_CLASSIC' and public and (experimental_group_startswith_check or (include_experimental and (insb_group_check or si_group_check))):
                 # For CLASSIC type files, if the variable should go in the public file but it belongs to one of the
                 # experimental groups, add extra annotations to its name and attributes. Allow InGaAs "experimental"
                 # variables into the standard files, but keep InSb or Si variables to the expt+std files only.
                 if insb_group_check or si_group_check:
                     has_experimental = True
-                public_data.createVariable(name+'_experimental', variable.datatype, variable.dimensions)
-                this_var_data = private_data[name][:]
-                public_data[name+'_experimental'][:] = this_var_data[public_slice]
-                public_data[name+'_experimental'].setncatts(private_data[name].__dict__)
-                if hasattr(public_data[name+'_experimental'],'description'):
-                    public_data[name+'_experimental'].description += ' These data are EXPERIMENTAL. If you plan to use them, please work with the site PI.'
-                else:
-                    public_data[name+'_experimental'].description = ' These data are EXPERIMENTAL. If you plan to use them, please work with the site PI.'
 
+                public_name = name+'_experimental'
+                public_data.createVariable(public_name, variable.datatype, variable.dimensions)
+                this_var_data = private_data[name][:]
+                public_data[public_name][:] = this_var_data[public_slice]
+                public_data[public_name].setncatts(private_data[name].__dict__)
+                if hasattr(public_data[public_name],'description'):
+                    public_data[public_name].description += ' These data are EXPERIMENTAL. If you plan to use them, please work with the site PI.'
+                else:
+                    public_data[public_name].description = ' These data are EXPERIMENTAL. If you plan to use them, please work with the site PI.'
+
+                # add WMO or comparable scale attribute if needed
+                if aicf_scale_check:
+                    _add_aicf_scale_attr(name, public_data[public_name], private_data)
+                
             # prior variables
             elif name in ['prior_{}'.format(var) for var in factor.keys()]: # for the a priori profile, only the ones listed in the "factor" dictionary make it to the public file
                 public_name = name.replace('_1','_')

@@ -70,5 +70,14 @@
 		"xth2o_"],
 	"exclude_regex": [
 		"_g$",
-		"_p$"]
+		"_p$"],
+	"has_aicf_scale": [
+		"xco2",
+		"xwco2",
+		"xlco2",
+		"xch4",
+		"xn2o",
+		"xco",
+		"xh2o",
+		"xluft"]
 }
