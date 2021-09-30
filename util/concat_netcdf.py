@@ -12,12 +12,109 @@ from datetime import datetime
 """
 Concatenate a set of TCCON netcdf files along the time dimension.
 
-This code assumes that all the files were generated with the same code and using all the same windows.
-The only thing that should differ between the netcdf files is the time ranges.
+This code was updated on 2021-09-30 to allow different windows, e.g. to support concatenating
+files with InGaAs+Si and InGaAs+InSb data. Several of the Caltech-run sites changed from Si to
+InSb detectors partway through their lifetime, so this is necessary.
+
 Don't mix .private.nc and .public.nc files.
 
-Following this assumption, there won't be consistency checks for the list of variables etc. the code will just crash.
+There are consistency checks for dimensions that will cause a crash if not fulfilled. Mismatched
+global attributes cause a warning only. Variable attributes are currently not checked.
 """
+
+# -------------- #
+# CODE FOR TESTS #
+# -------------- #
+
+_DEFAULT_TEST_VARS = ('time', 'xluft', 'xco2', 'xch4',
+                      'xocs_insb', 'vsf_ocs_insb', 'ocs_2051_ovc_ocs_insb',
+                      'xao2_si', 'vsf_ao2_si', 'ao2_13082_ovc_ao2_si',
+                      'prior_time', 'prior_1co2', 'prior_effective_latitude')
+
+def test_main(orig_files, concat_file, test_variables=_DEFAULT_TEST_VARS, verbose=True):
+    ecode = 0
+    with ExitStack() as stack:
+        concat_ds = stack.enter_context(netCDF4.Dataset(concat_file))
+        orig_ds = [stack.enter_context(netCDF4.Dataset(f)) for f in orig_files]
+        concat_spec_inds = [np.isin(concat_ds['spectrum'][:], orig['spectrum'][:]) for orig in orig_ds]
+        concat_prior_inds = [np.isin(concat_ds['prior_modfile'][:], orig['prior_modfile'][:]) for orig in orig_ds]
+
+        for ivar, var in enumerate(test_variables):
+            failures = 0
+            for iorig, orig in enumerate(orig_ds):
+                if 'time' in concat_ds[var].dimensions:
+                    inds = concat_spec_inds[iorig]
+                elif 'prior_time' in concat_ds[var].dimensions:
+                    inds = concat_prior_inds[iorig]
+                else:
+                    raise NotImplementedError('Variable "{}" does not have time or prior_time as a dimension'.format(var))
+
+                if not compare_variables(concat_ds, orig, inds, var, verbose=verbose):
+                    failures += 1
+
+            if failures == 0:
+                print('{}: PASS'.format(var))
+            else:
+                print('{}: FAIL ({} of {} files do not match)'.format(var, failures, len(orig_files)))
+                ecode = 1
+
+            if verbose:
+                print('')  # put a gap before the next section
+
+    if ecode == 0:
+        print('{} PASSES'.format(concat_file))
+    else:
+        print('{} FAILS'.format(concat_file))
+
+    return ecode
+                
+
+                
+def compare_variables(concat_ds, orig_ds, inds, varname, verbose=True):
+    if varname not in orig_ds.variables.keys():
+        # This variable wasn't in this original file, so the concatenated dataset should be all
+        # fill values
+        ok = np.all(concat_ds[varname][:][inds].mask)
+        if verbose:
+            if ok:
+                print('{} absent from {} and is all fill values in concatenated file (correct)'.format(varname, orig_ds.filepath()))
+            else:
+                print('FAIL: {} absent from {} and but is NOT all fill values in concatenated file'.format(varname, orig_ds.filepath()))
+        return ok
+
+    else:
+        c_vals = concat_ds[varname][:][inds]
+        o_vals = orig_ds[varname][:]
+        val_ok = np.ma.allclose(c_vals, o_vals)
+        mask_ok = np.array_equal(normalize_mask(c_vals), normalize_mask(o_vals))
+        ok = val_ok and mask_ok
+        if verbose:
+            if ok:
+                print('Variable {} matches between {} and concatenated file (correct)'.format(varname, orig_ds.filepath()))
+            elif not val_ok:
+                print('FAIL: Variable {} DOES NOT match between {} and concatenated file'.format(varname, orig_ds.filepath()))
+            elif not mask_ok:
+                print('FAIL: Fill values locations in variable {} DO NOT match between {} and concatenated file'.format(varname, orig_ds.filepath()))
+            print('   Original: {}'.format(o_vals))
+            print('   Concatenated: {}'.format(c_vals))
+        return ok
+
+
+def normalize_mask(arr):
+    # Masked arrays with no masked values will have a mask that is a scalar `False`. 
+    # This will cause array_equal comparison failures if one file has a scalar and
+    # the other a full vector of `False` values, so force the scalar into an array.
+    mask = arr.mask
+    shape = arr.shape
+    if np.ndim(mask) == 0:
+        return np.full(shape, mask)
+    else:
+        return mask
+
+
+# --------- #
+# MAIN CODE #
+# --------- #
 
 def num2date(x,units,calendar):
     """
@@ -100,6 +197,8 @@ def main():
     parser.add_argument('--out',default='',help='full path to the directory where the output file will be saved, default to same as the "path" argument')
     parser.add_argument('--prefix',default='',help='if given, only use files starting with the given prefix')
     parser.add_argument('--simple-progress',action='store_true',help='Print percentage complete every 250 variables copied instead of the fancy progress bar. (Useful for logging to a file.)')
+    parser.add_argument('--test',help='Run tests on a concatenated file, comparing against the files matched by PATH and --prefix.')
+    parser.add_argument('--test-verbose',action='store_true',help='Print more information from the testing')
     args = parser.parse_args()
 
     if not os.path.exists(args.path):
@@ -117,6 +216,12 @@ def main():
         nc_list = [i for i in os.listdir(args.path) if i.endswith('.nc')]
     if len(nc_list)<=1:
         sys.exit('No files to concatenate')
+
+    if args.test is not None:
+        print('Running test only!')
+        ecode = test_main(nc_list, args.test, verbose=args.test_verbose)
+        sys.exit(ecode)
+
     print('{} files will be concatenated:'.format(len(nc_list)))
     for nc_file in nc_list:
         print('\t',nc_file)
