@@ -29,7 +29,8 @@ global attributes cause a warning only. Variable attributes are currently not ch
 _DEFAULT_TEST_VARS = ('time', 'xluft', 'xco2', 'xch4',
                       'xocs_insb', 'vsf_ocs_insb', 'ocs_2051_ovc_ocs_insb',
                       'xao2_si', 'vsf_ao2_si', 'ao2_13082_ovc_ao2_si',
-                      'prior_time', 'prior_1co2', 'prior_effective_latitude')
+                      'prior_time', 'prior_1co2', 'prior_effective_latitude',
+                      'ak_xco2', 'ak_xch4', 'ak_slant_xco2_bin', 'ak_slant_xch4_bin')
 
 def test_main(orig_files, concat_file, test_variables=_DEFAULT_TEST_VARS, verbose=True):
     ecode = 0
@@ -47,7 +48,7 @@ def test_main(orig_files, concat_file, test_variables=_DEFAULT_TEST_VARS, verbos
                 elif 'prior_time' in concat_ds[var].dimensions:
                     inds = concat_prior_inds[iorig]
                 else:
-                    raise NotImplementedError('Variable "{}" does not have time or prior_time as a dimension'.format(var))
+                    inds = tuple()
 
                 if not compare_variables(concat_ds, orig, inds, var, verbose=verbose):
                     failures += 1
@@ -343,11 +344,18 @@ def main():
 
             # Set the values of non-time coordinate variables. Should only need to do
             # this from one file; if other 
-            if (name not in ['prior_time','time']) and (name in list(ncout.dimensions)):
+            is_nontime_dim = (name not in ['prior_time','time']) and (name in list(ncout.dimensions))
+            has_no_time_dim = all(d not in variable.dimensions for d in ['prior_time','time'])
+            if is_nontime_dim or has_no_time_dim:
                 # First verify that the value is the same across all file
                 for ncin in ncin_list[1:]:
                     if name in ncin.variables.keys() and not np.ma.allclose(variable[:], ncin[name][:]):
-                        print('ERROR: Dimension coordinate variable "{}" has different values across files'.format(name), file=sys.stderr)
+                        if is_nontime_dim:
+                            print('ERROR: Dimension coordinate variable "{}" has different values across files'.format(name), file=sys.stderr)
+                        elif has_no_time_dim:
+                            print('ERROR: Variable without temporal dimension "{}" has different values across files'.format(name), file=sys.stderr)
+                        else:
+                            print('ERROR: Variable "{}" has different values across files'.format(name), file=sys.stderr)
                         sys.exit(1)
 
                 ncout[name][:] = variable[:]
