@@ -1156,12 +1156,13 @@ def set_release_flags(nc_file,flag_file,qc_file=''):
     return _set_extra_flags(nc_file,flags_data,'release',qc_file=qc_file)
 
 
-def set_manual_flags(nc_file,qc_file=''):
+def set_manual_flags(nc_file, qc_file='', mflag_file=''):
     siteID = os.path.basename(nc_file)[:2]
     gggpath = get_ggg_path()
-    mflag_file = os.path.join(gggpath, 'tccon', '{}_manual_flagging.dat'.format(siteID))
-    if not os.path.exists(mflag_file):
-        raise IOError('A manual flagging file ({}) is required even if no periods require manual flagging'.format(mflag_file))
+    if not mflag_file:
+        mflag_file = os.path.join(gggpath, 'tccon', '{}_manual_flagging.dat'.format(siteID))
+        if not os.path.exists(mflag_file):
+            raise IOError('A manual flagging file ({}) is required even if no periods require manual flagging'.format(mflag_file))
 
     logging.info('Reading manual flags from {}'.format(mflag_file))
     flags_data = _read_manual_flags_file(mflag_file)
@@ -1255,6 +1256,9 @@ def _read_manual_flags_file(mflag_file):
         flags_data = dict()
         
         for iline, line in enumerate(f, start=1):
+            if len(line.strip()) == 0:
+                # ignore blank lines, which can show up at the end of a file
+                continue
             start_str, end_str, flag = line.strip().split()[:3]
             key = '{site}_{idx:02d}_{start}_{end}'.format(site=siteID, idx=iline, start=start_str, end=end_str)
             flag = int(flag)
