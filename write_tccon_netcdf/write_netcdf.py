@@ -1746,10 +1746,13 @@ def main():
         if not np.array_equal(hash_array(aia_ref_speclist),hash_runlog_ingaas_speclist):
             logging.warning('The spectra in the .aia file are inconsistent with the runlog spectra:\n {}'.format(set(aia_ref_speclist).symmetric_difference(set(runlog_ingaas_speclist))))       
         ingaas_runlog_slice = get_slice(runlog_data['spectrum'],aia_ref_speclist)
+        runlog_slice_dict = {'ingaas':ingaas_runlog_slice}
         if ninsb:
             aia_ref_speclist_insb = np.array([i.replace('a.','c.') for i in aia_data['spectrum']]) # will be used to get .col file spectra indices along the time dimension
+            runlog_slice_dict['insb'] = get_slice(runlog_data['spectrum'],aia_ref_speclist_insb)
         if nsi:
             aia_ref_speclist_si = np.array([i.replace('a.','b.') for i in aia_data['spectrum']]) # will be used to get .col file spectra indices along the time dimension
+            runlog_slice_dict['si'] = get_slice(runlog_data['spectrum'],aia_ref_speclist_si)
 
     # read airmass-dependent and -independent correction factors from the header of the .aia file
     aia_data['file'] = aia_file
@@ -2442,6 +2445,8 @@ def main():
             sys.exit(1)
 
         for var in lse_dict.keys():
+            if var == "dip":
+                continue
             nc_data.createVariable(var,np.float32,('time',))
             att_dict = {
                 "standard_name":standard_name_dict[var],
@@ -2451,6 +2456,18 @@ def main():
             }
             nc_data[var].setncatts(att_dict)
             write_values(nc_data,var,lse_data[var][common_spec].values)
+        # unlike other .lse variables, dip is specific to each detector
+        for detector in runlog_slice_dict:
+            varname = f"dip_{detector}"
+            nc_data.createVariable(varname,np.float32,('time',))
+            att_dict = {
+                "standard_name":standard_name_dict['dip'],
+                "long_name":long_name_dict['dip'],
+                "description":lse_dict['dip']['description'],
+                "precision":lse_dict['dip']['precision'],
+            }
+            nc_data[varname].setncatts(att_dict)
+            nc_data[varname][:] = lse_data.set_index(lse_data.index.astype(int)).loc[runlog_slice_dict[detector]]['dip'].values
         del lse_data
         gc.collect()
         
