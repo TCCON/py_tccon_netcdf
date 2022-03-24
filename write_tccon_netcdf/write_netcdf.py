@@ -2462,13 +2462,24 @@ def main():
             write_values(nc_data,var,lse_data[var][common_spec].values)
         # unlike other .lse variables, dip is specific to each detector
         for detector in runlog_slice_dict:
-            varname = f"dip_{detector}"
+            if detector == 'ingaas':
+                # Because GGG2020 processing started before we realized different detector's DIP values were
+                # being written to the dip variable, early files already existed with "dip" as the variable,
+                # and code exists to plot that variable. Thus we keep "dip" as the variable name for InGaAs
+                # data - though this could be changed at the next GGG version.
+                #
+                # .private.nc files where "dip" does not have the attribute "detector" were written before
+                # this fix was implemented.
+                varname = 'dip'
+            else:
+                varname = f"dip_{detector}"
             nc_data.createVariable(varname,np.float32,('time',))
             att_dict = {
                 "standard_name":standard_name_dict['dip'],
                 "long_name":long_name_dict['dip'],
                 "description":lse_dict['dip']['description'],
                 "precision":lse_dict['dip']['precision'],
+                "detector":detector, 
             }
             nc_data[varname].setncatts(att_dict)
             nc_data[varname][:] = lse_data.set_index(lse_data.index.astype(int)).loc[runlog_slice_dict[detector]]['dip'].values
