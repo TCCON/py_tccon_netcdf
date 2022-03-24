@@ -16,4 +16,5 @@ python setup.py --no-user-cfg develop --script-dir=./scripts \
     && mv -v ./scripts/write_netcdf $GGGPATH/bin/ \
     && mv -v ./scripts/compare_netcdf $GGGPATH/bin/ \
     && mv -v ./scripts/concat_netcdf $GGGPATH/bin/ \
-    && mv -v ./scripts/subset_netcdf $GGGPATH/bin/
+    && mv -v ./scripts/subset_netcdf $GGGPATH/bin/ \
+    && mv -v ./scripts/update_manual_flags $GGGPATH/bin/
