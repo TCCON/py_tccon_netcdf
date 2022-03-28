@@ -1431,11 +1431,12 @@ def _read_manual_flags_file(mflag_file):
 
 
 
-def get_slice(a,b):
+def get_slice(a,b,warn=True):
     """
     Inputs:
         - a: array of unique hashables
         - b: array of unique hashables (all its elements should also be included in a)
+        - warn: if True, prints a warning if hash_a[ids]!=hash_b 
     Outputs:
         - ids: array of indices that can be used to slice array a to get its elements that correspond to those in array b (such that a[ids] == b)
     """
@@ -1445,7 +1446,7 @@ def get_slice(a,b):
 
     ids = list(np.where(np.isin(hash_a,hash_b))[0])
 
-    if not np.array_equal(hash_a[ids],hash_b):
+    if warn and not np.array_equal(hash_a[ids],hash_b):
         logging.warning('get_slice: it is unexpected that elements in the second array are not included in the first array')
 
     return ids
@@ -1751,12 +1752,15 @@ def main():
             logging.warning('The spectra in the .aia file are inconsistent with the runlog spectra:\n {}'.format(set(aia_ref_speclist).symmetric_difference(set(runlog_ingaas_speclist))))       
         ingaas_runlog_slice = get_slice(runlog_data['spectrum'],aia_ref_speclist)
         runlog_slice_dict = {'ingaas':ingaas_runlog_slice}
+        aia_slice_dict = {'ingaas':get_slice(aia_ref_speclist,runlog_data['spectrum'],warn=False)}
         if ninsb:
             aia_ref_speclist_insb = np.array([i.replace('a.','c.') for i in aia_data['spectrum']]) # will be used to get .col file spectra indices along the time dimension
             runlog_slice_dict['insb'] = get_slice(runlog_data['spectrum'],aia_ref_speclist_insb)
+            aia_slice_dict['insb'] = get_slice(aia_ref_speclist_insb,runlog_data['spectrum'],warn=False)
         if nsi:
             aia_ref_speclist_si = np.array([i.replace('a.','b.') for i in aia_data['spectrum']]) # will be used to get .col file spectra indices along the time dimension
             runlog_slice_dict['si'] = get_slice(runlog_data['spectrum'],aia_ref_speclist_si)
+            aia_slice_dict['si'] = get_slice(aia_ref_speclist_si,runlog_data['spectrum'],warn=False)
 
     # read airmass-dependent and -independent correction factors from the header of the .aia file
     aia_data['file'] = aia_file
@@ -2482,7 +2486,9 @@ def main():
                 "detector":detector, 
             }
             nc_data[varname].setncatts(att_dict)
-            nc_data[varname][:] = lse_data.set_index(lse_data.index.astype(int)).loc[runlog_slice_dict[detector]]['dip'].values
+            detector_dip = np.full(nc_data['time'].shape,fill_value = netCDF4.default_fillvals["f4"])
+            detector_dip[aia_slice_dict[detector]] = lse_data.set_index(lse_data.index.astype(int)).loc[runlog_slice_dict[detector]]['dip'].values
+            nc_data[varname][:] = detector_dip
         del lse_data
         gc.collect()
         
