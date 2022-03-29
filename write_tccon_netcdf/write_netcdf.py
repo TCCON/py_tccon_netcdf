@@ -1268,12 +1268,14 @@ def get_runlog_file(GGGPATH,tav_file,col_file):
         lse_file = os.path.join(GGGPATH,'lse','gnd',os.path.basename(runlog_file).replace('.grl','.lse'))
     else:
         logging.warning('Path to runlog ({}) does not start with GGGPATH ({}). If you did not expect this, make sure your GGGPATH environmental variable is set correctly.'.format(runlog_file, GGGPATH))
-        # If the runlog is at $GGGPATH/runlogs/gnd/<runlog>.grl, then
-        # removing the last three parts after splitting on the path
-        # separator should give us its GGGPATH
-        runlog_parts = runlog_file.split(os.sep)
-        runlog_ggg_path = os.sep.join(runlog_parts[:-3])
-        lse_file = os.path.join(runlog_ggg_path, 'lse', 'gnd', os.path.basename(runlog_file).replace('.grl','.lse'))
+        lse_file = runlog_file.replace('.grl','.lse')
+        if not os.path.exists(lse_file):
+            # If the runlog is at $GGGPATH/runlogs/gnd/<runlog>.grl, then
+            # removing the last three parts after splitting on the path
+            # separator should give us its GGGPATH
+            runlog_parts = runlog_file.split(os.sep)
+            runlog_ggg_path = os.sep.join(runlog_parts[:-3])
+            lse_file = os.path.join(runlog_ggg_path, 'lse', 'gnd', os.path.basename(runlog_file).replace('.grl','.lse'))
     
     if not os.path.exists(lse_file):
         logging.critical('Could not find the .lse file: {}'.format(lse_file))
