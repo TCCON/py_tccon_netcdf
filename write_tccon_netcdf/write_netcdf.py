@@ -1763,6 +1763,10 @@ def main():
             aia_ref_speclist_si = np.array([i.replace('a.','b.') for i in aia_data['spectrum']]) # will be used to get .col file spectra indices along the time dimension
             runlog_slice_dict['si'] = get_slice(runlog_data['spectrum'],aia_ref_speclist_si)
             aia_slice_dict['si'] = get_slice(aia_ref_speclist_si,runlog_data['spectrum'],warn=False)
+        if ningaas2:
+            aia_ref_speclist_ingaas2 = np.array([i.replace('a.','d.') for i in aia_data['spectrum']])
+            runlog_slice_dict['ingaas2'] = get_slice(runlog_data['spectrum'],aia_ref_speclist_ingaas2)
+            aia_slice_dict['ingaas2'] = get_slice(aia_ref_speclist_ingaas2,runlog_data['spectrum'],warn=False)
 
     # read airmass-dependent and -independent correction factors from the header of the .aia file
     aia_data['file'] = aia_file
