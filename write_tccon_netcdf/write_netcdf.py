@@ -1282,12 +1282,14 @@ def get_runlog_file(GGGPATH,tav_file,col_file):
         lse_file = os.path.join(GGGPATH,'lse','gnd',os.path.basename(runlog_file).replace('.grl','.lse'))
     else:
         logging.warning('Path to runlog ({}) does not start with GGGPATH ({}). If you did not expect this, make sure your GGGPATH environmental variable is set correctly.'.format(runlog_file, GGGPATH))
-        # If the runlog is at $GGGPATH/runlogs/gnd/<runlog>.grl, then
-        # removing the last three parts after splitting on the path
-        # separator should give us its GGGPATH
-        runlog_parts = runlog_file.split(os.sep)
-        runlog_ggg_path = os.sep.join(runlog_parts[:-3])
-        lse_file = os.path.join(runlog_ggg_path, 'lse', 'gnd', os.path.basename(runlog_file).replace('.grl','.lse'))
+        lse_file = runlog_file.replace('.grl','.lse')
+        if not os.path.exists(lse_file):
+            # If the runlog is at $GGGPATH/runlogs/gnd/<runlog>.grl, then
+            # removing the last three parts after splitting on the path
+            # separator should give us its GGGPATH
+            runlog_parts = runlog_file.split(os.sep)
+            runlog_ggg_path = os.sep.join(runlog_parts[:-3])
+            lse_file = os.path.join(runlog_ggg_path, 'lse', 'gnd', os.path.basename(runlog_file).replace('.grl','.lse'))
     
     if not os.path.exists(lse_file):
         logging.critical('Could not find the .lse file: {}'.format(lse_file))
@@ -1329,12 +1331,13 @@ def set_release_flags(nc_file,flag_file,qc_file=''):
     return _set_extra_flags(nc_file,flags_data,'release',qc_file=qc_file)
 
 
-def set_manual_flags(nc_file,qc_file=''):
+def set_manual_flags(nc_file, qc_file='', mflag_file=''):
     siteID = os.path.basename(nc_file)[:2]
     gggpath = get_ggg_path()
-    mflag_file = os.path.join(gggpath, 'tccon', '{}_manual_flagging.dat'.format(siteID))
-    if not os.path.exists(mflag_file):
-        raise IOError('A manual flagging file ({}) is required even if no periods require manual flagging'.format(mflag_file))
+    if not mflag_file:
+        mflag_file = os.path.join(gggpath, 'tccon', '{}_manual_flagging.dat'.format(siteID))
+        if not os.path.exists(mflag_file):
+            raise IOError('A manual flagging file ({}) is required even if no periods require manual flagging'.format(mflag_file))
 
     logging.info('Reading manual flags from {}'.format(mflag_file))
     flags_data = _read_manual_flags_file(mflag_file)
@@ -1428,6 +1431,9 @@ def _read_manual_flags_file(mflag_file):
         flags_data = dict()
         
         for iline, line in enumerate(f, start=1):
+            if len(line.strip()) == 0:
+                # ignore blank lines, which can show up at the end of a file
+                continue
             start_str, end_str, flag = line.strip().split()[:3]
             key = '{site}_{idx:02d}_{start}_{end}'.format(site=siteID, idx=iline, start=start_str, end=end_str)
             flag = int(flag)
@@ -1441,11 +1447,12 @@ def _read_manual_flags_file(mflag_file):
 
 
 
-def get_slice(a,b):
+def get_slice(a,b,warn=True):
     """
     Inputs:
         - a: array of unique hashables
         - b: array of unique hashables (all its elements should also be included in a)
+        - warn: if True, prints a warning if hash_a[ids]!=hash_b 
     Outputs:
         - ids: array of indices that can be used to slice array a to get its elements that correspond to those in array b (such that a[ids] == b)
     """
@@ -1455,7 +1462,7 @@ def get_slice(a,b):
 
     ids = list(np.where(np.isin(hash_a,hash_b))[0])
 
-    if not np.array_equal(hash_a[ids],hash_b):
+    if warn and not np.array_equal(hash_a[ids],hash_b):
         logging.warning('get_slice: it is unexpected that elements in the second array are not included in the first array')
 
     return ids
@@ -1761,10 +1768,20 @@ def main():
         if not np.array_equal(hash_array(aia_ref_speclist),hash_runlog_ingaas_speclist):
             logging.warning('The spectra in the .aia file are inconsistent with the runlog spectra:\n {}'.format(set(aia_ref_speclist).symmetric_difference(set(runlog_ingaas_speclist))))       
         ingaas_runlog_slice = get_slice(runlog_data['spectrum'],aia_ref_speclist)
+        runlog_slice_dict = {'ingaas':ingaas_runlog_slice}
+        aia_slice_dict = {'ingaas':get_slice(aia_ref_speclist,runlog_data['spectrum'],warn=False)}
         if ninsb:
             aia_ref_speclist_insb = np.array([i.replace('a.','c.') for i in aia_data['spectrum']]) # will be used to get .col file spectra indices along the time dimension
+            runlog_slice_dict['insb'] = get_slice(runlog_data['spectrum'],aia_ref_speclist_insb)
+            aia_slice_dict['insb'] = get_slice(aia_ref_speclist_insb,runlog_data['spectrum'],warn=False)
         if nsi:
             aia_ref_speclist_si = np.array([i.replace('a.','b.') for i in aia_data['spectrum']]) # will be used to get .col file spectra indices along the time dimension
+            runlog_slice_dict['si'] = get_slice(runlog_data['spectrum'],aia_ref_speclist_si)
+            aia_slice_dict['si'] = get_slice(aia_ref_speclist_si,runlog_data['spectrum'],warn=False)
+        if ningaas2:
+            aia_ref_speclist_ingaas2 = np.array([i.replace('a.','d.') for i in aia_data['spectrum']])
+            runlog_slice_dict['ingaas2'] = get_slice(runlog_data['spectrum'],aia_ref_speclist_ingaas2)
+            aia_slice_dict['ingaas2'] = get_slice(aia_ref_speclist_ingaas2,runlog_data['spectrum'],warn=False)
 
     # read airmass-dependent and -independent correction factors from the header of the .aia file
     aia_data['file'] = aia_file
@@ -2457,6 +2474,8 @@ def main():
             sys.exit(1)
 
         for var in lse_dict.keys():
+            if var == "dip":
+                continue
             nc_data.createVariable(var,np.float32,('time',))
             att_dict = {
                 "standard_name":standard_name_dict[var],
@@ -2466,6 +2485,31 @@ def main():
             }
             nc_data[var].setncatts(att_dict)
             write_values(nc_data,var,lse_data[var][common_spec].values)
+        # unlike other .lse variables, dip is specific to each detector
+        for detector in runlog_slice_dict:
+            if detector == 'ingaas':
+                # Because GGG2020 processing started before we realized different detector's DIP values were
+                # being written to the dip variable, early files already existed with "dip" as the variable,
+                # and code exists to plot that variable. Thus we keep "dip" as the variable name for InGaAs
+                # data - though this could be changed at the next GGG version.
+                #
+                # .private.nc files where "dip" does not have the attribute "detector" were written before
+                # this fix was implemented.
+                varname = 'dip'
+            else:
+                varname = f"dip_{detector}"
+            nc_data.createVariable(varname,np.float32,('time',))
+            att_dict = {
+                "standard_name":standard_name_dict['dip'],
+                "long_name":long_name_dict['dip'],
+                "description":lse_dict['dip']['description'],
+                "precision":lse_dict['dip']['precision'],
+                "detector":detector, 
+            }
+            nc_data[varname].setncatts(att_dict)
+            detector_dip = np.full(nc_data['time'].shape,fill_value = netCDF4.default_fillvals["f4"])
+            detector_dip[aia_slice_dict[detector]] = lse_data.set_index(lse_data.index.astype(int)).loc[runlog_slice_dict[detector]]['dip'].values
+            nc_data[varname][:] = detector_dip
         del lse_data
         gc.collect()
         
