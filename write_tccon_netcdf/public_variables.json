@@ -10,7 +10,8 @@
 		"long", 
 		"zobs", 
 		"zmin", 
-		"asza", 
+		"asza",
+		"solzen",
 		"azim", 
 		"tout", 
 		"pout", 
@@ -21,6 +22,7 @@
 		"wdir"],
 
 	"startswith": [
+		"xluft",
 		"xhf", 
 		"xh2o", 
 		"xhdo", 

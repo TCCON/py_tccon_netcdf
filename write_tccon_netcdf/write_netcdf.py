@@ -874,6 +874,7 @@ def write_values(nc_data,var,values,inds=[]):
 def update_attrs_for_public_files(ds, is_public):
     _add_prior_long_units(ds, is_public)
     _fix_co2_description(ds)
+    _add_flag_usage(ds)
 
 
 def _add_prior_long_units(ds, is_public):
@@ -918,6 +919,11 @@ def _fix_co2_description(ds):
         ds['xco2'].description = '0.2095*column_co2/column_o2'
 
 
+def _add_flag_usage(ds):
+    if 'flag' in ds.variables.keys():
+        ds['flag'].comment = "flag == 0 data is good quality, flag > 0 data does not meet TCCON quality standards. If you intend to use flag > 0 data, we STRONGLY encourage you to reach out to the person listed in the contact global attribute. Use of flag > 0 data without consulting the contact person is at your own risk."
+
+
 def _add_aicf_scale_attr(variable_name, pub_variable, priv_data):
     scale_variable = 'aicf_{}_scale'.format(variable_name)
     if scale_variable not in priv_data.variables:
@@ -935,7 +941,7 @@ def _add_aicf_scale_attr(variable_name, pub_variable, priv_data):
         pub_variable.wmo_or_analogous_scale = scale
 
 
-def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False):
+def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False,flag0_only=True):
     """
     Take a private netcdf file and write the public file using the public_variables.json file
     """
@@ -999,8 +1005,11 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
         last_public_time = (datetime.utcnow()-datetime(1970,1,1)).total_seconds() - timedelta(days=release_lag).total_seconds()
         release_ids = private_data['time'][:]<last_public_time
 
-        # get indices of data with flag = 0
-        no_flag_ids = private_data['flag'][:]==0
+        # get indices of data with flag = 0 unless we are publishing all of the data
+        if flag0_only:
+            no_flag_ids = private_data['flag'][:]==0
+        else:
+            no_flag_ids = np.ones(private_data['flag'].shape, dtype=np.bool_)
         
         nspec = private_data['time'].size
         public_slice = np.array(release_ids & no_flag_ids) # boolean array to slice the private variables on the public ids
@@ -1021,6 +1030,11 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
         logging.info('Copying variables. {} variables in private file.'.format(nprivate))
         with open(public_variables_json()) as f:
             public_variables = json.load(f)
+
+        # ensure that the flag variable is included if the public file does not
+        # contain only flag == 0 data
+        if not flag0_only and "flag" not in public_variables['isequalto']:
+            public_variables['isequalto'].append('flag')
 
         ivariable = -1
         for name,variable in private_data.variables.items():
@@ -1493,6 +1507,7 @@ def main():
     parser.add_argument('-r','--read-only',action='store_true',help="Convenience for python interactive shells; sys.exit() right after reading all the input files")
     parser.add_argument('--eof',action='store_true',help='If given, will also write the .eof.csv file')
     parser.add_argument('--public',action='store_true',help='If given, will write a .public.nc or .experimental.public.nc file from the .private.nc')
+    parser.add_argument('--publish-all-flags', action='store_true', help='Include all spectra in the public files, not just flag==0')
     parser.add_argument('-s', '--std-only',action='store_true',help='If given with --public, only writes standard TCCON product gases to the public file')
     parser.add_argument('--remove-no-expt',action='store_true',help='If given with --public but without --std-only, if the output file contains only standard TCCON data, it is removed')
     parser.add_argument('--log-level',default='INFO',type=lambda x: x.upper(),help="Log level for the screen (it is always DEBUG for the log file)",choices=['PROFILE', 'DEBUG','INFO','WARNING','ERROR','CRITICAL'])
@@ -1542,7 +1557,7 @@ def main():
             if not args.public:
                 sys.exit()
         logging.info('Writing public file from {}'.format(private_nc_file))
-        write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=not args.std_only,remove_if_no_experimental=args.remove_no_expt)
+        write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=not args.std_only,remove_if_no_experimental=args.remove_no_expt,flag0_only=not args.publish_all_flags)
         sys.exit()
 
     # input and output file names
