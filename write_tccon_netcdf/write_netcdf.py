@@ -158,6 +158,14 @@ units_dict = {
 'prior_o2':'',
 }
 
+vmr_scale_dict = {
+    '': 1,
+    '1': 1,
+    'ppm': 1e6,
+    'ppb': 1e9,
+    'ppt': 1e12
+}
+
 special_description_dict = {
     'lco2':' lco2 is the strong CO2 band centered at 4852.87 cm-1 and does not contribute to the xco2 calculation.',
     'wco2':' wco2 is the weak CO2 band centered at 6073.5 and does not contribute to the xco2 calculation.',
@@ -231,6 +239,10 @@ def site_info_json():
 
 def tccon_gases_json():
     return get_json_path('TCCON_NETCDF_GASES', 'tccon_gases.json')
+
+
+def public_cf_attrs_json():
+    return get_json_path('TCCON_NETCDF_PUB_STD_NAMES', 'cf_standard_names.json')
 
 
 def release_flags_json(cmd_line_value):
@@ -872,8 +884,10 @@ def write_values(nc_data,var,values,inds=[]):
 
 
 def update_attrs_for_public_files(ds, is_public):
+    _fix_unspecified_units(ds)
     _add_prior_long_units(ds, is_public)
-    _fix_co2_description(ds)
+    _fix_public_cf_attributes(ds, is_public)
+    _fix_incorrect_attributes(ds)
     _add_flag_usage(ds)
 
 
@@ -884,6 +898,7 @@ def _add_prior_long_units(ds, is_public):
     logging.info('Adding long_units attributes to prior VMR profile variables')
     unit_long_str = {
         '': 'parts',
+        '1': 'parts',
         'ppm': 'parts per million',
         'ppb': 'parts per billion',
         'ppt': 'parts per trillion'
@@ -908,15 +923,74 @@ def _add_prior_long_units(ds, is_public):
         units = ds[varname].units
         long_str = unit_long_str.get(units, units)
         ds[varname].long_units = '{} (wet mole fraction)'.format(long_str)
-        ds[varname].note = 'Prior VMRs are given in wet mole fractions. To convert to dry mole fractions, you must calculate H2O_dry = H2O_wet/(1 - H2O_wet) and then gas_dry = gas_wet * (1 + H2O_dry), where H2O_wet is the {} variable.{}'.format(h2o_prior, units_note)
+        if varname == 'prior_h2o':
+            ds[varname].note = 'Prior VMRs are given in wet mole fractions. To convert to dry mole fractions, you must calculate H2O_dry = H2O_wet/(1 - H2O_wet).'
+        else:
+            ds[varname].note = 'Prior VMRs are given in wet mole fractions. To convert to dry mole fractions, you must calculate H2O_dry = H2O_wet/(1 - H2O_wet) and then gas_dry = gas_wet * (1 + H2O_dry), where H2O_wet is the {} variable.{}'.format(h2o_prior, units_note)
+
+    ds['prior_density'].note = "This is the ideal number density for the temperature and pressure at each model level. GGG assumes that this includes water, and so multiplies this by wet mole fractions of trace gases to get those gases' number densities."
 
 
-def _fix_co2_description(ds):
+def _fix_public_cf_attributes(ds, is_public):
+    if not is_public:
+        return
+
+    with open(public_cf_attrs_json()) as f:
+        pub_cf_attrs = json.load(f)
+
+    for attribute, overrides in pub_cf_attrs['public_overrides'].items():
+        for varname, attvalue in overrides.items():
+            logging.profile('Updating attribute "{}" on "{}" to "{}"'.format(attribute, varname, attvalue))
+            ds[varname].setncattr(attribute, attvalue)
+
+    for attribute, variables in pub_cf_attrs['public_removes'].items():
+        for varname in variables:
+            if hasattr(ds[varname], attribute):
+                logging.profile('Removing attribute "{}" on "{}"'.format(attribute, varname))
+                ds[varname].delncattr(attribute)
+
+
+def _fix_incorrect_attributes(ds):
     # The default pa_qc.dat file with GGG2020 has the description for XCO2 refer to
     # column_*w*co2. If that slips through, fix it.
     if ds['xco2'].description == '0.2095*column_wco2/column_o2':
-        logging.info('Corrected description of "xco2" variable')
         ds['xco2'].description = '0.2095*column_co2/column_o2'
+        logging.info('Corrected description of "xco2" variable')
+
+    # The tropopause altitude gets the wrong units in private files created using the version of 
+    # write_netcdf distributed with GGG2020. Fix that here
+    if ds['prior_tropopause_altitude'].units == 'degrees_north':
+        ds['prior_tropopause_altitude'].units = 'km'
+        logging.info('Corrected prior_tropopause_altitude units')
+
+    # This isn't incorrect as much as missing, but this is a sensible place to put it
+    ak_variables = [v for v in ds.variables.keys() if v.startswith('ak_x')]
+    for varname in ak_variables:
+        if not hasattr(ds[varname], 'usage'):
+            ds[varname].usage = 'Please see https://tccon-wiki.caltech.edu/Main/GGG2020DataChanges for instructions on how to generate AKs for individual observations.'
+
+
+def _fix_unspecified_units(ds):
+    # UdUnits list of recognized units: https://ncics.org/portfolio/other-resources/udunits2/?
+    regexes = [
+        re.compile(r'^ak_x'),
+        re.compile(r'^prior_\d'),  # only pick trace gas prior and cell variables, which should always be 
+        re.compile(r'^cell_\d'),
+        re.compile(r'^h2o_dmf_out$'),
+        re.compile(r'^h2o_dmf_mod$'),
+        re.compile(r'^vsw_'),
+        re.compile(r'^xluft$'),
+        re.compile(r'^xluft_error'),
+        re.compile(r'^ada_x'),
+        re.compile(r'_cfampocl$')
+    ]
+    for varname, variable in ds.variables.items():
+        if any(r.search(varname) for r in regexes):
+            logging.profile('Setting {} units to "1"'.format(varname))
+            if variable.units == '':
+                variable.units = '1'
+        
+        
 
 
 def _add_flag_usage(ds):
@@ -1145,8 +1219,9 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             # prior variables
             elif name in ['prior_{}'.format(var) for var in factor.keys()]: # for the a priori profile, only the ones listed in the "factor" dictionary make it to the public file
                 public_name = name.replace('_1','_')
+                scale_factor = vmr_scale_dict[units_dict[public_name]] # also need to scale them from straight DMF to ppm, ppb, etc.
                 public_data.createVariable(public_name,variable.datatype,variable.dimensions)
-                public_data[public_name][:] = private_data[name][:]
+                public_data[public_name][:] = private_data[name][:] * scale_factor
                 public_data[public_name].setncatts(private_data[name].__dict__)
                 public_data[public_name].description = "a priori profile of {}".format(public_name.replace('prior_',''))
                 public_data[public_name].units = units_dict[public_name]
