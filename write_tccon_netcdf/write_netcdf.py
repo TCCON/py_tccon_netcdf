@@ -940,12 +940,13 @@ def _fix_public_cf_attributes(ds, is_public):
 
     for attribute, overrides in pub_cf_attrs['public_overrides'].items():
         for varname, attvalue in overrides.items():
-            logging.profile('Updating attribute "{}" on "{}" to "{}"'.format(attribute, varname, attvalue))
-            ds[varname].setncattr(attribute, attvalue)
+            if varname in ds.variables.keys():
+                logging.profile('Updating attribute "{}" on "{}" to "{}"'.format(attribute, varname, attvalue))
+                ds[varname].setncattr(attribute, attvalue)
 
     for attribute, variables in pub_cf_attrs['public_removes'].items():
         for varname in variables:
-            if hasattr(ds[varname], attribute):
+            if varname in ds.variables.keys() and hasattr(ds[varname], attribute):
                 logging.profile('Removing attribute "{}" on "{}"'.format(attribute, varname))
                 ds[varname].delncattr(attribute)
 
@@ -1015,7 +1016,7 @@ def _add_aicf_scale_attr(variable_name, pub_variable, priv_data):
         pub_variable.wmo_or_analogous_scale = scale
 
 
-def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False,flag0_only=True):
+def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False,flag0_only=True,expand_priors=False):
     """
     Take a private netcdf file and write the public file using the public_variables.json file
     """
@@ -1087,6 +1088,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
         
         nspec = private_data['time'].size
         public_slice = np.array(release_ids & no_flag_ids) # boolean array to slice the private variables on the public ids
+        prior_idx = private_data['prior_index'][:][public_slice] # used if expanding priors
 
         nspec_public = np.sum(public_slice)
 
@@ -1095,6 +1097,8 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
         for name, dimension in private_data.dimensions.items():
             if name == 'time':
                 public_data.createDimension(name, nspec_public)
+            elif expand_priors and name == 'prior_time':
+                pass
             else:
                 public_data.createDimension(name, (len(dimension) if not dimension.isunlimited() else None))
         logging.info('  -> Done copying dimensions')
@@ -1150,15 +1154,25 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             # a regular numpy (masked) array. There must be either some inefficiency in 
             # the netCDF library to read a subset or an optimization to read the whole array.
             if public and not experimental_group_startswith_check and not (insb_group_check or si_group_check):
-                if 'time' in variable.dimensions: # only the variables along the 'time' dimension need to be sampled with public_ids
+                write_atts = True
+                if expand_priors and name in {'prior_time', 'prior_index'}:
+                    # We do not need these variables if we are expanding the priors
+                    write_atts = False
+                elif 'time' in variable.dimensions: # only the variables along the 'time' dimension need to be sampled with public_ids
                     public_data.createVariable(name, variable.datatype, variable.dimensions)
                     this_var_data = private_data[name][:]
                     public_data[name][:] = this_var_data[public_slice] #private_data[name][public_slice]
+                elif expand_priors and 'prior_time' in variable.dimensions:
+                    new_dimensions = ('time',) + variable.dimensions[1:]
+                    public_data.createVariable(name,variable.datatype,new_dimensions,zlib=True,complevel=9)
+                    public_data[name][:] = private_data[name][:][prior_idx]
                 else:
                     public_data.createVariable(name, variable.datatype, variable.dimensions)
                     public_data[name][:] = private_data[name][:]
-                # copy variable attributes all at once via dictionary
-                public_data[name].setncatts(private_data[name].__dict__)
+
+                if write_atts:
+                    # copy variable attributes all at once via dictionary
+                    public_data[name].setncatts(private_data[name].__dict__)
 
                 # add WMO or comparable scale attribute if needed
                 if aicf_scale_check:
@@ -1220,8 +1234,13 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             elif name in ['prior_{}'.format(var) for var in factor.keys()]: # for the a priori profile, only the ones listed in the "factor" dictionary make it to the public file
                 public_name = name.replace('_1','_')
                 scale_factor = vmr_scale_dict[units_dict[public_name]] # also need to scale them from straight DMF to ppm, ppb, etc.
-                public_data.createVariable(public_name,variable.datatype,variable.dimensions)
-                public_data[public_name][:] = private_data[name][:] * scale_factor
+                if not expand_priors:
+                    public_data.createVariable(public_name,variable.datatype,variable.dimensions)
+                    public_data[public_name][:] = private_data[name][:] * scale_factor
+                else:
+                    new_dimensions = ('time',) + variable.dimensions[1:]
+                    public_data.createVariable(public_name,variable.datatype,new_dimensions,zlib=True,complevel=9)
+                    public_data[public_name][:] = private_data[name][:][prior_idx] * scale_factor
                 public_data[public_name].setncatts(private_data[name].__dict__)
                 public_data[public_name].description = "a priori profile of {}".format(public_name.replace('prior_',''))
                 public_data[public_name].units = units_dict[public_name]
@@ -1607,6 +1626,7 @@ def main():
     parser.add_argument('--rflag',action='store_true',help='If given with a private.nc file as input, will create a separate private.qc.nc file with updated flags based on the --rflag-file')
     parser.add_argument('--rflag-file',help='Full path to the .json input file that sets release flags (has no effect without --rflag)')
 
+    parser.add_argument('--expand-priors', action='store_true', help='When writing public files, expand the priors to match the time dimension')
     args = parser.parse_args()
     logger, show_progress, HEAD_commit = setup_logging(log_level=args.log_level, log_file=args.log_file, message=args.message, to_stdout=args.log_to_stdout)
     
@@ -1639,7 +1659,7 @@ def main():
             if not args.public:
                 sys.exit()
         logging.info('Writing public file from {}'.format(private_nc_file))
-        write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=not args.std_only,remove_if_no_experimental=args.remove_no_expt,flag0_only=not args.publish_all_flags)
+        write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=not args.std_only,remove_if_no_experimental=args.remove_no_expt,flag0_only=not args.publish_all_flags,expand_priors=args.expand_priors)
         sys.exit()
 
     # input and output file names
@@ -3040,7 +3060,7 @@ def main():
     logging.info('Finished writing {} {:.2f} MB'.format(private_nc_file,os.path.getsize(private_nc_file)/1e6))
 
     if args.public:
-        write_public_nc(private_nc_file,code_dir,nc_format)
+        write_public_nc(private_nc_file,code_dir,nc_format,expand_priors=args.expand_priors)
 
     if args.eof:
         ordered_var_list = ['flag','flagged_var_name','spectrum'] # list of variables for writing the eof file
