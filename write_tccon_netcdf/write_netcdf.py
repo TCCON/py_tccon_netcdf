@@ -1016,7 +1016,20 @@ def _add_aicf_scale_attr(variable_name, pub_variable, priv_data):
         pub_variable.wmo_or_analogous_scale = scale
 
 
-def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False,flag0_only=True,expand_priors=False):
+def _expand_aks(private_ds, xgas):
+    airmass = private_ds['o2_7885_am_o2'][:]
+    slant_xgas_values = private_ds[xgas][:] * airmass
+    slant_xgas_bins = private_ds['ak_slant_{}_bin'.format(xgas)][:]
+    aks = private_ds['ak_{}'.format(xgas)][:]
+
+    expanded_aks = np.full([slant_xgas_values.size, aks.shape[0]], np.nan, dtype=aks.dtype)
+    for ilev in range(aks.shape[0]):
+        expanded_aks[:, ilev] = np.interp(slant_xgas_values, slant_xgas_bins, aks[ilev, :])
+
+    return expanded_aks
+
+
+def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False,flag0_only=True,expand_priors=False,expand_aks=False):
     """
     Take a private netcdf file and write the public file using the public_variables.json file
     """
@@ -1155,8 +1168,11 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             # the netCDF library to read a subset or an optimization to read the whole array.
             if public and not experimental_group_startswith_check and not (insb_group_check or si_group_check):
                 write_atts = True
-                if expand_priors and name in {'prior_time', 'prior_index'}:
+                if expand_priors and name in {'prior_index'}:
                     # We do not need these variables if we are expanding the priors
+                    write_atts = False
+                elif expand_aks and name.startswith('ak_slant'):
+                    # Also don't need these coordinate variables if expanding the AKs
                     write_atts = False
                 elif 'time' in variable.dimensions: # only the variables along the 'time' dimension need to be sampled with public_ids
                     public_data.createVariable(name, variable.datatype, variable.dimensions)
@@ -1166,6 +1182,11 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                     new_dimensions = ('time',) + variable.dimensions[1:]
                     public_data.createVariable(name,variable.datatype,new_dimensions,zlib=True,complevel=9)
                     public_data[name][:] = private_data[name][:][prior_idx]
+                elif expand_aks and name.startswith('ak_x'):
+                    new_dimensions = ('time',) + tuple([d for d in variable.dimensions if d != 'ak_slant_xgas_bin'])
+                    public_data.createVariable(name,variable.datatype,new_dimensions,zlib=True,complevel=9)
+                    this_xgas = name.split('_')[1]
+                    public_data[name][:] = _expand_aks(private_data, this_xgas)[public_slice]
                 else:
                     public_data.createVariable(name, variable.datatype, variable.dimensions)
                     public_data[name][:] = private_data[name][:]
@@ -1178,8 +1199,12 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                 if aicf_scale_check:
                     _add_aicf_scale_attr(name, public_data[name], private_data)
             elif nc_format=='NETCDF4' and public and experimental_group_startswith_check: # ingaas experimental variables
-                public_data['ingaas_experimental'].createVariable(name, variable.datatype, variable.dimensions)
-                this_var_data = private_data[name][:]
+                if expand_aks and name.startswith('ak_x'):
+                    public_data['ingaas_experimental'].createVariable(name, variable.datatype, variable.dimensions, zlib=True, complevel=9)
+                    this_var_data = _expand_aks(private_data, name.split('_')[1])
+                else:
+                    public_data['ingaas_experimental'].createVariable(name, variable.datatype, variable.dimensions)
+                    this_var_data = private_data[name][:]
                 public_data['ingaas_experimental'][name][:] = this_var_data[public_slice]
                 public_data['ingaas_experimental'][name].setncatts(private_data[name].__dict__)
                 
@@ -1188,8 +1213,12 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                     _add_aicf_scale_attr(name, public_data['ingaas_experimental'][name], private_data)
             elif include_experimental and nc_format=='NETCDF4' and public and insb_group_check: # insb experimental variables
                 has_experimental = True
-                public_data['insb_experimental'].createVariable(name.replace('_insb',''), variable.datatype, variable.dimensions)
-                this_var_data = private_data[name][:]
+                if expand_aks and name.startswith('ak_x'):
+                    public_data['insb_experimental'].createVariable(name.replace('_insb',''), variable.datatype, variable.dimensions, zlib=True, complevel=9)
+                    this_var_data = _expand_aks(private_data, name.split('_')[1])
+                else:
+                    public_data['insb_experimental'].createVariable(name.replace('_insb',''), variable.datatype, variable.dimensions)
+                    this_var_data = private_data[name][:]
                 public_data['insb_experimental'][name.replace('_insb','')][:] = this_var_data[public_slice]
                 public_data['insb_experimental'][name.replace('_insb','')].setncatts(private_data[name].__dict__)
                 
@@ -1200,8 +1229,12 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                 has_experimental = True
                 public_name = name.replace('_si', '')
                 
-                public_data['si_experimental'].createVariable(public_name, variable.datatype, variable.dimensions)
-                this_var_data = private_data[name][:]
+                if expand_aks and name.startswith('ak_x'):
+                    public_data['si_experimental'].createVariable(public_name, variable.datatype, variable.dimensions, zlib=True, complevel=9)
+                    this_var_data = _expand_aks(private_data, name.split('_')[1])
+                else:
+                    public_data['si_experimental'].createVariable(public_name, variable.datatype, variable.dimensions)
+                    this_var_data = private_data[name][:]
 
                 public_data['si_experimental'][public_name][:] = this_var_data[public_slice]
                 public_data['si_experimental'][public_name].setncatts(private_data[name].__dict__)
@@ -1217,8 +1250,12 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                     has_experimental = True
 
                 public_name = name+'_experimental'
-                public_data.createVariable(public_name, variable.datatype, variable.dimensions)
-                this_var_data = private_data[name][:]
+                if expand_aks and name.startswith('ak_x'):
+                    public_data.createVariable(public_name, variable.datatype, variable.dimensions, zlib=True, complevel=9)
+                    this_var_data = _expand_aks(private_data, name.split('_')[1])
+                else:
+                    public_data.createVariable(public_name, variable.datatype, variable.dimensions)
+                    this_var_data = private_data[name][:]
                 public_data[public_name][:] = this_var_data[public_slice]
                 public_data[public_name].setncatts(private_data[name].__dict__)
                 if hasattr(public_data[public_name],'description'):
@@ -1627,6 +1664,7 @@ def main():
     parser.add_argument('--rflag-file',help='Full path to the .json input file that sets release flags (has no effect without --rflag)')
 
     parser.add_argument('--expand-priors', action='store_true', help='When writing public files, expand the priors to match the time dimension')
+    parser.add_argument('--expand-aks', action='store_true', help='When writing public files, expand the AKs to match the time dimension, interpolating as needed')
     args = parser.parse_args()
     logger, show_progress, HEAD_commit = setup_logging(log_level=args.log_level, log_file=args.log_file, message=args.message, to_stdout=args.log_to_stdout)
     
@@ -1659,7 +1697,7 @@ def main():
             if not args.public:
                 sys.exit()
         logging.info('Writing public file from {}'.format(private_nc_file))
-        write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=not args.std_only,remove_if_no_experimental=args.remove_no_expt,flag0_only=not args.publish_all_flags,expand_priors=args.expand_priors)
+        write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=not args.std_only,remove_if_no_experimental=args.remove_no_expt,flag0_only=not args.publish_all_flags,expand_priors=args.expand_priors,expand_aks=args.expand_aks)
         sys.exit()
 
     # input and output file names
@@ -3060,7 +3098,7 @@ def main():
     logging.info('Finished writing {} {:.2f} MB'.format(private_nc_file,os.path.getsize(private_nc_file)/1e6))
 
     if args.public:
-        write_public_nc(private_nc_file,code_dir,nc_format,expand_priors=args.expand_priors)
+        write_public_nc(private_nc_file,code_dir,nc_format,expand_priors=args.expand_priors,expand_aks=args.expand_aks)
 
     if args.eof:
         ordered_var_list = ['flag','flagged_var_name','spectrum'] # list of variables for writing the eof file
