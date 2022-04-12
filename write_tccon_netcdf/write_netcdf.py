@@ -968,7 +968,7 @@ def _fix_incorrect_attributes(ds):
     ak_variables = [v for v in ds.variables.keys() if v.startswith('ak_x')]
     for varname in ak_variables:
         if not hasattr(ds[varname], 'usage'):
-            ds[varname].usage = 'Please see https://tccon-wiki.caltech.edu/Main/GGG2020DataChanges for instructions on how to generate AKs for individual observations.'
+            ds[varname].usage = 'Please see https://tccon-wiki.caltech.edu/Main/GGG2020DataChanges for instructions on how to apply the AKs to compare TCCON data with other measurements.'
 
 
 def _fix_unspecified_units(ds):
@@ -1016,17 +1016,33 @@ def _add_aicf_scale_attr(variable_name, pub_variable, priv_data):
         pub_variable.wmo_or_analogous_scale = scale
 
 
-def _expand_aks(private_ds, xgas):
-    airmass = private_ds['o2_7885_am_o2'][:]
-    slant_xgas_values = private_ds[xgas][:] * airmass
-    slant_xgas_bins = private_ds['ak_slant_{}_bin'.format(xgas)][:]
-    aks = private_ds['ak_{}'.format(xgas)][:]
+def _expand_aks(ds, xgas, n=100):
+        airmass = ds['o2_7885_am_o2'][:]
+        slant_xgas_values = ds[xgas][:] * airmass
+        slant_xgas_bins = ds['ak_slant_{}_bin'.format(xgas)][:]
+        if xgas == 'xch4' and ds['ak_slant_{}_bin'.format(xgas)].units == 'ppb':
+            # XCH4 bins are given in ppb, but XCH4 itself in ppm. Oops!
+            slant_xgas_bins = slant_xgas_bins * 1e-3
+        aks = ds['ak_{}'.format(xgas)][:]
+        slant_xgas_values = _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=n)
+        
+        expanded_aks = np.full([slant_xgas_values.size, aks.shape[0]], np.nan, dtype=aks.dtype)
+        for ilev in range(aks.shape[0]):
+            expanded_aks[:, ilev] = np.interp(slant_xgas_values, slant_xgas_bins, aks[ilev, :])
 
-    expanded_aks = np.full([slant_xgas_values.size, aks.shape[0]], np.nan, dtype=aks.dtype)
-    for ilev in range(aks.shape[0]):
-        expanded_aks[:, ilev] = np.interp(slant_xgas_values, slant_xgas_bins, aks[ilev, :])
-
-    return expanded_aks
+        return expanded_aks
+    
+def _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=100):
+    # Put the individual spectra's slant Xgas values on a smaller number
+    # of quantized values ranging between the minimum and maximum values, not allowing
+    # the values to go outside of the bins
+    smin = max(np.min(slant_xgas_values), np.min(slant_xgas_bins))
+    smax = min(np.max(slant_xgas_values), np.max(slant_xgas_bins))
+    si = (slant_xgas_values - smin)/(smax - smin) # normalize to 0 to 1
+    si = np.clip(si, 0, 1)
+    si = np.round(si * (n - 1)) # round to values between 0 and (n-1)
+    si = si / (n - 1) * (smax - smin) + smin # restore original magnitude
+    return si
 
 
 def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False,flag0_only=True,expand_priors=False,expand_aks=False):
@@ -1293,7 +1309,10 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             public_data.createVariable('airmass',private_data['o2_7885_am_o2'].datatype,private_data['o2_7885_am_o2'].dimensions)
             public_data['airmass'][:] = private_data['o2_7885_am_o2'][:][public_slice]
             public_data['airmass'].setncatts(private_data['o2_7885_am_o2'].__dict__)
-            public_data['airmass'].description = "airmass computed as the total vertical column of O2 divided by the total slant column of O2 retrieved from the window centered at 7885 cm-1. To compute the slant column of a given gas use Xgas*airmass"
+            if expand_aks:
+                public_data['airmass'].description = "airmass computed as the total vertical column of O2 divided by the total slant column of O2 retrieved from the window centered at 7885 cm-1."
+            else:
+                public_data['airmass'].description = "airmass computed as the total vertical column of O2 divided by the total slant column of O2 retrieved from the window centered at 7885 cm-1. To compute the slant column of a given gas use Xgas*airmass"
             public_data['airmass'].long_name = 'airmass'
             public_data['airmass'].standard_name = 'airmass'
             public_data['airmass'].units = ''
@@ -1663,8 +1682,8 @@ def main():
     parser.add_argument('--rflag',action='store_true',help='If given with a private.nc file as input, will create a separate private.qc.nc file with updated flags based on the --rflag-file')
     parser.add_argument('--rflag-file',help='Full path to the .json input file that sets release flags (has no effect without --rflag)')
 
-    parser.add_argument('--expand-priors', action='store_true', help='When writing public files, expand the priors to match the time dimension')
-    parser.add_argument('--expand-aks', action='store_true', help='When writing public files, expand the AKs to match the time dimension, interpolating as needed')
+    parser.add_argument('--no-expand-priors', action='store_false', dest='expand_priors', help='When writing public files, do NOT expand the priors to match the time dimension, leave them on the 3 hourly interval')
+    parser.add_argument('--no-expand-aks', action='store_false', dest='expand_aks', help='When writing public files, do NOT expand the AKs to match the time dimension, leave them as lookup tables')
     args = parser.parse_args()
     logger, show_progress, HEAD_commit = setup_logging(log_level=args.log_level, log_file=args.log_file, message=args.message, to_stdout=args.log_to_stdout)
     
