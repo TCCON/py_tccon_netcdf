@@ -968,7 +968,7 @@ def _fix_incorrect_attributes(ds):
     ak_variables = [v for v in ds.variables.keys() if v.startswith('ak_x')]
     for varname in ak_variables:
         if not hasattr(ds[varname], 'usage'):
-            ds[varname].usage = 'Please see https://tccon-wiki.caltech.edu/Main/GGG2020DataChanges for instructions on how to apply the AKs to compare TCCON data with other measurements.'
+            ds[varname].usage = 'Please see https://tccon-wiki.caltech.edu/Main/GGG2020DataChanges for instructions on how to use the AK variables.'
 
 
 def _fix_unspecified_units(ds):
@@ -1016,7 +1016,7 @@ def _add_aicf_scale_attr(variable_name, pub_variable, priv_data):
         pub_variable.wmo_or_analogous_scale = scale
 
 
-def _expand_aks(ds, xgas, n=100):
+def _expand_aks(ds, xgas, n=500):
         airmass = ds['o2_7885_am_o2'][:]
         slant_xgas_values = ds[xgas][:] * airmass
         slant_xgas_bins = ds['ak_slant_{}_bin'.format(xgas)][:]
@@ -1032,12 +1032,15 @@ def _expand_aks(ds, xgas, n=100):
 
         return expanded_aks
     
-def _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=100):
+def _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=500):
     # Put the individual spectra's slant Xgas values on a smaller number
     # of quantized values ranging between the minimum and maximum values, not allowing
-    # the values to go outside of the bins
-    smin = max(np.min(slant_xgas_values), np.min(slant_xgas_bins))
-    smax = min(np.max(slant_xgas_values), np.max(slant_xgas_bins))
+    # the values to go outside of the bins. I decided to base these off of the bins
+    # rather than the actual slant xgas values because doing the latter will cause the
+    # AKs to change when the public files are updated and there's a wider range of slant
+    # xgas variables.
+    smin = np.min(slant_xgas_bins)
+    smax = np.max(slant_xgas_bins)
     si = (slant_xgas_values - smin)/(smax - smin) # normalize to 0 to 1
     si = np.clip(si, 0, 1)
     si = np.round(si * (n - 1)) # round to values between 0 and (n-1)
