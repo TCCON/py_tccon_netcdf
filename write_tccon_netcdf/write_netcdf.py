@@ -885,6 +885,7 @@ def write_values(nc_data,var,values,inds=[]):
 
 def update_attrs_for_public_files(ds, is_public):
     _fix_unspecified_units(ds)
+    _fix_inconsistent_units(ds)
     _add_prior_long_units(ds, is_public)
     _fix_public_cf_attributes(ds, is_public)
     _fix_incorrect_attributes(ds)
@@ -968,6 +969,15 @@ def _fix_incorrect_attributes(ds):
     for varname in ak_variables:
         if not hasattr(ds[varname], 'usage'):
             ds[varname].usage = 'Please see https://tccon-wiki.caltech.edu/Main/GGG2020DataChanges for instructions on how to generate AKs for individual observations.'
+
+
+def _fix_inconsistent_units(ds):
+    # The slant XCH4 bins were originally given in ppb, while the XCH4 values were in ppm.
+    # Make those consistent if that is still the case. 
+    if 'ak_slant_xch4_bin' in ds.variables.keys() and ds['ak_slant_xch4_bin'].units == 'ppb':
+        ds['ak_slant_xch4_bin'][:] = ds['ak_slant_xch4_bin'][:] * 1e-3
+        ds['ak_slant_xch4_bin'].units = 'ppb'
+        logging.info('Converted ak_slant_xch4_bin from ppb -> ppm')
 
 
 def _fix_unspecified_units(ds):
@@ -2110,7 +2120,12 @@ def main():
                     "units": ak_nc[ak_bin_var].units,
                 }
                 nc_data[var].setncatts(att_dict)
-                nc_data[var][0:nbins_ak] = ak_nc[ak_bin_var][:].data.astype(np.float32)
+                if var == 'ak_slant_xch4_bin':
+                    # Need to convert the ppb in the netCDF file to ppm to be consistent with xch4
+                    nc_data[var][0:nbins_ak] = ak_nc[ak_bin_var][:].data.astype(np.float32) * 1e-3
+                    nc_data[var].units = 'ppm'
+                else:
+                    nc_data[var][0:nbins_ak] = ak_nc[ak_bin_var][:].data.astype(np.float32)
 
             for ak_var in [i for i in ak_nc.variables if i.endswith('aks')]:
                 var = 'ak_{}'.format(ak_var.strip('_aks'))
