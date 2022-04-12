@@ -976,7 +976,7 @@ def _fix_inconsistent_units(ds):
     # Make those consistent if that is still the case. 
     if 'ak_slant_xch4_bin' in ds.variables.keys() and ds['ak_slant_xch4_bin'].units == 'ppb':
         ds['ak_slant_xch4_bin'][:] = ds['ak_slant_xch4_bin'][:] * 1e-3
-        ds['ak_slant_xch4_bin'].units = 'ppb'
+        ds['ak_slant_xch4_bin'].units = 'ppm'
         logging.info('Converted ak_slant_xch4_bin from ppb -> ppm')
 
 
