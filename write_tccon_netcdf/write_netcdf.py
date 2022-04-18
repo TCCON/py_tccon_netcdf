@@ -1026,7 +1026,7 @@ def _add_aicf_scale_attr(variable_name, pub_variable, priv_data):
         pub_variable.wmo_or_analogous_scale = scale
 
 
-def _expand_aks(ds, xgas, n=500):
+def _expand_aks(ds, xgas, n=500, full_ak_resolution=False):
         airmass = ds['o2_7885_am_o2'][:]
         slant_xgas_values = ds[xgas][:] * airmass
         slant_xgas_bins = ds['ak_slant_{}_bin'.format(xgas)][:]
@@ -1034,7 +1034,8 @@ def _expand_aks(ds, xgas, n=500):
             # XCH4 bins are given in ppb, but XCH4 itself in ppm. Oops!
             slant_xgas_bins = slant_xgas_bins * 1e-3
         aks = ds['ak_{}'.format(xgas)][:]
-        slant_xgas_values = _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=n)
+        if not full_ak_resolution:
+            slant_xgas_values = _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=n)
         
         expanded_aks = np.full([slant_xgas_values.size, aks.shape[0]], np.nan, dtype=aks.dtype)
         for ilev in range(aks.shape[0]):
@@ -1042,7 +1043,7 @@ def _expand_aks(ds, xgas, n=500):
 
         return expanded_aks
     
-def _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=500):
+def _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=500, min_extrap=0):
     # Put the individual spectra's slant Xgas values on a smaller number
     # of quantized values ranging between the minimum and maximum values, not allowing
     # the values to go outside of the bins. I decided to base these off of the bins
@@ -1058,7 +1059,7 @@ def _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=500):
     return si
 
 
-def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False,flag0_only=True,expand_priors=False,expand_aks=False):
+def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False,flag0_only=True,expand_priors=True,expand_aks=True,full_ak_resolution=True):
     """
     Take a private netcdf file and write the public file using the public_variables.json file
     """
@@ -1215,7 +1216,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                     new_dimensions = ('time',) + tuple([d for d in variable.dimensions if d != 'ak_slant_xgas_bin'])
                     public_data.createVariable(name,variable.datatype,new_dimensions,zlib=True,complevel=9)
                     this_xgas = name.split('_')[1]
-                    public_data[name][:] = _expand_aks(private_data, this_xgas)[public_slice]
+                    public_data[name][:] = _expand_aks(private_data, this_xgas, full_ak_resolution=full_ak_resolution)[public_slice]
                 else:
                     public_data.createVariable(name, variable.datatype, variable.dimensions)
                     public_data[name][:] = private_data[name][:]
@@ -1230,7 +1231,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             elif nc_format=='NETCDF4' and public and experimental_group_startswith_check: # ingaas experimental variables
                 if expand_aks and name.startswith('ak_x'):
                     public_data['ingaas_experimental'].createVariable(name, variable.datatype, variable.dimensions, zlib=True, complevel=9)
-                    this_var_data = _expand_aks(private_data, name.split('_')[1])
+                    this_var_data = _expand_aks(private_data, name.split('_')[1], full_ak_resolution=full_ak_resolution)
                 else:
                     public_data['ingaas_experimental'].createVariable(name, variable.datatype, variable.dimensions)
                     this_var_data = private_data[name][:]
@@ -1697,6 +1698,7 @@ def main():
 
     parser.add_argument('--no-expand-priors', action='store_false', dest='expand_priors', help='When writing public files, do NOT expand the priors to match the time dimension, leave them on the 3 hourly interval')
     parser.add_argument('--no-expand-aks', action='store_false', dest='expand_aks', help='When writing public files, do NOT expand the AKs to match the time dimension, leave them as lookup tables')
+    parser.add_argument('--full-ak-resolution', action='store_true', help='Use the exact slant Xgas for each spectrum when expanding AKs, rather than quantized ones. Output files will be larger.')
     args = parser.parse_args()
     logger, show_progress, HEAD_commit = setup_logging(log_level=args.log_level, log_file=args.log_file, message=args.message, to_stdout=args.log_to_stdout)
     
@@ -1729,7 +1731,7 @@ def main():
             if not args.public:
                 sys.exit()
         logging.info('Writing public file from {}'.format(private_nc_file))
-        write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=not args.std_only,remove_if_no_experimental=args.remove_no_expt,flag0_only=not args.publish_all_flags,expand_priors=args.expand_priors,expand_aks=args.expand_aks)
+        write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=not args.std_only,remove_if_no_experimental=args.remove_no_expt,flag0_only=not args.publish_all_flags,expand_priors=args.expand_priors,expand_aks=args.expand_aks,full_ak_resolution=args.full_ak_resolution)
         sys.exit()
 
     # input and output file names
