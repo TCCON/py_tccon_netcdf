@@ -1026,22 +1026,35 @@ def _add_aicf_scale_attr(variable_name, pub_variable, priv_data):
         pub_variable.wmo_or_analogous_scale = scale
 
 
-def _expand_aks(ds, xgas, n=500, full_ak_resolution=False):
-        airmass = ds['o2_7885_am_o2'][:]
-        slant_xgas_values = ds[xgas][:] * airmass
-        slant_xgas_bins = ds['ak_slant_{}_bin'.format(xgas)][:]
-        if xgas == 'xch4' and ds['ak_slant_{}_bin'.format(xgas)].units == 'ppb':
-            # XCH4 bins are given in ppb, but XCH4 itself in ppm. Oops!
-            slant_xgas_bins = slant_xgas_bins * 1e-3
-        aks = ds['ak_{}'.format(xgas)][:]
-        if not full_ak_resolution:
-            slant_xgas_values = _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=n)
-        
-        expanded_aks = np.full([slant_xgas_values.size, aks.shape[0]], np.nan, dtype=aks.dtype)
-        for ilev in range(aks.shape[0]):
-            expanded_aks[:, ilev] = np.interp(slant_xgas_values, slant_xgas_bins, aks[ilev, :])
+def _expand_aks(ds, xgas, n=500, full_ak_resolution=False, min_extrap=0):
+    try:
+        import xarray as xr
+    except ImportError:
+        raise ImportError('xarray is required to save per-spectrum AKs. Please install it in this environment.')
+    logging.debug('Expanding AKs for %s', xgas)
+    airmass = ds['o2_7885_am_o2'][:]
+    slant_xgas_values = ds[xgas][:] * airmass
+    slant_xgas_bins = ds['ak_slant_{}_bin'.format(xgas)][:]
+    if xgas == 'xch4' and ds['ak_slant_{}_bin'.format(xgas)].units == 'ppb':
+        # XCH4 bins are given in ppb, but XCH4 itself in ppm. Oops!
+        slant_xgas_bins = slant_xgas_bins * 1e-3
+    aks = ds['ak_{}'.format(xgas)][:]
+    extrap_flags = np.zeros(slant_xgas_values.shape, dtype=np.int8)
+    extrap_flags[slant_xgas_values < min_extrap] = -2
+    extrap_flags[(slant_xgas_values >= min_extrap) & (slant_xgas_values < np.min(slant_xgas_bins))] = -1
+    extrap_flags[slant_xgas_values > np.max(slant_xgas_bins)] = 2
+    if not full_ak_resolution:
+        slant_xgas_values = _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=n, min_extrap=min_extrap)
+    else:
+        slant_xgas_values = np.clip(slant_xgas_values, min_extrap, np.max(slant_xgas_bins))
+    
+    expanded_aks = np.full([slant_xgas_values.size, aks.shape[0]], np.nan, dtype=aks.dtype)
+    alt = ds['ak_altitude'][:]  # isn't really necessary, but need a coordinate along that dimension anyway
+    lookup_aks = xr.DataArray(aks, coords=[alt, slant_xgas_bins], dims=['alt', 'slant_bin'])
+    expanded_aks = lookup_aks.interp(slant_bin=slant_xgas_values, kwargs={'fill_value':'extrapolate'})
+    expanded_aks = expanded_aks.data.T
 
-        return expanded_aks
+    return expanded_aks, extrap_flags
     
 def _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=500, min_extrap=0):
     # Put the individual spectra's slant Xgas values on a smaller number
@@ -1050,13 +1063,33 @@ def _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=500, min
     # rather than the actual slant xgas values because doing the latter will cause the
     # AKs to change when the public files are updated and there's a wider range of slant
     # xgas variables.
+    def quantize(values, minval, maxval, nval):
+        si = (values - minval)/(maxval - minval) # normalize to 0 to 1
+        si = np.clip(si, 0, 1)
+        si = np.round(si * (nval - 1)) # round to values between 0 and (n-1)
+        si = si / (nval - 1) * (maxval - minval) + minval # restore original magnitude
+        return si
+        
     smin = np.min(slant_xgas_bins)
     smax = np.max(slant_xgas_bins)
-    si = (slant_xgas_values - smin)/(smax - smin) # normalize to 0 to 1
-    si = np.clip(si, 0, 1)
-    si = np.round(si * (n - 1)) # round to values between 0 and (n-1)
-    si = si / (n - 1) * (smax - smin) + smin # restore original magnitude
-    return si
+    
+    quant_slant = np.full_like(slant_xgas_values, np.nan)
+    
+    xx_in = (slant_xgas_values >= smin) & (slant_xgas_values <= smax)
+    xx_ex = (slant_xgas_values >= min_extrap) & (slant_xgas_values < smin)
+    xx_below = slant_xgas_values < min_extrap
+    xx_above = slant_xgas_values > smax
+    
+    # First handle values inside the range of the bins
+    quant_slant[xx_in] = quantize(slant_xgas_values[xx_in], smin, smax, n)
+    # Then the values extrapolated between the bottom bin and 0. Use 10x fewer
+    # quantized points that the main region, as this should be a significantly
+    # smaller range.
+    quant_slant[xx_ex] = quantize(slant_xgas_values[xx_ex], min_extrap, smin, n // 10)
+    # Finally set the min and max values
+    quant_slant[xx_below] = min_extrap
+    quant_slant[xx_above] = smax
+    return quant_slant
 
 
 def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False,flag0_only=True,expand_priors=True,expand_aks=True,full_ak_resolution=True):
@@ -1198,6 +1231,8 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             # the netCDF library to read a subset or an optimization to read the whole array.
             if public and not experimental_group_startswith_check and not (insb_group_check or si_group_check):
                 write_atts = True
+                extra_atts = dict()
+
                 if expand_priors and name in {'prior_index'}:
                     # We do not need these variables if we are expanding the priors
                     write_atts = False
@@ -1216,7 +1251,17 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                     new_dimensions = ('time',) + tuple([d for d in variable.dimensions if d != 'ak_slant_xgas_bin'])
                     public_data.createVariable(name,variable.datatype,new_dimensions,zlib=True,complevel=9)
                     this_xgas = name.split('_')[1]
-                    public_data[name][:] = _expand_aks(private_data, this_xgas, full_ak_resolution=full_ak_resolution)[public_slice]
+                    full_aks, ak_extrap_flags = _expand_aks(private_data, this_xgas, full_ak_resolution=full_ak_resolution)
+                    public_data[name][:] = full_aks[public_slice]
+
+                    ex_flag_varname = 'extrapolation_flags_{}'.format(name)
+                    ex_flag_var = public_data.createVariable(ex_flag_varname, ak_extrap_flags.dtype, dimensions=('time',),zlib=True,complevel=9)
+                    ex_flag_var[:] = ak_extrap_flags[public_slice]
+                    ex_flag_var.flag_values = np.array([-2, -1, 0, 1, 2], dtype=ak_extrap_flags.dtype)
+                    ex_flag_var.flag_meanings = "clamped_to_min_slant_xgas\nextrapolated_below_lowest_slant_xgas_bin\ninterpolated_normally\nextrapolated_above_largest_slant_xgas_bin\nclamped_to_max_slant_xgas"
+                    ex_flag_var.usage = 'Please see https://tccon-wiki.caltech.edu/Main/GGG2020DataChanges for more information'
+
+                    extra_atts = {'ancillary_variables': (variable.__dict__.get('ancillary_variables', '') + ' ' + ex_flag_varname).strip()}
                 else:
                     public_data.createVariable(name, variable.datatype, variable.dimensions)
                     public_data[name][:] = private_data[name][:]
@@ -1224,6 +1269,8 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                 if write_atts:
                     # copy variable attributes all at once via dictionary
                     public_data[name].setncatts(private_data[name].__dict__)
+                    if extra_atts:
+                        public_data[name].setncatts(extra_atts)
 
                 # add WMO or comparable scale attribute if needed
                 if aicf_scale_check:
