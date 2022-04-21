@@ -4,6 +4,7 @@ import os
 import numpy as np
 import netCDF4
 import re
+import shutil
 import argparse
 from contextlib import ExitStack
 import time
@@ -215,8 +216,12 @@ def main():
         nc_list = [i for i in os.listdir(args.path) if i.startswith(args.prefix) and i.endswith('.nc')]
     else:
         nc_list = [i for i in os.listdir(args.path) if i.endswith('.nc')]
-    if len(nc_list)<=1:
+    if len(nc_list) == 0:
         sys.exit('No files to concatenate')
+    elif len(nc_list) == 1:
+        print('Only one file to concatenate, making a copy instead', file=sys.stderr)
+        shutil.copy2(os.path.join(args.path, nc_list[0]), args.out)
+        sys.exit(0)
 
     if args.test is not None:
         print('Running test only!')
