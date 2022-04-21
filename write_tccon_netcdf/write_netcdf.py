@@ -885,6 +885,7 @@ def write_values(nc_data,var,values,inds=[]):
 
 def update_attrs_for_public_files(ds, is_public):
     _fix_unspecified_units(ds)
+    _fix_inconsistent_units(ds)
     _add_prior_long_units(ds, is_public)
     _fix_public_cf_attributes(ds, is_public)
     _fix_incorrect_attributes(ds)
@@ -940,12 +941,13 @@ def _fix_public_cf_attributes(ds, is_public):
 
     for attribute, overrides in pub_cf_attrs['public_overrides'].items():
         for varname, attvalue in overrides.items():
-            logging.profile('Updating attribute "{}" on "{}" to "{}"'.format(attribute, varname, attvalue))
-            ds[varname].setncattr(attribute, attvalue)
+            if varname in ds.variables.keys():
+                logging.profile('Updating attribute "{}" on "{}" to "{}"'.format(attribute, varname, attvalue))
+                ds[varname].setncattr(attribute, attvalue)
 
     for attribute, variables in pub_cf_attrs['public_removes'].items():
         for varname in variables:
-            if hasattr(ds[varname], attribute):
+            if varname in ds.variables.keys() and hasattr(ds[varname], attribute):
                 logging.profile('Removing attribute "{}" on "{}"'.format(attribute, varname))
                 ds[varname].delncattr(attribute)
 
@@ -967,7 +969,16 @@ def _fix_incorrect_attributes(ds):
     ak_variables = [v for v in ds.variables.keys() if v.startswith('ak_x')]
     for varname in ak_variables:
         if not hasattr(ds[varname], 'usage'):
-            ds[varname].usage = 'Please see https://tccon-wiki.caltech.edu/Main/GGG2020DataChanges for instructions on how to generate AKs for individual observations.'
+            ds[varname].usage = 'Please see https://tccon-wiki.caltech.edu/Main/GGG2020DataChanges for instructions on how to use the AK variables.'
+
+
+def _fix_inconsistent_units(ds):
+    # The slant XCH4 bins were originally given in ppb, while the XCH4 values were in ppm.
+    # Make those consistent if that is still the case. 
+    if 'ak_slant_xch4_bin' in ds.variables.keys() and ds['ak_slant_xch4_bin'].units == 'ppb':
+        ds['ak_slant_xch4_bin'][:] = ds['ak_slant_xch4_bin'][:] * 1e-3
+        ds['ak_slant_xch4_bin'].units = 'ppm'
+        logging.info('Converted ak_slant_xch4_bin from ppb -> ppm')
 
 
 def _fix_unspecified_units(ds):
@@ -1015,7 +1026,73 @@ def _add_aicf_scale_attr(variable_name, pub_variable, priv_data):
         pub_variable.wmo_or_analogous_scale = scale
 
 
-def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False,flag0_only=True):
+def _expand_aks(ds, xgas, n=500, full_ak_resolution=False, min_extrap=0):
+    try:
+        import xarray as xr
+    except ImportError:
+        raise ImportError('xarray is required to save per-spectrum AKs. Please install it in this environment.')
+    logging.debug('Expanding AKs for %s', xgas)
+    airmass = ds['o2_7885_am_o2'][:]
+    slant_xgas_values = ds[xgas][:] * airmass
+    slant_xgas_bins = ds['ak_slant_{}_bin'.format(xgas)][:]
+    if xgas == 'xch4' and ds['ak_slant_{}_bin'.format(xgas)].units == 'ppb':
+        # XCH4 bins are given in ppb, but XCH4 itself in ppm. Oops!
+        slant_xgas_bins = slant_xgas_bins * 1e-3
+    aks = ds['ak_{}'.format(xgas)][:]
+    extrap_flags = np.zeros(slant_xgas_values.shape, dtype=np.int8)
+    extrap_flags[slant_xgas_values < min_extrap] = -2
+    extrap_flags[(slant_xgas_values >= min_extrap) & (slant_xgas_values < np.min(slant_xgas_bins))] = -1
+    extrap_flags[slant_xgas_values > np.max(slant_xgas_bins)] = 2
+    if not full_ak_resolution:
+        slant_xgas_values = _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=n, min_extrap=min_extrap)
+    else:
+        slant_xgas_values = np.clip(slant_xgas_values, min_extrap, np.max(slant_xgas_bins))
+    
+    expanded_aks = np.full([slant_xgas_values.size, aks.shape[0]], np.nan, dtype=aks.dtype)
+    alt = ds['ak_altitude'][:]  # isn't really necessary, but need a coordinate along that dimension anyway
+    lookup_aks = xr.DataArray(aks, coords=[alt, slant_xgas_bins], dims=['alt', 'slant_bin'])
+    expanded_aks = lookup_aks.interp(slant_bin=slant_xgas_values, kwargs={'fill_value':'extrapolate'})
+    expanded_aks = expanded_aks.data.T
+
+    return expanded_aks, extrap_flags
+    
+def _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=500, min_extrap=0):
+    # Put the individual spectra's slant Xgas values on a smaller number
+    # of quantized values ranging between the minimum and maximum values, not allowing
+    # the values to go outside of the bins. I decided to base these off of the bins
+    # rather than the actual slant xgas values because doing the latter will cause the
+    # AKs to change when the public files are updated and there's a wider range of slant
+    # xgas variables.
+    def quantize(values, minval, maxval, nval):
+        si = (values - minval)/(maxval - minval) # normalize to 0 to 1
+        si = np.clip(si, 0, 1)
+        si = np.round(si * (nval - 1)) # round to values between 0 and (n-1)
+        si = si / (nval - 1) * (maxval - minval) + minval # restore original magnitude
+        return si
+        
+    smin = np.min(slant_xgas_bins)
+    smax = np.max(slant_xgas_bins)
+    
+    quant_slant = np.full_like(slant_xgas_values, np.nan)
+    
+    xx_in = (slant_xgas_values >= smin) & (slant_xgas_values <= smax)
+    xx_ex = (slant_xgas_values >= min_extrap) & (slant_xgas_values < smin)
+    xx_below = slant_xgas_values < min_extrap
+    xx_above = slant_xgas_values > smax
+    
+    # First handle values inside the range of the bins
+    quant_slant[xx_in] = quantize(slant_xgas_values[xx_in], smin, smax, n)
+    # Then the values extrapolated between the bottom bin and 0. Use 10x fewer
+    # quantized points that the main region, as this should be a significantly
+    # smaller range.
+    quant_slant[xx_ex] = quantize(slant_xgas_values[xx_ex], min_extrap, smin, n // 10)
+    # Finally set the min and max values
+    quant_slant[xx_below] = min_extrap
+    quant_slant[xx_above] = smax
+    return quant_slant
+
+
+def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False,flag0_only=True,expand_priors=True,expand_aks=True,full_ak_resolution=True):
     """
     Take a private netcdf file and write the public file using the public_variables.json file
     """
@@ -1087,6 +1164,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
         
         nspec = private_data['time'].size
         public_slice = np.array(release_ids & no_flag_ids) # boolean array to slice the private variables on the public ids
+        prior_idx = private_data['prior_index'][:][public_slice] # used if expanding priors
 
         nspec_public = np.sum(public_slice)
 
@@ -1095,6 +1173,8 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
         for name, dimension in private_data.dimensions.items():
             if name == 'time':
                 public_data.createDimension(name, nspec_public)
+            elif expand_priors and name == 'prior_time':
+                pass
             else:
                 public_data.createDimension(name, (len(dimension) if not dimension.isunlimited() else None))
         logging.info('  -> Done copying dimensions')
@@ -1150,22 +1230,58 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             # a regular numpy (masked) array. There must be either some inefficiency in 
             # the netCDF library to read a subset or an optimization to read the whole array.
             if public and not experimental_group_startswith_check and not (insb_group_check or si_group_check):
-                if 'time' in variable.dimensions: # only the variables along the 'time' dimension need to be sampled with public_ids
+                write_atts = True
+                extra_atts = dict()
+
+                if expand_priors and name in {'prior_index'}:
+                    # We do not need these variables if we are expanding the priors
+                    write_atts = False
+                elif expand_aks and name.startswith('ak_slant'):
+                    # Also don't need these coordinate variables if expanding the AKs
+                    write_atts = False
+                elif 'time' in variable.dimensions: # only the variables along the 'time' dimension need to be sampled with public_ids
                     public_data.createVariable(name, variable.datatype, variable.dimensions)
                     this_var_data = private_data[name][:]
                     public_data[name][:] = this_var_data[public_slice] #private_data[name][public_slice]
+                elif expand_priors and 'prior_time' in variable.dimensions:
+                    new_dimensions = ('time',) + variable.dimensions[1:]
+                    public_data.createVariable(name,variable.datatype,new_dimensions,zlib=True,complevel=9)
+                    public_data[name][:] = private_data[name][:][prior_idx]
+                elif expand_aks and name.startswith('ak_x'):
+                    new_dimensions = ('time',) + tuple([d for d in variable.dimensions if d != 'ak_slant_xgas_bin'])
+                    public_data.createVariable(name,variable.datatype,new_dimensions,zlib=True,complevel=9)
+                    this_xgas = name.split('_')[1]
+                    full_aks, ak_extrap_flags = _expand_aks(private_data, this_xgas, full_ak_resolution=full_ak_resolution)
+                    public_data[name][:] = full_aks[public_slice]
+
+                    ex_flag_varname = 'extrapolation_flags_{}'.format(name)
+                    ex_flag_var = public_data.createVariable(ex_flag_varname, ak_extrap_flags.dtype, dimensions=('time',),zlib=True,complevel=9)
+                    ex_flag_var[:] = ak_extrap_flags[public_slice]
+                    ex_flag_var.flag_values = np.array([-2, -1, 0, 1, 2], dtype=ak_extrap_flags.dtype)
+                    ex_flag_var.flag_meanings = "clamped_to_min_slant_xgas\nextrapolated_below_lowest_slant_xgas_bin\ninterpolated_normally\nextrapolated_above_largest_slant_xgas_bin\nclamped_to_max_slant_xgas"
+                    ex_flag_var.usage = 'Please see https://tccon-wiki.caltech.edu/Main/GGG2020DataChanges for more information'
+
+                    extra_atts = {'ancillary_variables': (variable.__dict__.get('ancillary_variables', '') + ' ' + ex_flag_varname).strip()}
                 else:
                     public_data.createVariable(name, variable.datatype, variable.dimensions)
                     public_data[name][:] = private_data[name][:]
-                # copy variable attributes all at once via dictionary
-                public_data[name].setncatts(private_data[name].__dict__)
+
+                if write_atts:
+                    # copy variable attributes all at once via dictionary
+                    public_data[name].setncatts(private_data[name].__dict__)
+                    if extra_atts:
+                        public_data[name].setncatts(extra_atts)
 
                 # add WMO or comparable scale attribute if needed
                 if aicf_scale_check:
                     _add_aicf_scale_attr(name, public_data[name], private_data)
             elif nc_format=='NETCDF4' and public and experimental_group_startswith_check: # ingaas experimental variables
-                public_data['ingaas_experimental'].createVariable(name, variable.datatype, variable.dimensions)
-                this_var_data = private_data[name][:]
+                if expand_aks and name.startswith('ak_x'):
+                    public_data['ingaas_experimental'].createVariable(name, variable.datatype, variable.dimensions, zlib=True, complevel=9)
+                    this_var_data = _expand_aks(private_data, name.split('_')[1], full_ak_resolution=full_ak_resolution)
+                else:
+                    public_data['ingaas_experimental'].createVariable(name, variable.datatype, variable.dimensions)
+                    this_var_data = private_data[name][:]
                 public_data['ingaas_experimental'][name][:] = this_var_data[public_slice]
                 public_data['ingaas_experimental'][name].setncatts(private_data[name].__dict__)
                 
@@ -1174,8 +1290,12 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                     _add_aicf_scale_attr(name, public_data['ingaas_experimental'][name], private_data)
             elif include_experimental and nc_format=='NETCDF4' and public and insb_group_check: # insb experimental variables
                 has_experimental = True
-                public_data['insb_experimental'].createVariable(name.replace('_insb',''), variable.datatype, variable.dimensions)
-                this_var_data = private_data[name][:]
+                if expand_aks and name.startswith('ak_x'):
+                    public_data['insb_experimental'].createVariable(name.replace('_insb',''), variable.datatype, variable.dimensions, zlib=True, complevel=9)
+                    this_var_data = _expand_aks(private_data, name.split('_')[1])
+                else:
+                    public_data['insb_experimental'].createVariable(name.replace('_insb',''), variable.datatype, variable.dimensions)
+                    this_var_data = private_data[name][:]
                 public_data['insb_experimental'][name.replace('_insb','')][:] = this_var_data[public_slice]
                 public_data['insb_experimental'][name.replace('_insb','')].setncatts(private_data[name].__dict__)
                 
@@ -1186,8 +1306,12 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                 has_experimental = True
                 public_name = name.replace('_si', '')
                 
-                public_data['si_experimental'].createVariable(public_name, variable.datatype, variable.dimensions)
-                this_var_data = private_data[name][:]
+                if expand_aks and name.startswith('ak_x'):
+                    public_data['si_experimental'].createVariable(public_name, variable.datatype, variable.dimensions, zlib=True, complevel=9)
+                    this_var_data = _expand_aks(private_data, name.split('_')[1])
+                else:
+                    public_data['si_experimental'].createVariable(public_name, variable.datatype, variable.dimensions)
+                    this_var_data = private_data[name][:]
 
                 public_data['si_experimental'][public_name][:] = this_var_data[public_slice]
                 public_data['si_experimental'][public_name].setncatts(private_data[name].__dict__)
@@ -1203,8 +1327,12 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                     has_experimental = True
 
                 public_name = name+'_experimental'
-                public_data.createVariable(public_name, variable.datatype, variable.dimensions)
-                this_var_data = private_data[name][:]
+                if expand_aks and name.startswith('ak_x'):
+                    public_data.createVariable(public_name, variable.datatype, variable.dimensions, zlib=True, complevel=9)
+                    this_var_data = _expand_aks(private_data, name.split('_')[1])
+                else:
+                    public_data.createVariable(public_name, variable.datatype, variable.dimensions)
+                    this_var_data = private_data[name][:]
                 public_data[public_name][:] = this_var_data[public_slice]
                 public_data[public_name].setncatts(private_data[name].__dict__)
                 if hasattr(public_data[public_name],'description'):
@@ -1220,8 +1348,13 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             elif name in ['prior_{}'.format(var) for var in factor.keys()]: # for the a priori profile, only the ones listed in the "factor" dictionary make it to the public file
                 public_name = name.replace('_1','_')
                 scale_factor = vmr_scale_dict[units_dict[public_name]] # also need to scale them from straight DMF to ppm, ppb, etc.
-                public_data.createVariable(public_name,variable.datatype,variable.dimensions)
-                public_data[public_name][:] = private_data[name][:] * scale_factor
+                if not expand_priors:
+                    public_data.createVariable(public_name,variable.datatype,variable.dimensions)
+                    public_data[public_name][:] = private_data[name][:] * scale_factor
+                else:
+                    new_dimensions = ('time',) + variable.dimensions[1:]
+                    public_data.createVariable(public_name,variable.datatype,new_dimensions,zlib=True,complevel=9)
+                    public_data[public_name][:] = private_data[name][:][prior_idx] * scale_factor
                 public_data[public_name].setncatts(private_data[name].__dict__)
                 public_data[public_name].description = "a priori profile of {}".format(public_name.replace('prior_',''))
                 public_data[public_name].units = units_dict[public_name]
@@ -1237,7 +1370,10 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             public_data.createVariable('airmass',private_data['o2_7885_am_o2'].datatype,private_data['o2_7885_am_o2'].dimensions)
             public_data['airmass'][:] = private_data['o2_7885_am_o2'][:][public_slice]
             public_data['airmass'].setncatts(private_data['o2_7885_am_o2'].__dict__)
-            public_data['airmass'].description = "airmass computed as the total vertical column of O2 divided by the total slant column of O2 retrieved from the window centered at 7885 cm-1. To compute the slant column of a given gas use Xgas*airmass"
+            if expand_aks:
+                public_data['airmass'].description = "airmass computed as the total vertical column of O2 divided by the total slant column of O2 retrieved from the window centered at 7885 cm-1."
+            else:
+                public_data['airmass'].description = "airmass computed as the total vertical column of O2 divided by the total slant column of O2 retrieved from the window centered at 7885 cm-1. To compute the slant column of a given gas use Xgas*airmass"
             public_data['airmass'].long_name = 'airmass'
             public_data['airmass'].standard_name = 'airmass'
             public_data['airmass'].units = ''
@@ -1607,6 +1743,9 @@ def main():
     parser.add_argument('--rflag',action='store_true',help='If given with a private.nc file as input, will create a separate private.qc.nc file with updated flags based on the --rflag-file')
     parser.add_argument('--rflag-file',help='Full path to the .json input file that sets release flags (has no effect without --rflag)')
 
+    parser.add_argument('--no-expand-priors', action='store_false', dest='expand_priors', help='When writing public files, do NOT expand the priors to match the time dimension, leave them on the 3 hourly interval')
+    parser.add_argument('--no-expand-aks', action='store_false', dest='expand_aks', help='When writing public files, do NOT expand the AKs to match the time dimension, leave them as lookup tables')
+    parser.add_argument('--full-ak-resolution', action='store_true', help='Use the exact slant Xgas for each spectrum when expanding AKs, rather than quantized ones. Output files will be larger.')
     args = parser.parse_args()
     logger, show_progress, HEAD_commit = setup_logging(log_level=args.log_level, log_file=args.log_file, message=args.message, to_stdout=args.log_to_stdout)
     
@@ -1639,7 +1778,7 @@ def main():
             if not args.public:
                 sys.exit()
         logging.info('Writing public file from {}'.format(private_nc_file))
-        write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=not args.std_only,remove_if_no_experimental=args.remove_no_expt,flag0_only=not args.publish_all_flags)
+        write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=not args.std_only,remove_if_no_experimental=args.remove_no_expt,flag0_only=not args.publish_all_flags,expand_priors=args.expand_priors,expand_aks=args.expand_aks,full_ak_resolution=args.full_ak_resolution)
         sys.exit()
 
     # input and output file names
@@ -2110,7 +2249,12 @@ def main():
                     "units": ak_nc[ak_bin_var].units,
                 }
                 nc_data[var].setncatts(att_dict)
-                nc_data[var][0:nbins_ak] = ak_nc[ak_bin_var][:].data.astype(np.float32)
+                if var == 'ak_slant_xch4_bin':
+                    # Need to convert the ppb in the netCDF file to ppm to be consistent with xch4
+                    nc_data[var][0:nbins_ak] = ak_nc[ak_bin_var][:].data.astype(np.float32) * 1e-3
+                    nc_data[var].units = 'ppm'
+                else:
+                    nc_data[var][0:nbins_ak] = ak_nc[ak_bin_var][:].data.astype(np.float32)
 
             for ak_var in [i for i in ak_nc.variables if i.endswith('aks')]:
                 var = 'ak_{}'.format(ak_var.strip('_aks'))
@@ -3040,7 +3184,7 @@ def main():
     logging.info('Finished writing {} {:.2f} MB'.format(private_nc_file,os.path.getsize(private_nc_file)/1e6))
 
     if args.public:
-        write_public_nc(private_nc_file,code_dir,nc_format)
+        write_public_nc(private_nc_file,code_dir,nc_format,expand_priors=args.expand_priors,expand_aks=args.expand_aks)
 
     if args.eof:
         ordered_var_list = ['flag','flagged_var_name','spectrum'] # list of variables for writing the eof file
