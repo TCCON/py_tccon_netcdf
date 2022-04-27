@@ -1175,6 +1175,10 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                 public_data.createDimension(name, nspec_public)
             elif expand_priors and name == 'prior_time':
                 pass
+            elif expand_aks and name == 'ak_slant_xgas_bin':
+                pass
+            elif name in {'cell_index', 'specname'} or re.match(r'a\d+$', name):
+                pass
             else:
                 public_data.createDimension(name, (len(dimension) if not dimension.isunlimited() else None))
         logging.info('  -> Done copying dimensions')
