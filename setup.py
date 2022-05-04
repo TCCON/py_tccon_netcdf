@@ -15,7 +15,10 @@ setup(
     install_requires=[
         'netcdf4>=1.5.0',
         'numpy>=1.16.0',
-        'pandas>=0.23.0'
+        'pandas>=0.23.0',
+        'requests',
+        'scipy',
+        'xarray'
         ],
     packages=find_packages(),
     classifiers=[
