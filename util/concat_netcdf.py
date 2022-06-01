@@ -224,6 +224,8 @@ def main():
         sys.exit('No files to concatenate')
     elif len(nc_list) == 1:
         print('Only one file to concatenate, making a copy instead', file=sys.stderr)
+        if args.path == args.out:
+            sys.exit("When using on a single file, the output filename is the same as the input file, use a different output directory to avoid overwritting the input file")
         shutil.copy2(os.path.join(args.path, nc_list[0]), args.out)
         with open(args.out,'r+') as ncout:
             ncout.setncatts({"file_creation":file_creation,"history":history})
