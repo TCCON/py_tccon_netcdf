@@ -216,11 +216,17 @@ def main():
         nc_list = [i for i in os.listdir(args.path) if i.startswith(args.prefix) and i.endswith('.nc')]
     else:
         nc_list = [i for i in os.listdir(args.path) if i.endswith('.nc')]
+
+    file_creation = "Created with Python {}; the library netCDF4 {}; and the code concat_netcdf.py".format(platform.python_version(),netCDF4.__version__)
+    history = "Created {} (UTC) from the concatenation of {} netCDF files".format(time.asctime(time.gmtime(time.time())),len(nc_list))
+
     if len(nc_list) == 0:
         sys.exit('No files to concatenate')
     elif len(nc_list) == 1:
         print('Only one file to concatenate, making a copy instead', file=sys.stderr)
         shutil.copy2(os.path.join(args.path, nc_list[0]), args.out)
+        with open(args.out,'r+') as ncout:
+            ncout.setncatts({"file_creation":file_creation,"history":history})
         sys.exit(0)
 
     if args.test is not None:
@@ -319,8 +325,8 @@ def main():
         ## copy attributes, dimensions, and variables metadata using the first file
         global_attributes = ncin_list[0].__dict__.copy()
         # update the history and file_creation
-        global_attributes['file_creation'] = "Created with Python {}; the library netCDF4 {}; and the code concat_netcdf.py".format(platform.python_version(),netCDF4.__version__)
-        global_attributes['history'] = "Created {} (UTC) from the concatenation of {} netCDF files".format(time.asctime(time.gmtime(time.time())),len(nc_list))
+        global_attributes['file_creation'] = file_creation
+        global_attributes['history'] = history
         ncout.setncatts(global_attributes)
 
         # Copy dimensions from the first file. We ensured above that all files have the same dimensions
