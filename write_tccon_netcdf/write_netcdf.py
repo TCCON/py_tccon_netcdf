@@ -116,7 +116,7 @@ units_dict = {
 'h2o_dmf_mod':'',
 'tmod':'degrees_Celsius',
 'pmod':'hPa',
-'sia':'',
+'sia':'AU',
 'fvsi':'%',
 'zobs':'km',
 'zmin':'km',
@@ -148,14 +148,14 @@ units_dict = {
 'prior_altitude':'km',
 'prior_tropopause_altitude':'km',
 'prior_gravity':'m.s-2',
-'prior_h2o':'',
-'prior_hdo':'',
+'prior_h2o':'1',
+'prior_hdo':'1',
 'prior_co2':'ppm',
 'prior_n2o':'ppb',
 'prior_co':'ppb',
 'prior_ch4':'ppb',
 'prior_hf':'ppt',
-'prior_o2':'',
+'prior_o2':'1',
 }
 
 vmr_scale_dict = {
@@ -993,7 +993,7 @@ def _fix_unspecified_units(ds):
         re.compile(r'^xluft$'),
         re.compile(r'^xluft_error'),
         re.compile(r'^ada_x'),
-        re.compile(r'_cfampocl$')
+        re.compile(r'_cfampocl$'),
     ]
     for varname, variable in ds.variables.items():
         if any(r.search(varname) for r in regexes):
@@ -1001,7 +1001,15 @@ def _fix_unspecified_units(ds):
             if variable.units == '':
                 variable.units = '1'
         
-        
+    # Special cases, units that weren't included in the original release but shouldn't just be "1"
+    other_units = {
+        'sia': 'AU'
+    }
+    for varname, varunits in other_units.items():
+        if ds[varname].units == '':
+            logging.profile('Setting {} units to "{}"'.format(varname, varunits))
+            ds[varname].units = varunits
+            
 
 
 def _add_flag_usage(ds):
@@ -2446,7 +2454,7 @@ def main():
         # auxiliary variables
         logging.info('\t- Auxiliary variables')
         aux_var_list = [tav_data.columns[i] for i in range(1,naux)]
-        for var in aux_var_list: 
+        for var in aux_var_list:
             qc_id = list(qc_data['variable']).index(var)
             #digit = int(qc_data['format'][qc_id].split('.')[-1])
             if var in ['year','day']:
