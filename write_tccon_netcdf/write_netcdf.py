@@ -1510,6 +1510,8 @@ def get_runlog_file(GGGPATH,tav_file,col_file):
 
     if runlog_file.startswith(GGGPATH):
         lse_file = os.path.join(GGGPATH,'lse','gnd',os.path.basename(runlog_file).replace('.grl','.lse'))
+        if not os.path.exists(lse_file): # handle egi use case with runlogs and lse files in $GGGPATH/runlog
+            lse_file = runlog_file.replace('.grl','.lse')
     else:
         logging.warning('Path to runlog ({}) does not start with GGGPATH ({}). If you did not expect this, make sure your GGGPATH environmental variable is set correctly.'.format(runlog_file, GGGPATH))
         lse_file = runlog_file.replace('.grl','.lse')
