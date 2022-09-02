@@ -227,7 +227,8 @@ def main():
         if args.path == args.out:
             sys.exit("When using on a single file, the output filename is the same as the input file, use a different output directory to avoid overwritting the input file")
         shutil.copy2(os.path.join(args.path, nc_list[0]), args.out)
-        with open(args.out,'r+') as ncout:
+        new_nc = os.path.join(args.out, nc_list[0]) if os.path.isdir(args.out) else args.out
+        with netCDF4.Dataset(new_nc,'r+') as ncout:
             ncout.setncatts({"file_creation":file_creation,"history":history})
         sys.exit(0)
 
