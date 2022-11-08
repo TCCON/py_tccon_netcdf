@@ -218,7 +218,7 @@ def get_json_path(env_var, default, default_in_code_dir=True, none_allowed=False
         logging.critical('The default file for %s (%s) does not exist and no %s environmental variable is defined', file_quantity, default, env_var)
         sys.exit(1)
     elif not os.path.exists(json_path):
-        logging.critical('The %s file path given by the %s environmental variable (%s) does not exist. Correct it, or unset the environmental variable to use the default file.', file_quantity, env_var, default)
+        logging.critical('The %s file path given by the %s environmental variable (%s) does not exist. Correct it, or unset the environmental variable to use the default file.', file_quantity, env_var, json_path)
         sys.exit(1)
     else:
         logging.info('Will use %s for %s.', json_path, file_quantity)
