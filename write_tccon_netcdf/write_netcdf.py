@@ -224,6 +224,9 @@ def get_json_path(env_var, default, default_in_code_dir=True, none_allowed=False
         logging.info('Will use %s for %s.', json_path, file_quantity)
         return json_path
 
+def ak_tables_nc_file():
+    return get_json_path('TCCON_NETCDF_AK_TABLES', 'ak_tables.nc')
+
 
 def missing_data_json():
     return get_json_path('TCCON_NETCDF_MISSING_DATA', 'missing_data.json')
@@ -2208,7 +2211,7 @@ def main():
         nc_data['prior_altitude'][0:nlev] = prior_data[list(prior_data.keys())[0]]['data']['altitude'].values
 
         # averaging kernels
-        with netCDF4.Dataset(os.path.join(code_dir,'ak_tables.nc'),'r') as ak_nc:
+        with netCDF4.Dataset(ak_tables_nc_file(),'r') as ak_nc:
             nlev_ak = ak_nc['z'].size
             nbins_ak = ak_nc['slant_xgas_bin'].size
 

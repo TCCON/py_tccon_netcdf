@@ -21,6 +21,7 @@ setup(
         'xarray'
         ],
     packages=find_packages(),
+    package_data={'write_tccon_netcdf': ['write_netcdf/*.json', 'write_netcdf/*.nc']},
     classifiers=[
         'Operating System :: OS Independent',
         'License :: OSI Approved :: MIT License',

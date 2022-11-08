@@ -2,3 +2,7 @@ scripts
 *.egg-info
 **/__pycache__
 .idea
+bin/**/*
+build/**/*
+*.egg
+*.log
