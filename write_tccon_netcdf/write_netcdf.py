@@ -1122,7 +1122,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
         remove_if_no_experimental = False
 
     has_experimental = False
-
+    
     logging.info('Writing {}'.format(public_nc_file))
     with netCDF4.Dataset(private_nc_file,'r') as private_data, netCDF4.Dataset(public_nc_file,'w',format=nc_format) as public_data:
         ## copy all the metadata
@@ -1166,6 +1166,13 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
         release_lag = int(private_data.release_lag.split()[0])
         last_public_time = (datetime.utcnow()-datetime(1970,1,1)).total_seconds() - timedelta(days=release_lag).total_seconds()
         release_ids = private_data['time'][:]<last_public_time
+        if np.all(~release_ids):
+            empty_public_error = f'All the data comes after the public release date ({datetime.utcnow()-timedelta(days=release_lag)}), ' \
+                                  'the public file will be empty.\n' \
+                                 f'The release lag is set to {release_lag} days, reduce it in site_info.json or in the .private.nc file' \
+                                  'to allow more recent data into the public files.'
+            logging.critical(empty_public_error)
+            raise Exception(empty_public_error)
 
         # get indices of data with flag = 0 unless we are publishing all of the data
         if flag0_only:
@@ -1506,6 +1513,8 @@ def get_runlog_file(GGGPATH,tav_file,col_file):
 
     if runlog_file.startswith(GGGPATH):
         lse_file = os.path.join(GGGPATH,'lse','gnd',os.path.basename(runlog_file).replace('.grl','.lse'))
+        if not os.path.exists(lse_file): # handle egi use case with runlogs and lse files in $GGGPATH/runlog
+            lse_file = runlog_file.replace('.grl','.lse')
     else:
         logging.warning('Path to runlog ({}) does not start with GGGPATH ({}). If you did not expect this, make sure your GGGPATH environmental variable is set correctly.'.format(runlog_file, GGGPATH))
         lse_file = runlog_file.replace('.grl','.lse')

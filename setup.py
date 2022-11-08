@@ -16,9 +16,9 @@ setup(
         'netcdf4>=1.5.0',
         'numpy>=1.16.0',
         'pandas>=0.23.0',
-        'requests',
-        'scipy',
-        'xarray'
+        'requests>=2.28.0',
+        'scipy==1.5.2',
+        'xarray==0.13.0'
         ],
     packages=find_packages(),
     package_data={'write_tccon_netcdf': ['write_netcdf/*.json', 'write_netcdf/*.nc']},
