@@ -29,6 +29,7 @@ from signal import signal, SIGINT
 import gc
 
 wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-15; SR)\n'
+file_fmt_version = '2020.B'
 
 # Let's try to be CF compliant: http://cfconventions.org/Data/cf-conventions/cf-conventions-1.7/cf-conventions.pdf
 standard_name_dict = {
@@ -1152,7 +1153,7 @@ def _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=500, min
     return quant_slant
 
 
-def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False,flag0_only=True,expand_priors=True,expand_aks=True,full_ak_resolution=True):
+def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False,rename_by_dates=True,flag0_only=True,expand_priors=True,expand_aks=True,full_ak_resolution=True):
     """
     Take a private netcdf file and write the public file using the public_variables.json file
     """
@@ -1455,9 +1456,26 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
 
         logging.info('  --> Done copying variables')
         update_attrs_for_public_files(public_data, is_public=True)
+
+        # Just before we close the file, get the start and end date for the new dates
+        public_dates = public_data['time'][[0, -1]]
+        public_dates = netCDF4.num2date(public_dates, public_data['time'].units, calendar=public_data['time'].calendar)
+
     if include_experimental and not has_experimental and remove_if_no_experimental:
         logging.info('{} contains no non-standard TCCON data, removing as requested'.format(public_nc_file))
         os.remove(public_nc_file)
+    elif rename_by_dates:
+        start_dstr = public_dates[0].strftime('%Y%m%d')
+        end_dstr = public_dates[1].strftime('%Y%m%d')
+        stem, ext = os.path.basename(public_nc_file).split('.', 1)
+        # Construct the new file name out of the site ID and extension of the old name
+        new_public_file = os.path.join(os.path.dirname(public_nc_file), f'{stem[:2]}{start_dstr}_{end_dstr}.{ext}')
+        if new_public_file != public_nc_file:
+            # If the release lag/flagging doesn't change the file name, we don't need to do anything
+            if os.path.exists(new_public_file):
+                os.remove(new_public_file)
+            os.rename(public_nc_file, new_public_file)
+        logging.info('Finished writing {} (renamed from {}) {:.2f} MB'.format(new_public_file,public_nc_file,os.path.getsize(new_public_file)/1e6))
     else:
         logging.info('Finished writing {} {:.2f} MB'.format(public_nc_file,os.path.getsize(public_nc_file)/1e6))
 
@@ -1946,7 +1964,7 @@ def main():
 
     # read site specific data from the tccon_netcdf repository
     # the .apply and .rename bits are just strip the columns from leading and tailing white spaces
-    with open(os.path.join(code_dir,'site_info.json'),'r') as f:
+    with open(site_info_json(),'r') as f:
         try:
             site_data = json.load(f)[siteID]
         except KeyError:
