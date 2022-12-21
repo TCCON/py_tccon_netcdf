@@ -52,7 +52,37 @@
             "xwco2_experimental": "column_average_dry_atmosphere_mole_fraction_of_carbon_dioxide_from_weak_band",
             "xwco2_error_experimental": "column_average_dry_atmosphere_mole_fraction_of_carbon_dioxide_from_weak_band standard_error",
             "xco2": "column_average_dry_atmosphere_mole_fraction_of_carbon_dioxide",
-            "xco2_error": "column_average_dry_atmosphere_mole_fraction_of_carbon_dioxide standard_error"
+            "xco2_error": "column_average_dry_atmosphere_mole_fraction_of_carbon_dioxide standard_error",
+            "o2_prior_column_density": "column_density_of_oxygen",
+            "co2_prior_column_density": "column_density_of_carbon_dioxide",
+            "ch4_prior_column_density": "column_density_of_methane",
+            "n2o_prior_column_density": "column_density_of_nitrous_oxide",
+            "co_prior_column_density": "column_density_of_carbon_monoxide",
+            "hf_prior_column_density": "column_density_of_hydrogen_fluoride",
+            "h2o_prior_column_density": "column_density_of_water",
+            "hdo_prior_column_density": "column_density_of_semiheavy_water"
+        },
+
+        "units": {
+            "o2_prior_column_density": "molec.cm-2",
+            "co2_prior_column_density": "molec.cm-2",
+            "ch4_prior_column_density": "molec.cm-2",
+            "n2o_prior_column_density": "molec.cm-2",
+            "co_prior_column_density": "molec.cm-2",
+            "hf_prior_column_density": "molec.cm-2",
+            "h2o_prior_column_density": "molec.cm-2",
+            "hdo_prior_column_density": "molec.cm-2"
+        },
+
+        "description": {
+            "o2_prior_column_density": "column density of O2 calculated by integrating the prior profile",
+            "co2_prior_column_density": "column density of CO2 calculated by integrating the prior profile",
+            "ch4_prior_column_density": "column density of CH4 calculated by integrating the prior profile",
+            "n2o_prior_column_density": "column density of N2O calculated by integrating the prior profile",
+            "co_prior_column_density": "column density of CO calculated by integrating the prior profile",
+            "hf_prior_column_density": "column density of HF calculated by integrating the prior profile",
+            "h2o_prior_column_density": "column density of H2O calculated by integrating the prior profile",
+            "hdo_prior_column_density": "column density of HDO calculated by integrating the prior profile"
         },
 
         "ancillary_variables":  {

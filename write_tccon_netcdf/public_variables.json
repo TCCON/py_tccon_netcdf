@@ -19,7 +19,9 @@
 		"sia", 
 		"fvsi", 
 		"wspd", 
-		"wdir"],
+		"wdir",
+		"effective_path_length",
+		"o2_mean_mole_fraction_x2019"],
 
 	"startswith": [
 		"xluft",
@@ -81,5 +83,15 @@
 		"xn2o",
 		"xco",
 		"xh2o",
-		"xluft"]
+		"xluft"],
+	"remap": {
+		"o2_7885_ovc_o2": "o2_prior_column_density",
+		"co2_6220_ovc_co2": "co2_prior_column_density",
+		"ch4_5938_ovc_ch4": "ch4_prior_column_density",
+		"n2o_4395_ovc_n2o": "n2o_prior_column_density",
+		"co_4290_ovc_co": "co_prior_column_density",
+		"hf_4038_ovc_hf": "hf_prior_column_density",
+		"h2o_4565_ovc_h2o": "h2o_prior_column_density",
+		"hdo_4054_ovc_hdo": "hdo_prior_column_density"
+	}
 }

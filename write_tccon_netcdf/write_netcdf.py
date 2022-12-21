@@ -908,6 +908,7 @@ def update_attrs_for_public_files(ds, is_public):
     _add_flag_usage(ds)
     _add_x2019_co2(ds, is_public)
     write_file_fmt_attrs(ds)
+    _add_effective_path(ds)
 
 
 def _add_x2019_co2(ds, is_public):
@@ -956,6 +957,13 @@ def _add_x2019_co2(ds, is_public):
         new_var.note = ('The *_x2019 fields use a variable O2 mole fraction in computing the dry air column mole fraction. '
                         'This is explained in more detail in the GGG2020 paper.')
         new_var[:] = old_var[:] * fo2 / old_fo2_ref * old_aicf / new_aicf
+
+    # Also write the fO2 value, it's needed if people want to properly calculate the prior XCO2
+    o2_var = ds.createVariable('o2_mean_mole_fraction_x2019', 'f4', dimensions=('time',))
+    o2_var.description = 'O2 mole fraction used when calculating the x*_x2019 variables ONLY. Any Xgas variables without the _x2019 suffix use 0.2095 in their Xgas calculation.'
+    o2_var.units = '1'
+    o2_var.standard_name = 'dry_atmospheric_mole_fraction_of_oxygen'
+    o2_var[:] = fo2.astype('float32')
 
 
 def _add_prior_long_units(ds, is_public):
@@ -1165,6 +1173,108 @@ def _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=500, min
     quant_slant[xx_above] = smax
     return quant_slant
 
+def _add_effective_path(ds):
+    if 'effective_path_length' in ds.variables.keys():
+        logging.info('Effective path length already present, not recomputing')
+        return 
+
+    prior_nair = ds['prior_density'][:]
+    prior_alts = ds['prior_altitude'][:]
+    prior_index = ds['prior_index'][:]
+    zmin = ds['zmin'][:]
+    zmin_quant = np.round(zmin, 5)
+
+    df = pd.DataFrame({'zmin': zmin_quant, 'prior_index': prior_index})
+    eff_path = np.full([zmin.size, prior_alts.size], np.nan, dtype='float32')
+    
+    logging.info('Computing effective vertical path (takes ~0.1 s per day, be patient)')
+    # Because zmin doesn't vary that much, we can *significantly* reduce the amount of time this
+    # calculation takes compared to doing the effective path length call for every spectrum by
+    # iterating over each unique combination of priors and zmin (since the path length calculation)
+    # needs the number density of air and zmin), calculating the path once for that combination, then
+    # writing it to every spectrum that has that combination of priors and zmin.
+    for (pidx, zm), subdf in df.groupby(['prior_index', 'zmin']):
+        # convert km -> cm
+        p = 1e5 * _effective_vertical_path(prior_alts, zm, prior_nair[pidx])
+        eff_path[subdf.index] = p
+        
+    var = ds.createVariable('effective_path_length', 'f4', dimensions=('time', 'prior_altitude'),zlib=True,complevel=9)
+    var[:] = eff_path
+    # Don't think there's a good standard name for this variable!
+    var.setncatts({
+        'long_name': 'effective path length',
+        'description': 'path length used by GGG when integrating column densities',
+        'units': 'cm'
+    })
+    logging.info('Effective vertical path calculation complete')
+    
+
+def _effective_vertical_path(z, zmin, d):
+    """  
+    Calculate the effective vertical path used by GFIT for a given z/P/T grid.
+
+    Copied from the GGGUtils repo (https://github.com/joshua-laughner/GGGUtils) on 21 Dec 2022. Should eventually
+    make GGGUtils a dependency.
+
+    :param z: altitudes of the vertical levels. May be any unit, but note that the effective paths will be returned in
+     the same unit.
+    :type z: array-like
+    
+    :param zmin: minimum altitude that the light ray reaches. This is given as ``zmin`` in the netCDF files and the .ray
+     files. Must be in the same unit as ``z``.
+    :type zmin: float
+
+    :param d: number density of air in molec. cm-3
+    :type d: array-like
+
+    :return: effective vertical paths in the same units as ``z``
+    :rtype: array-like
+    """
+    def integral(dz_in, lrp_in, sign):
+        return dz_in * 0.5 * (1.0 + sign * lrp_in / 3 + lrp_in**2/12 + sign*lrp_in**3/60)
+    
+    vpath = np.zeros_like(d)
+    
+    # From gfit/compute_vertical_paths.f, we need to find the first level above zmin
+    # If there is no such level (which should not happen for TCCON), we treat the top
+    # level this way
+    try:
+        klev = np.flatnonzero(z > zmin)[0]
+    except IndexError:
+        klev = np.size(z) - 1
+        
+    # from gfit/compute_vertical_paths.f, the calculation for level i is
+    #   v_i = 0.5 * dz_{i+1} * (1 - l_{i+1}/3 + l_{i+1}**2/12 - l_{i+1}**3/60)
+    #       + 0.5 * dz_i * (1 + l_i/3 + l_i**2/12 + l_i**3/60)
+    # where
+    #   dz_i = z_i - z_{i-1}
+    #   l_i  = ln(d_{i-1}/d_i)
+    # The top level has no i+1 term. This vector addition duplicates that calculation. The zeros padded to the beginning
+    # and end of the difference vectors ensure that when there's no i+1 or i-1 term, it is given a value of 0.
+    dz = np.concatenate([[0.0], np.diff(z[klev:]), [0.0]])
+    log_rp = np.log(d[klev:-1] / d[klev+1:])
+    log_rp = np.concatenate([[0.0], log_rp, [0.0]])
+    
+    # The indexing is complicated here, but with how dz and log_rp are constructed, this makes sure that, for vpath[klev],
+    # the first integral(...) term uses dz = z[klev+1] - z[klev] and log_rp = ln(d[klev]/d[klev+1]) and the second integral
+    # term is 0 (as vpath[klev] needs to account for the surface location below). For all other terms, this combines the
+    # contributions from the weight above and below each level, with different integration signs to account for how the
+    # weights increase from the level below to the current level and decrease from the current level to the level above.
+    vpath[klev:] = integral(dz[1:], log_rp[1:], sign=-1) + integral(dz[:-1], log_rp[:-1], sign=1)
+       
+    # Now handle the surface - I don't fully understand how this is constructed mathematically, but the idea is that both
+    # the levels in the prior above and below zmin need to contribute to the column, however that contribution needs to be
+    # 0 below zmin. 
+    
+    dz = z[klev] - z[klev-1]
+    xo = (zmin - z[klev-1])/dz
+    log_rp = 0.0 if d[klev] <= 0 else np.log(d[klev-1]/d[klev])
+    xl = log_rp * (1-xo)
+    vpath[klev-1] += dz * (1-xo) * (1-xo-xl*(1+2*xo)/3 + (xl**2)*(1+3*xo)/12 + (xl**3)*(1+4*xo)/60)/2
+    vpath[klev] += dz * (1-xo) * (1+xo+xl*(1+2*xo)/3 + (xl**2)*(1+3*xo)/12 - (xl**3)*(1+4*xo)/60)/2
+
+    return vpath
+
 
 def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False,rename_by_dates=True,flag0_only=True,expand_priors=True,expand_aks=True,full_ak_resolution=True):
     """
@@ -1291,12 +1401,13 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             experimental_group_startswith_check = np.array([name.startswith(elem) for elem in public_variables['experimental_group_startswith']]).any()
             insb_group_check = np.array([(name.startswith(elem) and name.endswith('_insb')) for elem in public_variables['insb_group_startswith']]).any()
             si_group_check = np.array([(name.startswith(elem) and name.endswith('_si')) for elem in public_variables['si_group_startswith']]).any()
+            remap_check = np.array([name==elem for elem in public_variables['remap']]).any()
 
             excluded_simple = np.array([elem in name for elem in public_variables['exclude']]).any()
             excluded_regex = np.array([re.search(elem, name) is not None for elem in public_variables.get('exclude_regex', [])]).any()
             excluded = excluded_simple or excluded_regex
 
-            public = np.array([contain_check,isequalto_check,startswith_check,endswith_check,experimental_group_startswith_check,insb_group_check,si_group_check]).any() and not excluded
+            public = np.array([contain_check,isequalto_check,startswith_check,endswith_check,experimental_group_startswith_check,insb_group_check,si_group_check,remap_check]).any() and not excluded
 
             aicf_scale_check = name in public_variables.get('has_aicf_scale', [])
 
@@ -1312,12 +1423,14 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                 public_data.createGroup('si_experimental')
                 public_data['si_experimental'].description = 'These data are EXPERIMENTAL.\nIn the root group of this file, all data is obtained from an InGaAs detector while data in this group is obtained from an Si detector. If you plan to use these data, please work with the site PI.'
 
+            
             # JLL 2021-09-13: For some reason, it is much faster to read the whole variable
             # in from the private file, then subset it to the public IDs once it is in as
             # a regular numpy (masked) array. There must be either some inefficiency in 
             # the netCDF library to read a subset or an optimization to read the whole array.
             if public and not experimental_group_startswith_check and not (insb_group_check or si_group_check):
                 write_atts = True
+                outname = name
                 extra_atts = dict()
 
                 if expand_priors and name in {'prior_index'}:
@@ -1327,9 +1440,11 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                     # Also don't need these coordinate variables if expanding the AKs
                     write_atts = False
                 elif 'time' in variable.dimensions: # only the variables along the 'time' dimension need to be sampled with public_ids
-                    public_data.createVariable(name, variable.datatype, variable.dimensions)
+                    # Remapping currently only supported for standard variables
+                    outname = public_variables['remap'].get(name, name)
+                    public_data.createVariable(outname, variable.datatype, variable.dimensions)
                     this_var_data = private_data[name][:]
-                    public_data[name][:] = this_var_data[public_slice] #private_data[name][public_slice]
+                    public_data[outname][:] = this_var_data[public_slice] #private_data[name][public_slice]
                 elif expand_priors and 'prior_time' in variable.dimensions:
                     new_dimensions = ('time',) + variable.dimensions[1:]
                     public_data.createVariable(name,variable.datatype,new_dimensions,zlib=True,complevel=9)
@@ -1348,16 +1463,16 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                     ex_flag_var.flag_meanings = "clamped_to_min_slant_xgas\nextrapolated_below_lowest_slant_xgas_bin\ninterpolated_normally\nextrapolated_above_largest_slant_xgas_bin\nclamped_to_max_slant_xgas"
                     ex_flag_var.usage = 'Please see https://tccon-wiki.caltech.edu/Main/GGG2020DataChanges for more information'
 
-                    extra_atts = {'ancillary_variables': (variable.__dict__.get('ancillary_variables', '') + ' ' + ex_flag_varname).strip()}
+                    extra_atts.update({'ancillary_variables': (variable.__dict__.get('ancillary_variables', '') + ' ' + ex_flag_varname).strip()})
                 else:
                     public_data.createVariable(name, variable.datatype, variable.dimensions)
                     public_data[name][:] = private_data[name][:]
 
                 if write_atts:
                     # copy variable attributes all at once via dictionary
-                    public_data[name].setncatts(private_data[name].__dict__)
+                    public_data[outname].setncatts(private_data[name].__dict__)
                     if extra_atts:
-                        public_data[name].setncatts(extra_atts)
+                        public_data[outname].setncatts(extra_atts)
 
                 # add WMO or comparable scale attribute if needed
                 if aicf_scale_check:
