@@ -893,6 +893,55 @@ def update_attrs_for_public_files(ds, is_public):
     _fix_public_cf_attributes(ds, is_public)
     _fix_incorrect_attributes(ds)
     _add_flag_usage(ds)
+    _add_x2019_co2(ds, is_public)
+
+
+def _add_x2019_co2(ds, is_public):
+    """Adds fields for XCO2, XwCO2, and XlCO2 that are converted to the X2019 CO2 scale and variable O2 mole fraction
+    """
+    def delta_fo2(xco2_prime, fo2_ref, xco2_ref=400e-6, beta=-1/0.4575):
+        # Equation for how the change in O2 mole fraction changes from the reference given. See J. Laughner slides
+        # from Dec 2022 telecon or GGG2020 data paper for derivation.
+        return (beta - beta*fo2_ref - fo2_ref) * (xco2_prime - xco2_ref) / (1 - xco2_prime - beta * xco2_prime)
+
+    if is_public:
+        # The fields should already be generated in the private files.
+        return
+
+    # Updated AICFS were calculated in the 2022-11-16 notebook. I used the ones where I kept what profiles
+    # passed filtering with the new (variable O2) Xluft, rather than the ones where I forced the profiles to
+    # match because (in theory) the xluft using variable O2 mole fractions should be more accurate.
+    old_fo2_ref = 0.2095
+    new_fo2_ref = 0.209341
+    
+
+    new_aicfs = {'xco2': 1.00899, 'xwco2': 0.99957, 'xlco2': 1.00058}
+    for k in new_aicfs:
+        if ds[k].units != 'ppm':
+            raise NotImplementedError(f'Cannot add X2019 CO2 if existing {k} not in ppm! Units were "{ds[k].units}"')
+
+
+    # The first thing we need is the XCO2 value we use to calculate the O2 mole fractions. For GGG2020.1, what we
+    # will end up doing is using the new reference mole fraction of 0.209341 and a simple mean of the airmass corrected
+    # XCO2 windows. To approximate that here, since xco2 = co2 / o2 * f_o2 / AICF, we need to multiple by the old AICF
+    # and 0.209341 / 0.2095 to switch to the new reference O2 mole fraction. Also convert from ppm.
+    xco2_for_o2 = 1e-6 * ds['xco2'][:] * ds['xco2_aicf'][:] * new_fo2_ref / old_fo2_ref
+    fo2 = new_fo2_ref + delta_fo2(xco2_for_o2, new_fo2_ref)
+
+    # Now it's straightforward to convert each variable, it's just a matter of multiplying the old values by
+    # old_aicf/new_aicf and new_fo2/old_fo2
+    for key, new_aicf in new_aicfs.items():
+        old_aicf = ds[f'{key}_aicf'][:]
+
+        old_var = ds[key]
+        new_var = ds.createVariable(f'{key}_x2019', old_var.dtype, dimensions=old_var.dimensions)
+        # just copy the attributes, most of them are the same. We haven't added the scale yet, but do need
+        # to update the description
+        new_var.setncatts(old_var.__dict__)
+        new_var.description = f'fo2 * column_{key}/column_o2'
+        new_var.note = ('The *_x2019 fields use a variable O2 mole fraction in computing the dry air column mole fraction. '
+                        'This is explained in more detail in the GGG2020 paper.')
+        new_var[:] = old_var[:] * fo2 / old_fo2_ref * old_aicf / new_aicf
 
 
 def _add_prior_long_units(ds, is_public):
@@ -1348,7 +1397,11 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                 if insb_group_check or si_group_check:
                     has_experimental = True
 
-                public_name = name+'_experimental'
+                if name.endswith('_x2019'):
+                    public_name = name.replace('_x2019', '') + '_experimental_x2019'
+                else:
+                    public_name = name+'_experimental'
+
                 if expand_aks and name.startswith('ak_x'):
                     public_data.createVariable(public_name, variable.datatype, variable.dimensions, zlib=True, complevel=9)
                     this_var_data = _expand_aks(private_data, name.split('_')[1])
