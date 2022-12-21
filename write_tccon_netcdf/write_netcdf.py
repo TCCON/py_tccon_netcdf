@@ -470,6 +470,18 @@ def get_duplicates(a):
     return dupes
 
 
+def write_file_fmt_attrs(ds):
+    """Insert/update the attributes related to the file format version in a dictionary or on a netCDF dataset
+    """
+    info_str = 'For a description of the changes between file format versions, see https://tccon-wiki.caltech.edu/Main/GGG2020DataChanges'
+    if isinstance(ds, dict):
+        ds['file_format_version'] = file_fmt_version
+        ds['file_format_information'] = info_str
+    else:
+        ds.file_format_version = file_fmt_version
+        ds.file_format_information = info_str
+
+
 def read_mav(path,GGGPATH,maxspec,show_progress):
     """
     read .mav files into a dictionary with spectrum filnames as keys (from each "Next spectrum" block in the .mav file)
@@ -895,6 +907,7 @@ def update_attrs_for_public_files(ds, is_public):
     _fix_incorrect_attributes(ds)
     _add_flag_usage(ds)
     _add_x2019_co2(ds, is_public)
+    write_file_fmt_attrs(ds)
 
 
 def _add_x2019_co2(ds, is_public):
@@ -1208,6 +1221,8 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
 
         if 'data_doi' in public_attributes and include_experimental:
             public_attributes['data_doi'] = 'These data are associated with {}'.format(public_attributes['data_doi'])
+        # also update the file format attributes
+        write_file_fmt_attrs(public_attributes)
         public_data.setncatts(public_attributes)
         logging.info('  -> Done copying attributes')
 
@@ -2231,6 +2246,8 @@ def main():
             logging.warning('GGGtip %s',gggtip)
         nc_data.GGGtip = "The output of 'hg summary' from the GGG repository:\n"+gggtip
         nc_data.history = "Created {} (UTC)".format(time.asctime(time.gmtime(time.time())))
+        # add file format version information
+        write_file_fmt_attrs(nc_data)
 
         logging.info('Creating dimensions and coordinate variables')
         ## create dimensions
