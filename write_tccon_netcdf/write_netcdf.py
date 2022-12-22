@@ -908,7 +908,7 @@ def update_attrs_for_public_files(ds, is_public):
     _add_flag_usage(ds)
     _add_x2019_co2(ds, is_public)
     write_file_fmt_attrs(ds)
-    _add_effective_path(ds)
+    _add_effective_path(ds, is_public)
 
 
 def _add_x2019_co2(ds, is_public):
@@ -1173,10 +1173,12 @@ def _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=500, min
     quant_slant[xx_above] = smax
     return quant_slant
 
-def _add_effective_path(ds):
+def _add_effective_path(ds, is_public):
     if 'effective_path_length' in ds.variables.keys():
         logging.info('Effective path length already present, not recomputing')
         return 
+    elif is_public:
+        raise NotImplementedError('Cannot add effective path length to public files, only implemented for private files. Make sure it is added to the private file before generating the public one.')
 
     prior_nair = ds['prior_density'][:]
     prior_alts = ds['prior_altitude'][:]
