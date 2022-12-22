@@ -53,14 +53,18 @@
             "xwco2_error_experimental": "column_average_dry_atmosphere_mole_fraction_of_carbon_dioxide_from_weak_band standard_error",
             "xco2": "column_average_dry_atmosphere_mole_fraction_of_carbon_dioxide",
             "xco2_error": "column_average_dry_atmosphere_mole_fraction_of_carbon_dioxide standard_error",
-            "o2_prior_column_density": "column_density_of_oxygen",
-            "co2_prior_column_density": "column_density_of_carbon_dioxide",
-            "ch4_prior_column_density": "column_density_of_methane",
-            "n2o_prior_column_density": "column_density_of_nitrous_oxide",
-            "co_prior_column_density": "column_density_of_carbon_monoxide",
-            "hf_prior_column_density": "column_density_of_hydrogen_fluoride",
-            "h2o_prior_column_density": "column_density_of_water",
-            "hdo_prior_column_density": "column_density_of_semiheavy_water"
+            "xlco2_experimental_x2019": "column_average_dry_atmosphere_mole_fraction_of_carbon_dioxide_from_strong_band",
+            "xwco2_experimental_x2019": "column_average_dry_atmosphere_mole_fraction_of_carbon_dioxide_from_weak_band",
+            "xco2_x2019": "column_average_dry_atmosphere_mole_fraction_of_carbon_dioxide",
+            "prior_xhf": "column_average_dry_atmosphere_mole_fraction_of_hydrogen_fluoride",
+            "prior_xh2o": "column_average_dry_atmosphere_mole_fraction_of_water",
+            "prior_xhdo": "column_average_dry_atmosphere_mole_fraction_of_semiheavy_water",
+            "prior_xco": "column_average_dry_atmosphere_mole_fraction_of_carbon_monoxide",
+            "prior_xn2o": "column_average_dry_atmosphere_mole_fraction_of_nitrous_oxide",
+            "prior_xch4": "column_average_dry_atmosphere_mole_fraction_of_methane",
+            "prior_xlco2_experimental": "column_average_dry_atmosphere_mole_fraction_of_carbon_dioxide_from_strong_band",
+            "prior_xwco2_experimental": "column_average_dry_atmosphere_mole_fraction_of_carbon_dioxide_from_weak_band",
+            "prior_xco2": "column_average_dry_atmosphere_mole_fraction_of_carbon_dioxide"
         },
 
         "units": {
@@ -95,7 +99,10 @@
             "xch4": "xch4_error",
             "xlco2_experimental": "xlco2_error_experimental",
             "xwco2_experimental": "xwco2_error_experimental",
-            "xco2": "xco2_error"
+            "xco2": "xco2_error",
+            "xlco2_experimental_x2019": "xlco2_error_experimental_x2019",
+            "xwco2_experimental_x2019": "xwco2_error_experimental_x2019",
+            "xco2_x2019": "xco2_error_x2019"
         }
     },
 

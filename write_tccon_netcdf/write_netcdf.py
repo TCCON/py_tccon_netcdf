@@ -30,6 +30,7 @@ import gc
 
 wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-15; SR)\n'
 file_fmt_version = '2020.B'
+std_o2_mole_frac = 0.2095
 
 # Let's try to be CF compliant: http://cfconventions.org/Data/cf-conventions/cf-conventions-1.7/cf-conventions.pdf
 standard_name_dict = {
@@ -899,6 +900,89 @@ def write_values(nc_data,var,values,inds=[]):
         nc_data[var][:] = full_array.astype(nc_data[var].dtype)
 
 
+def add_obs_op_variables(private_ds, public_ds, public_slice):
+    # This has two parts: converting the OVCs to original Xgas values and generating the
+    # "observation operator" vectors, which combine the effective path length, number density,
+    # and conversion to column average mole fraction all in one. We will need two of those: one
+    # for the regular xgas values and one for the _x2019 ones (since the O2 mole fraction is different).
+
+    # We'll do the observation operator first. 
+    ret_o2_col = private_ds['vsw_o2_7885'][:][public_slice]
+    x2007_o2 = std_o2_mole_frac
+    x2019_o2 = private_ds['o2_mean_mole_fraction_x2019'][:][public_slice]
+    eff_path = private_ds['effective_path_length'][:][public_slice]
+    # use the public dataset for this one because it's already been expanded to one/spectrum and
+    # subset to the kept data
+    nair = public_ds['prior_density'][:]
+
+
+    # This won't work when the experimental variables are in groups, but those won't be standard
+    # files anyway.
+    x2007_vars = ', '.join(v for v in public_ds.variables.keys() if re.match(r'x[a-z0-9]+$', v) and '_error_' not in v)
+    x2019_vars = ', '.join(v for v in public_ds.variables.keys() if re.match(r'x[a-z0-9]+.*_x2019$', v) and '_error_' not in v)
+
+    obs_op_atts = {
+        'description': ('A vector that, when the dot product is taken with a wet mole fraction profile, applies the TCCON column-average integration. '
+                        'This does NOT include the averaging kernel, those must be applied in addition to this vector. '
+                        'The relates_to attribute indicates which Xgas variable to use this operator for when trying to compare against.'), 
+        'units': '1', 
+        'relates_to': x2007_vars,
+        'usage': 'https://tccon-wiki.caltech.edu/Main/AuxiliaryDataGGG2020'
+    }
+    x2007_obs_var = public_ds.createVariable('integration_operator', 'f4', dimensions=('time', 'prior_altitude'), zlib=True, complevel=9)
+    x2007_obs_var[:] = (eff_path * nair * x2007_o2 / ret_o2_col[:, np.newaxis]).astype(np.float32)
+    x2007_obs_var.setncatts(obs_op_atts)
+
+    obs_op_atts['relates_to'] = x2019_vars
+    x2019_obs_var = public_ds.createVariable('integration_operator_x2019', 'f4', dimensions=('time', 'prior_altitude'))
+    x2019_obs_var[:] = (eff_path * nair * x2019_o2[:, np.newaxis] / ret_o2_col[:, np.newaxis]).astype(np.float32)
+    x2019_obs_var.setncatts(obs_op_atts)
+
+    # Now let's calculate the a priori column-average mole fractions
+    private_vars = {
+        "co2": "co2_6220_ovc_co2",
+        "ch4": "ch4_5938_ovc_ch4",
+        "n2o": "n2o_4395_ovc_n2o",
+        "co": "co_4290_ovc_co",
+        "hf": "hf_4038_ovc_hf",
+        "h2o": "h2o_4565_ovc_h2o",
+        "hdo": "hdo_4054_ovc_hdo",
+    }
+
+    conversions = {
+        'ppm': 1e6,
+        'ppb': 1e9,
+        'ppt': 1e12,
+    }
+
+    for gas, priv_var in private_vars.items():
+        col = private_ds[priv_var][:][public_slice]
+        unit = public_ds[f'x{gas}'].units
+        xgas = col / ret_o2_col * x2007_o2
+
+        var = public_ds.createVariable(f'prior_x{gas}', 'f4', dimensions=('time',))
+        var[:] = conversions[unit] * xgas
+        var.setncatts({
+            'standard_name': public_ds[f'x{gas}'].standard_name,
+            'units': unit,
+            'description': f'Column-average mole fraction calculated from the PRIOR profile of {gas} using the standard mean O2 mole fraction of {std_o2_mole_frac} appropriate for use when comparing other profiles to non-x2019 variables.'
+        })
+
+    # We'll also need to do a special one for co2 with the variable mole fraction
+    col = private_ds[private_vars['co2']][:][public_slice]
+    unit = public_ds[f'xco2_x2019'].units
+    xgas = col / ret_o2_col * x2019_o2
+
+    var = public_ds.createVariable(f'prior_xco2_x2019', 'f4', dimensions=('time',))
+    var[:] = conversions[unit] * xgas
+    var.setncatts({
+        'standard_name': public_ds[f'xco2_x2019'].standard_name,
+        'units': unit,
+        'description': f'Column-average mole fraction calculated from the PRIOR profile of co2 using the variable mean O2 mole fraction appropriate for use when comparing other profiles to _x2019 variables ONLY.'
+    })
+
+
+
 def update_attrs_for_public_files(ds, is_public):
     _fix_unspecified_units(ds)
     _fix_inconsistent_units(ds)
@@ -926,7 +1010,7 @@ def _add_x2019_co2(ds, is_public):
     # Updated AICFS were calculated in the 2022-11-16 notebook. I used the ones where I kept what profiles
     # passed filtering with the new (variable O2) Xluft, rather than the ones where I forced the profiles to
     # match because (in theory) the xluft using variable O2 mole fractions should be more accurate.
-    old_fo2_ref = 0.2095
+    old_fo2_ref = std_o2_mole_frac
     new_fo2_ref = 0.209341
     
 
@@ -953,14 +1037,24 @@ def _add_x2019_co2(ds, is_public):
         # just copy the attributes, most of them are the same. We haven't added the scale yet, but do need
         # to update the description
         new_var.setncatts(old_var.__dict__)
-        new_var.description = f'fo2 * column_{key}/column_o2'
+        new_var.description = old_var.description.replace('0.2095', 'fo2')
+        new_var.note = ('The *_x2019 fields use a variable O2 mole fraction in computing the dry air column mole fraction. '
+                        'This is explained in more detail in the GGG2020 paper.')
+        new_var.wmo_or_analogous_scale = 'WMO CO2 X2019'
+        new_var[:] = old_var[:] * fo2 / old_fo2_ref * old_aicf / new_aicf
+
+        # Repeat for the error, it's also scaled by the O2 mole fraction and AICF
+        errkey = key.replace('co2', 'co2_error')
+        old_var = ds[errkey]
+        new_var = ds.createVariable(f'{errkey}_x2019', old_var.dtype, dimensions=old_var.dimensions)
+        new_var.setncatts(old_var.__dict__)
         new_var.note = ('The *_x2019 fields use a variable O2 mole fraction in computing the dry air column mole fraction. '
                         'This is explained in more detail in the GGG2020 paper.')
         new_var[:] = old_var[:] * fo2 / old_fo2_ref * old_aicf / new_aicf
 
-    # Also write the fO2 value, it's needed if people want to properly calculate the prior XCO2
+    # Also write the fO2 value, we'll need it in the public file generation for the obs operator
     o2_var = ds.createVariable('o2_mean_mole_fraction_x2019', 'f4', dimensions=('time',))
-    o2_var.description = 'O2 mole fraction used when calculating the x*_x2019 variables ONLY. Any Xgas variables without the _x2019 suffix use 0.2095 in their Xgas calculation.'
+    o2_var.description = f'O2 mole fraction used when calculating the x*_x2019 variables ONLY. Any Xgas variables without the _x2019 suffix use {std_o2_mole_frac} in their Xgas calculation.'
     o2_var.units = '1'
     o2_var.standard_name = 'dry_atmospheric_mole_fraction_of_oxygen'
     o2_var[:] = fo2.astype('float32')
@@ -1178,7 +1272,8 @@ def _add_effective_path(ds, is_public):
         logging.info('Effective path length already present, not recomputing')
         return 
     elif is_public:
-        raise NotImplementedError('Cannot add effective path length to public files, only implemented for private files. Make sure it is added to the private file before generating the public one.')
+        logging.info('Effective path will be merged into an integration_operator for public files')
+        return
 
     prior_nair = ds['prior_density'][:]
     prior_alts = ds['prior_altitude'][:]
@@ -1585,6 +1680,9 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             public_data['airmass'].long_name = 'airmass'
             public_data['airmass'].standard_name = 'airmass'
             public_data['airmass'].units = ''
+
+        # do this before update_attrs so that the standard names can be assigned from cf_standard_names_json
+        add_obs_op_variables(private_data, public_data, public_slice)
 
         logging.info('  --> Done copying variables')
         update_attrs_for_public_files(public_data, is_public=True)
