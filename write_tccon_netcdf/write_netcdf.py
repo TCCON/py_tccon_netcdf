@@ -989,6 +989,7 @@ def update_attrs_for_public_files(ds, is_public):
     _add_prior_long_units(ds, is_public)
     _fix_public_cf_attributes(ds, is_public)
     _fix_incorrect_attributes(ds)
+    _insert_missing_aks(ds, 'xhdo', is_public)
     _add_flag_usage(ds)
     _add_x2019_co2(ds, is_public)
     write_file_fmt_attrs(ds)
@@ -1231,6 +1232,60 @@ def _expand_aks(ds, xgas, n=500, full_ak_resolution=False, min_extrap=0):
     expanded_aks = expanded_aks.data.T
 
     return expanded_aks, extrap_flags
+
+
+def _insert_missing_aks(nc_data, xgas, is_public):
+    # This duplicates the code in the main function because I didn't want to deal with refactoring reuse this
+    # function there and test it. In theory it would be simple to do so though.
+    if not xgas.startswith('x'):
+        xgas = f'x{xgas}'
+
+    if is_public:
+        # Missing AKs must be added to the private files so that the normal AK expansion can happen for the public
+        # files.
+        return
+
+    slant_xgas_varname = f'ak_slant_{xgas}_bin'
+    ak_varname = f'ak_{xgas}'
+
+    with netCDF4.Dataset(ak_tables_nc_file()) as ak_nc:
+        if slant_xgas_varname not in nc_data.variables:
+            logging.info(f'Adding {xgas} slant bins for AKs')
+
+            ak_bin_var = f'slant_{xgas}_bin'
+            nc_data.createVariable(slant_xgas_varname,np.float32,('ak_slant_xgas_bin'))
+            att_dict = {
+                "standard_name": slant_xgas_varname,
+                "long_name": slant_xgas_varname.replace('_',' '),
+                "description": ak_nc[ak_bin_var].description.lower()+" (slant_xgas=xgas*airmass)",
+                "units": ak_nc[ak_bin_var].units,
+            }
+
+            nc_data[slant_xgas_varname].setncatts(att_dict)
+            if xgas == 'xch4':
+                # Need to convert the ppb in the netCDF file to ppm to be consistent with xch4
+                nc_data[slant_xgas_varname][:] = ak_nc[ak_bin_var][:].data.astype(np.float32) * 1e-3
+                nc_data[slant_xgas_varname].units = 'ppm'
+            else:
+                nc_data[slant_xgas_varname][:] = ak_nc[ak_bin_var][:].data.astype(np.float32)
+
+        if ak_varname not in nc_data.variables:
+            logging.info(f'Adding {xgas} AK')
+            table_ak_var = f'{xgas}_aks'
+            nc_data.createVariable(ak_varname,np.float32,('ak_altitude','ak_slant_xgas_bin'))
+            att_dict = {
+                "standard_name": "{}_column_averaging_kernel".format(table_ak_var.strip('_aks')),
+                "long_name": "{} column averaging kernel".format(table_ak_var.strip('_aks')),
+                "description": ak_nc[table_ak_var].description.lower()+'. ',
+                "units": '',
+            }
+            if xgas.lower() == 'xlco2':
+                att_dict['description'] = att_dict['description']+special_description_dict['lco2']
+            elif xgas.lower() == 'xwco2':
+                att_dict['description'] = att_dict['description']+special_description_dict['wco2']
+            nc_data[ak_varname].setncatts(att_dict)
+            nc_data[ak_varname][:] = ak_nc[table_ak_var][:].data.astype(np.float32)
+
     
 def _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=500, min_extrap=0):
     # Put the individual spectra's slant Xgas values on a smaller number
