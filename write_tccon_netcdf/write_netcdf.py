@@ -28,6 +28,9 @@ from shutil import copyfile
 from signal import signal, SIGINT
 import gc
 
+from . import bias_corrections as bc
+
+
 wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-15; SR)\n'
 file_fmt_version = '2020.B'
 std_o2_mole_frac = 0.2095
@@ -983,7 +986,7 @@ def add_obs_op_variables(private_ds, public_ds, public_slice):
 
 
 
-def update_attrs_for_public_files(ds, is_public):
+def apply_additional_fixes(ds, is_public):
     _fix_unspecified_units(ds)
     _fix_inconsistent_units(ds)
     _add_prior_long_units(ds, is_public)
@@ -991,10 +994,36 @@ def update_attrs_for_public_files(ds, is_public):
     _fix_incorrect_attributes(ds)
     _insert_missing_aks(ds, 'xhdo', is_public)
     _add_flag_usage(ds)
+    _bias_correct_xco2(ds)
     _add_x2019_co2(ds, is_public)
     write_file_fmt_attrs(ds)
     _add_effective_path(ds, is_public)
 
+
+def _bias_correct_xco2(ds, variables=('xco2', 'xwco2', 'xlco2')):
+    pretty_names = {'xco2': 'XCO2', 'xwco2': 'XwCO2', 'xlco2': 'XlCO2'}
+    corrected_df, xluft_attrs = bc.correct_xco2_from_xluft(ds, variables)
+
+    # We want to store the original XCO2 for comparison, along with the rolling Xluft used for the correction
+    # which requires making a couple new variables
+    for varname in variables:
+        logging.info(f'Applying Xluft bias correction to {varname}')
+        xco2_orig = ds.createVariable(f'{varname}_original', ds[varname].dtype, dimensions=ds[varname].dimensions)
+        xco2_orig.setncatts(ds[varname].__dict__)
+        xco2_orig.note = f'This variable contains the {pretty_names[varname]} values from the .aia file BEFORE the Xluft bias correction is applied.'
+        xco2_orig[:] = ds[varname][:]
+
+        xco2_new = ds[varname]
+        xco2_new.note = f'This variable contains the {pretty_names[varname]} values with a bias correction applied based on a moving median of Xluft.'
+        xco2_new.ancillary_variables = 'xluft_for_bias_correction'
+        xco2_new[:] = corrected_df[f'{varname}_corr'].to_numpy()
+
+    xluft_rolling = ds.createVariable('xluft_for_bias_correction', ds['xluft'].dtype, dimensions=ds['xluft'].dimensions)
+    xluft_rolling.setncatts(ds['xluft'].__dict__)
+    xluft_rolling.setncatts(xluft_attrs)
+    xluft_rolling.note = 'This is the moving median Xluft used for the XCO2 bias corrections'
+    xluft_rolling[:] = corrected_df['xluft_rolled'].to_numpy()
+    
 
 def _add_x2019_co2(ds, is_public):
     """Adds fields for XCO2, XwCO2, and XlCO2 that are converted to the X2019 CO2 scale and variable O2 mole fraction
@@ -1740,7 +1769,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
         add_obs_op_variables(private_data, public_data, public_slice)
 
         logging.info('  --> Done copying variables')
-        update_attrs_for_public_files(public_data, is_public=True)
+        apply_additional_fixes(public_data, is_public=True)
 
         # Just before we close the file, get the start and end date for the new dates
         public_dates = public_data['time'][[0, -1]]
@@ -2154,7 +2183,7 @@ def main():
             # rely on a GGG installation.
             private_nc_file = set_release_flags(private_nc_file,args.rflag_file,qc_file=qc_file)
             with netCDF4.Dataset(private_nc_file, 'a') as privds:
-                update_attrs_for_public_files(privds, is_public=False)
+                apply_additional_fixes(privds, is_public=False)
             if not args.public:
                 sys.exit()
         logging.info('Writing public file from {}'.format(private_nc_file))
