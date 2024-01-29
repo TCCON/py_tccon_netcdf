@@ -995,6 +995,7 @@ def apply_additional_fixes(ds, is_public):
     _insert_missing_aks(ds, 'xhdo', is_public)
     _add_flag_usage(ds)
     _bias_correct_xco2(ds)
+    _bias_correct_xn2o(ds)
     _add_x2019_co2(ds, is_public)
     write_file_fmt_attrs(ds)
     _add_effective_path(ds, is_public)
@@ -1023,6 +1024,28 @@ def _bias_correct_xco2(ds, variables=('xco2', 'xwco2', 'xlco2')):
     xluft_rolling.setncatts(xluft_attrs)
     xluft_rolling.note = 'This is the moving median Xluft used for the XCO2 bias corrections'
     xluft_rolling[:] = corrected_df['xluft_rolled'].to_numpy()
+
+
+def _bias_correct_xn2o(ds):
+    logging.info('Applying PT700 bias correction to XN2O')
+    xn2o_corr, pt700 = bc.correct_xn2o_from_pt700(ds)
+
+    var_xn2o_orig = ds.createVariable('xn2o_original', ds['xn2o'].dtype, dimensions=ds['xn2o'].dimensions)
+    var_xn2o_orig.setncatts(ds['xn2o'].__dict__)
+    var_xn2o_orig.note = 'This variable contains the XN2O values from the .aia file BEFORE the temperature bias correction is applied'
+    var_xn2o_orig[:] = ds['xn2o'][:]
+
+    var_xn2o_new = ds['xn2o']
+    var_xn2o_new.note = 'This variable contains the XN2O values with a bias correction applied based on the prior potential temperature at 700 hPa'
+    var_xn2o_new.ancillary_variables = 'potential_temperature_700hPa'
+    var_xn2o_new[:] = xn2o_corr
+
+    var_pt700 = ds.createVariable('potential_temperature_700hPa', ds['xn2o'].dtype, dimensions=ds['xn2o'].dimensions)
+    var_pt700.standard_name = 'potential_temperature'
+    var_pt700.long_name = 'potential temperature at 700 hPa'
+    var_pt700.units = 'degrees_Kelvin'
+    var_pt700.note = 'This is the a priori potential temperature at 700 hPa used to bias correct XN2O'
+    var_pt700[:] = pt700
     
 
 def _add_x2019_co2(ds, is_public):

@@ -1,6 +1,7 @@
 import pandas as pd
 import netCDF4 as ncdf
 import numpy as np
+from scipy.interpolate import interp1d
 
 from typing import Optional, Sequence
 
@@ -223,3 +224,32 @@ def _split_by_gaps(df: pd.DataFrame, gap: pd.Timedelta, time):
     df_by_gaps = df.groupby('isgap')
 
     return df_by_gaps
+
+
+def correct_xn2o_from_pt700(ds, m=0.000646, b=0.782):
+    xn2o = ds['xn2o'][:]
+    n2o_aicf = ds['xn2o_aicf'][:]
+
+    # We need to remove the AICF because the correction was calculated for pre-AICF XN2O data
+    xn2o = xn2o * n2o_aicf
+    pt700 = _compute_pt700(ds)
+    # Apply the temperature correction. Counterintuitively, we do *NOT* need to reapply the AICF.
+    # That is only because for N2O the AICF was calculated as the value of this fit at 310 K.
+    # Hence, essentially this is applying a *temperature dependent* AICF. 
+    xn2o_corr = xn2o / (m * pt700 + b)
+
+    return xn2o_corr, pt700    
+
+
+def _compute_pt700(ds):
+    t = ds['prior_temperature'][:]
+    # convert atm -> hPa
+    p = 1013.25 * ds['prior_pressure'][:]
+    pt700 = np.full(t.shape[0], np.nan, dtype=t.dtype)
+    for (i, (tprof, pprof)) in enumerate(zip(t, p)):
+        f = interp1d(pprof, tprof)
+        t700_i = f(700.0)
+        pt700[i] = t700_i * (1000.0 / 700.0) ** 0.286
+
+    prior_index = ds['prior_index'][:]
+    return pt700[prior_index]
