@@ -11,7 +11,7 @@ XLUFT_BIAS_PARAMS = {
     'xlco2': (0.849, 0.152),
 }
 
-def correct_xco2_from_xluft(ds: ncdf.Dataset, variables: Sequence[str], use_flags=False, use_daily_median=True, daily_extra_days=2):
+def correct_xco2_from_xluft(ds: ncdf.Dataset, variables: Sequence[str], use_flags=False, use_daily_median=False, daily_extra_days=2):
     lon = ds['long'][:].filled(np.nan)
     xluft = ds['xluft'][:].filled(np.nan)
     times = pd.Timestamp(1970, 1, 1) + pd.TimedeltaIndex(ds['time'][:], unit='s')
@@ -54,7 +54,7 @@ def _roll_xluft_for_bias_corr(times: pd.DatetimeIndex, xluft: np.ndarray, lon: n
         if use_daily_median:
             return _median_by_day(utc_times=times, lons=lon, yvals=xluft, dedup=False)
         else:
-            return _roll_data(times=times, yvals=xluft, npts=npts, gap=gap, dedup=False).set_index('times').rename(columns={'y': 'xluft_rolled', 'y_orig': 'xluft_orig'})
+            return _roll_data(times=times, yvals=xluft, npts=npts, gap=gap, dedup=False).set_index('times')
     
     # If we're given flags, then we need to do the rolling on only good quality data, then fill back in.
     # If there are duplicate times, roll_data will remove them, then reindexing back to the original

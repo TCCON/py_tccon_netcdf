@@ -33,7 +33,8 @@ setup(
         'concat_netcdf=util.concat_netcdf:main',
         'update_site_info=util.update_site_info:main',
         'subset_netcdf=util.subset_tccon_netcdf:main',
-        'update_manual_flags=write_tccon_netcdf.update_manual_flags:main'
+        'update_manual_flags=write_tccon_netcdf.update_manual_flags:main',
+        'make_ggg2020_1=write_tccon_netcdf.make_ggg2020_1:main',
     ]},
     license='MIT',
     python_requires='>=3.7',
