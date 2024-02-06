@@ -54,7 +54,7 @@ def _roll_xluft_for_bias_corr(times: pd.DatetimeIndex, xluft: np.ndarray, lon: n
         if use_daily_median:
             return _median_by_day(utc_times=times, lons=lon, yvals=xluft, dedup=False)
         else:
-            return _roll_data(times=times, yvals=xluft, npts=npts, gap=gap, dedup=False).set_index('times')
+            return _roll_data(times=times, yvals=xluft, npts=npts, gap=gap).set_index('times')
     
     # If we're given flags, then we need to do the rolling on only good quality data, then fill back in.
     # If there are duplicate times, roll_data will remove them, then reindexing back to the original
@@ -84,8 +84,14 @@ def _roll_xluft_for_bias_corr(times: pd.DatetimeIndex, xluft: np.ndarray, lon: n
     return rolled_df
 
 
-def _roll_data(times: pd.DatetimeIndex, yvals: np.ndarray, npts: int, gap: pd.Timedelta, dedup=True, extend_with_median=True):
+def _roll_data(times: pd.DatetimeIndex, yvals: np.ndarray, npts: int, gap: pd.Timedelta, extend_with_median=True):
     """Compute rolling statistics on data
+
+    This function must ensure that the input data is time ordered in order to correctly calculate the rolling median.
+    In order to return the rolled values in the same order as the netCDF file expects, it must be able to reindex
+    based on time at the end. Since Pandas reindexing does not allow for duplicate values in the reindexed index,
+    this will remove duplicate times *as long as* they also have duplicate y-values. Duplicate times without corresponding
+    duplicate y-values raises an error.
 
     Parameters
     ----------
@@ -103,11 +109,6 @@ def _roll_data(times: pd.DatetimeIndex, yvals: np.ndarray, npts: int, gap: pd.Ti
         can operate over. That is, if this is set to "7 days" and there is a data gap a 14 days, the data before 
         and after that gap will have the rolling operation applied to each separately.
 
-    dedup
-        When ``True`` (default) this will skip entries that are duplicated in both ``times`` and ``yvals`` and 
-        raise an error if there are duplicated times without corresponding duplicate y-values. This makes sure
-        that the resulting dataframe has one point per time, so that it can be reindexed to match a vector of times.
-
     extend_with_median
         When ``True`` (default) this will add buffers to the beginning and end of ``yvals`` that repeat the
         median of the first and last ``npts``, respectively, before calculating the rolling median. This ensures
@@ -123,9 +124,8 @@ def _roll_data(times: pd.DatetimeIndex, yvals: np.ndarray, npts: int, gap: pd.Ti
     """
     df = pd.DataFrame({'times': times, 'y': yvals})
     time_col = 'times'
-    
-    if dedup:
-        df = _dedup_by_times(df)
+    df = _dedup_by_times(df)
+    df = df.set_index('times').sort_index().reset_index()
 
     grouped_df = _split_by_gaps(df, gap, time_col)
 
@@ -151,10 +151,13 @@ def _roll_data(times: pd.DatetimeIndex, yvals: np.ndarray, npts: int, gap: pd.Ti
         result['y_orig'] = group['y']
         result[time_col] = group[time_col]
         results.append(result)
-    return pd.concat(results)
+    print('Debug: reindexing back to original times')
+    return pd.concat(results).set_index('times').reindex(times).reset_index().rename(columns={'index': 'times'})
 
 
 def _median_by_day(utc_times: pd.DatetimeIndex, lons: np.ndarray, yvals: np.ndarray, dedup=True, extra_ndays=0):
+    if (utc_times.diff() < pd.Timedelta(0)).any():
+        raise NotImplementedError('median_by_day is not implemented to handle out-of-order time data')
     local_times = utc_times + pd.TimedeltaIndex(lons / 15.0, unit='h')
     local_dates = local_times.date
     df = pd.DataFrame({'times': utc_times, 'y_orig': yvals, 'date': local_dates})
