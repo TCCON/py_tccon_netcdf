@@ -84,24 +84,36 @@ def _roll_xluft_for_bias_corr(times: pd.DatetimeIndex, xluft: np.ndarray, lon: n
     return rolled_df
 
 
-def _roll_data(times: pd.DatetimeIndex, yvals: np.ndarray, npts: int, gap: pd.Timedelta, dedup=True):
+def _roll_data(times: pd.DatetimeIndex, yvals: np.ndarray, npts: int, gap: pd.Timedelta, dedup=True, extend_with_median=True):
     """Compute rolling statistics on data
 
     Parameters
     ----------
-    xvals
-        array of x values
+    times
+        Sequence of timestamps for the ``yvals``
+    
     yvals
-        array of y values
+        Array of y values
+    
     npts
-        number of points to use in the rolling window
+        Number of points to use in the rolling window
+    
     gap
-        a `Pandas Timedelta specifying the longest time difference between adjacent points that a rolling window 
+        A `Pandas Timedelta specifying the longest time difference between adjacent points that a rolling window 
         can operate over. That is, if this is set to "7 days" and there is a data gap a 14 days, the data before 
         and after that gap will have the rolling operation applied to each separately.
-    times
-        if ``xvals`` is not a time variable, then this input must be the times corresponding to the ``xvals``
-        and ``yvals``. It is used to split on gaps.
+
+    dedup
+        When ``True`` (default) this will skip entries that are duplicated in both ``times`` and ``yvals`` and 
+        raise an error if there are duplicated times without corresponding duplicate y-values. This makes sure
+        that the resulting dataframe has one point per time, so that it can be reindexed to match a vector of times.
+
+    extend_with_median
+        When ``True`` (default) this will add buffers to the beginning and end of ``yvals`` that repeat the
+        median of the first and last ``npts``, respectively, before calculating the rolling median. This ensures
+        that the rolling median always has ``npts`` to work with, rather than letting the window shrink at the
+        start and end of the file. 
+         
 
     Returns
     -------
@@ -120,7 +132,19 @@ def _roll_data(times: pd.DatetimeIndex, yvals: np.ndarray, npts: int, gap: pd.Ti
     results = []
     roll_cols = ['y']
     for n, group in grouped_df:
-        result = group[roll_cols].rolling(npts, center=True, min_periods=1).median()
+        if not extend_with_median:
+            result = group[roll_cols].rolling(npts, center=True, min_periods=1).median()
+        else:
+            y = group['y']
+
+            n_extend = npts // 2
+            front = pd.Series(y.iloc[:npts].median(), index=range(-n_extend, 0))
+            end = pd.Series(y.iloc[-npts:].median(), index=range(-1, -n_extend-1, -1))
+            y_extended = pd.concat([front, y, end])
+            y_extended = pd.DataFrame({'y': y_extended})
+        
+            result = y_extended.rolling(npts, center=True, min_periods=1).median()
+            result = result[result.index >= 0]
 
         # Times cannot be computed with rolling operations, therefore we need to copy the
         # time column back over. Also copy the unrolled values for comparison.
