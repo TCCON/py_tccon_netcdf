@@ -2164,7 +2164,7 @@ def main():
             # rely on a GGG installation.
             private_nc_file = set_release_flags(private_nc_file,args.rflag_file,qc_file=qc_file)
             with netCDF4.Dataset(private_nc_file, 'a') as privds:
-                update_attrs_for_public_files(privds, is_public=False)
+                update_attrs_for_public_files(privds, is_public=False, mode=args.mode)
             if not args.public:
                 sys.exit()
         logging.info('Writing public file from {}'.format(private_nc_file))
