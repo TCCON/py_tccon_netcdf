@@ -1438,7 +1438,7 @@ def _effective_vertical_path(z, zmin, d):
     return vpath
 
 
-def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False,rename_by_dates=True,flag0_only=True,expand_priors=True,expand_aks=True,full_ak_resolution=True):
+def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False,rename_by_dates=True,flag0_only=True,expand_priors=True,expand_aks=True,full_ak_resolution=True,mode="tccon"):
     """
     Take a private netcdf file and write the public file using the public_variables.json file
     """
@@ -2168,7 +2168,7 @@ def main():
             if not args.public:
                 sys.exit()
         logging.info('Writing public file from {}'.format(private_nc_file))
-        write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=not args.std_only,remove_if_no_experimental=args.remove_no_expt,flag0_only=not args.publish_all_flags,expand_priors=args.expand_priors,expand_aks=args.expand_aks,full_ak_resolution=args.full_ak_resolution)
+        write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=not args.std_only,remove_if_no_experimental=args.remove_no_expt,flag0_only=not args.publish_all_flags,expand_priors=args.expand_priors,expand_aks=args.expand_aks,full_ak_resolution=args.full_ak_resolution,mode=args.mode)
         sys.exit()
 
     # input and output file names
