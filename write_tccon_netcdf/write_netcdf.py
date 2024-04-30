@@ -2163,8 +2163,6 @@ def main():
             # file. Since public file production occurs on tccondata.org, we don't want to
             # rely on a GGG installation.
             private_nc_file = set_release_flags(private_nc_file,args.rflag_file,qc_file=qc_file)
-            with netCDF4.Dataset(private_nc_file, 'a') as privds:
-                update_attrs_for_public_files(privds, is_public=False)
             if not args.public:
                 sys.exit()
         logging.info('Writing public file from {}'.format(private_nc_file))
@@ -3565,6 +3563,8 @@ def main():
 
         # get a list of all the variables written to the private netcdf file, will be used below to check for missing variables before writing an eof.csv file
         private_var_list = [v for v in nc_data.variables]
+
+        update_attrs_for_public_files(nc_data, is_public=False, mode=args.mode)
     # end of the "with open(private_nc_file)" statement
     
     # both function return the path where the flags were written, so 
