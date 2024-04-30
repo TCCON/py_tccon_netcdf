@@ -3576,7 +3576,7 @@ def main():
     logging.info('Finished writing {} {:.2f} MB'.format(private_nc_file,os.path.getsize(private_nc_file)/1e6))
 
     if args.public:
-        write_public_nc(private_nc_file,code_dir,nc_format,expand_priors=args.expand_priors,expand_aks=args.expand_aks)
+        write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=not args.std_only,remove_if_no_experimental=args.remove_no_expt,flag0_only=not args.publish_all_flags,expand_priors=args.expand_priors,expand_aks=args.expand_aks,full_ak_resolution=args.full_ak_resolution,mode=args.mode)
 
     if args.eof:
         ordered_var_list = ['flag','flagged_var_name','spectrum'] # list of variables for writing the eof file
