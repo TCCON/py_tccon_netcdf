@@ -976,18 +976,19 @@ def add_obs_op_variables(private_ds, public_ds, public_slice, mode):
             'description': f'Column-average mole fraction calculated from the PRIOR profile of {gas} using the standard mean O2 mole fraction of {std_o2_mole_frac} appropriate for use when comparing other profiles to non-x2019 variables.'
         })
 
-    # We'll also need to do a special one for co2 with the variable mole fraction
-    col = private_ds[private_vars['co2']][:][public_slice]
-    unit = public_ds[f'xco2_x2019'].units
-    xgas = col / ret_o2_col * x2019_o2
+    if mode.lower()=="tccon":
+        # We'll also need to do a special one for co2 with the variable mole fraction
+        col = private_ds[private_vars['co2']][:][public_slice]
+        unit = public_ds[f'xco2_x2019'].units
+        xgas = col / ret_o2_col * x2019_o2
 
-    var = public_ds.createVariable(f'prior_xco2_x2019', 'f4', dimensions=('time',))
-    var[:] = conversions[unit] * xgas
-    var.setncatts({
-        'standard_name': public_ds[f'xco2_x2019'].standard_name,
-        'units': unit,
-        'description': f'Column-average mole fraction calculated from the PRIOR profile of co2 using the variable mean O2 mole fraction appropriate for use when comparing other profiles to _x2019 variables ONLY.'
-    })
+        var = public_ds.createVariable(f'prior_xco2_x2019', 'f4', dimensions=('time',))
+        var[:] = conversions[unit] * xgas
+        var.setncatts({
+            'standard_name': public_ds[f'xco2_x2019'].standard_name,
+            'units': unit,
+            'description': f'Column-average mole fraction calculated from the PRIOR profile of co2 using the variable mean O2 mole fraction appropriate for use when comparing other profiles to _x2019 variables ONLY.'
+        })
 
 
 
