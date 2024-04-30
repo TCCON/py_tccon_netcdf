@@ -1014,7 +1014,7 @@ def _add_x2019_co2(ds, is_public):
         # from Dec 2022 telecon or GGG2020 data paper for derivation.
         return (beta - beta*fo2_ref - fo2_ref) * (xco2_prime - xco2_ref) / (1 - xco2_prime - beta * xco2_prime)
 
-    if is_public:
+    if is_public or "o2_mean_mole_fraction_x2019" in ds.variables:
         # The fields should already be generated in the private files.
         return
 
