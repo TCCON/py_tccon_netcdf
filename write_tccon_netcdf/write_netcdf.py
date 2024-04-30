@@ -900,7 +900,7 @@ def write_values(nc_data,var,values,inds=[]):
         nc_data[var][:] = full_array.astype(nc_data[var].dtype)
 
 
-def add_obs_op_variables(private_ds, public_ds, public_slice):
+def add_obs_op_variables(private_ds, public_ds, public_slice, mode):
     # This has two parts: converting the OVCs to original Xgas values and generating the
     # "observation operator" vectors, which combine the effective path length, number density,
     # and conversion to column average mole fraction all in one. We will need two of those: one
@@ -909,7 +909,8 @@ def add_obs_op_variables(private_ds, public_ds, public_slice):
     # We'll do the observation operator first. 
     ret_o2_col = private_ds['vsw_o2_7885'][:][public_slice]
     x2007_o2 = std_o2_mole_frac
-    x2019_o2 = private_ds['o2_mean_mole_fraction_x2019'][:][public_slice]
+    if mode.lower()=="tccon":
+        x2019_o2 = private_ds['o2_mean_mole_fraction_x2019'][:][public_slice]
     eff_path = private_ds['effective_path_length'][:][public_slice]
     # use the public dataset for this one because it's already been expanded to one/spectrum and
     # subset to the kept data
@@ -919,7 +920,8 @@ def add_obs_op_variables(private_ds, public_ds, public_slice):
     # This won't work when the experimental variables are in groups, but those won't be standard
     # files anyway.
     x2007_vars = ', '.join(v for v in public_ds.variables.keys() if re.match(r'x[a-z0-9]+$', v) and '_error_' not in v)
-    x2019_vars = ', '.join(v for v in public_ds.variables.keys() if re.match(r'x[a-z0-9]+.*_x2019$', v) and '_error_' not in v)
+    if mode.lower()=="tccon":
+        x2019_vars = ', '.join(v for v in public_ds.variables.keys() if re.match(r'x[a-z0-9]+.*_x2019$', v) and '_error_' not in v)
 
     obs_op_atts = {
         'description': ('A vector that, when the dot product is taken with a wet mole fraction profile, applies the TCCON column-average integration. '
@@ -933,10 +935,11 @@ def add_obs_op_variables(private_ds, public_ds, public_slice):
     x2007_obs_var[:] = (eff_path * nair * x2007_o2 / ret_o2_col[:, np.newaxis]).astype(np.float32)
     x2007_obs_var.setncatts(obs_op_atts)
 
-    obs_op_atts['relates_to'] = x2019_vars
-    x2019_obs_var = public_ds.createVariable('integration_operator_x2019', 'f4', dimensions=('time', 'prior_altitude'))
-    x2019_obs_var[:] = (eff_path * nair * x2019_o2[:, np.newaxis] / ret_o2_col[:, np.newaxis]).astype(np.float32)
-    x2019_obs_var.setncatts(obs_op_atts)
+    if mode.lower()=="tccon":
+        obs_op_atts['relates_to'] = x2019_vars
+        x2019_obs_var = public_ds.createVariable('integration_operator_x2019', 'f4', dimensions=('time', 'prior_altitude'))
+        x2019_obs_var[:] = (eff_path * nair * x2019_o2[:, np.newaxis] / ret_o2_col[:, np.newaxis]).astype(np.float32)
+        x2019_obs_var.setncatts(obs_op_atts)
 
     # Now let's calculate the a priori column-average mole fractions
     private_vars = {
