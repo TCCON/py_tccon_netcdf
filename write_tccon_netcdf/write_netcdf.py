@@ -992,7 +992,7 @@ def add_obs_op_variables(private_ds, public_ds, public_slice, mode):
 
 
 
-def update_attrs_for_public_files(ds, is_public):
+def update_attrs_for_public_files(ds, is_public, mode):
     _fix_unspecified_units(ds)
     _fix_inconsistent_units(ds)
     _add_prior_long_units(ds, is_public)
@@ -1000,7 +1000,8 @@ def update_attrs_for_public_files(ds, is_public):
     _fix_incorrect_attributes(ds)
     _insert_missing_aks(ds, 'xhdo', is_public)
     _add_flag_usage(ds)
-    _add_x2019_co2(ds, is_public)
+    if mode.lower() == "tccon":
+        _add_x2019_co2(ds, is_public)
     write_file_fmt_attrs(ds)
     _add_effective_path(ds, is_public)
 
@@ -1746,10 +1747,10 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             public_data['airmass'].units = ''
 
         # do this before update_attrs so that the standard names can be assigned from cf_standard_names_json
-        add_obs_op_variables(private_data, public_data, public_slice)
+        add_obs_op_variables(private_data, public_data, public_slice, mode=mode)
 
         logging.info('  --> Done copying variables')
-        update_attrs_for_public_files(public_data, is_public=True)
+        update_attrs_for_public_files(public_data, is_public=True, mode=mode)
 
         # Just before we close the file, get the start and end date for the new dates
         public_dates = public_data['time'][[0, -1]]
