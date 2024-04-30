@@ -951,6 +951,11 @@ def add_obs_op_variables(private_ds, public_ds, public_slice, mode):
         "h2o": "h2o_4565_ovc_h2o",
         "hdo": "hdo_4054_ovc_hdo",
     }
+    for gas in list(private_vars.keys()):
+        if private_vars[gas] not in private_ds.variables:
+            logging.warning(f"{private_vars[gas]} missing from the private file, unexpected for TCCON products.")
+            del private_vars[gas]
+        
 
     conversions = {
         'ppm': 1e6,
