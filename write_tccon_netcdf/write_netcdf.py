@@ -422,6 +422,8 @@ def get_geos_versions(mod_file):
           If it had to assume the versions, the version strings themselves will end in an "*".
     """
     versions = dict()
+    filenames = dict()
+    checksums = dict()
     expected_keys = ('Met3d', 'Met2d', 'Chm3d')
     try:
         with open(mod_file) as f:
@@ -429,8 +431,10 @@ def get_geos_versions(mod_file):
             for _ in range(1,nhead):
                 line = f.readline()
                 if line.startswith('GEOS source'):
-                    _, key, vers = line.split(':', maxsplit=3)
-                    versions[key.strip()] = vers.strip()
+                    _, key, vers, name, chksum = [x.strip() for x in line.split(':')]
+                    versions[key] = vers
+                    filenames[key] = name
+                    checksums[key] = chksum
     except FileNotFoundError:
         # If we can't find the files, then we can't actually assume that they
         # have the default versions for their date - it's possible that the user
@@ -438,6 +442,8 @@ def get_geos_versions(mod_file):
         # deleted it.
         logging.error(f'Could not find .mod file {mod_file}, will use fill values for GEOS file versions. Note that this is NOT ALLOWED for submitted TCCON data!')
         versions = {k: 'UNKNOWN' for k in expected_keys}
+        filenames = {k: '' for k in expected_keys}
+        checksums = {k: '' for k in expected_keys}
 
     found_versions = len(versions) > 0
     
@@ -452,6 +458,8 @@ def get_geos_versions(mod_file):
             versions = {k: 'fpit (GEOS v5.12.4)*' for k in expected_keys}
         else:
             versions = {k: 'it (GEOS v5.29.4)*' for k in expected_keys}
+        filenames = {k: '' for k in expected_keys}
+        checksums = {k: '' for k in expected_keys}
     else:
         missing_keys = tuple(k for k in expected_keys if k not in versions)
         if missing_keys:
@@ -459,10 +467,12 @@ def get_geos_versions(mod_file):
             logging.warning(f'.mod file {mod_file} is missing some GEOS version keys: {s}')
             for k in missing_keys:
                 versions[k] = 'Unknown'
-    return versions, found_versions
+                filenames[k] = ''
+                checksums[k] = ''
+    return versions, filenames, checksums, found_versions
 
 
-def get_geos_version_max_length(mav_data, version_key='geos_versions'):
+def get_geos_version_max_length(mav_data, version_key):
     """Return the length required to store the longest GEOS version string in ``mav_data``.
 
     Inputs:
@@ -487,7 +497,7 @@ def get_geos_version_max_length(mav_data, version_key='geos_versions'):
     for data_dict in mav_data.values():
         for version in data_dict[version_key].values():
             length = max(length, len(version))
-    return length
+    return max(length, 1)
 
 
 def get_geos_versions_key_set(mav_data, version_key='geos_versions'):
@@ -510,6 +520,30 @@ def get_geos_versions_key_set(mav_data, version_key='geos_versions'):
 
 def geos_version_varname(key):
     return f'geos_{key.lower()}_version'
+
+
+def geos_file_varname(key):
+    return f'geos_{key.lower()}_filename'
+
+
+def geos_checksum_varname(key):
+    return f'geos_{key.lower()}_checksum'
+
+
+def add_geos_version_variables(nc_data, prior_data, version_key, varname_fxn, geos_version_keys, is_classic):
+    geos_version_vars = dict()
+    if is_classic:
+        gv_len = get_geos_version_max_length(prior_data, version_key)
+        gv_dim = f'a{gv_len}'
+        if gv_dim not in nc_data.dimensions.keys():
+            nc_data.createDimension(gv_dim, gv_len)
+        for k in geos_version_keys:
+            geos_version_vars[k] = nc_data.createVariable(varname_fxn(k), 'S1', ('prior_time', gv_dim))
+            geos_version_vars[k]._Encoding = 'ascii'
+    else:
+        for k in geos_version_keys:
+            geos_version_vars[k] = nc_data.createVariable(geos_version_varname(k), str, ('prior_time',))
+    return geos_version_vars
 
 
 def get_eqlat(mod_file,levels):
@@ -645,7 +679,7 @@ def read_mav(path,GGGPATH,maxspec,show_progress):
     eflat, mid_trop_pt = get_eflat(os.path.join(GGGPATH,'vmrs','gnd',vmr_file))
     DATA[spectrum]['effective_latitude'] = eflat
     DATA[spectrum]['mid_tropospheric_potential_temperature'] = mid_trop_pt
-    DATA[spectrum]['geos_versions'], found_geos_vers = get_geos_versions(os.path.join(GGGPATH, 'models', 'gnd', mod_file))
+    DATA[spectrum]['geos_versions'], DATA[spectrum]['geos_filenames'], DATA[spectrum]['geos_checksums'], found_geos_vers = get_geos_versions(os.path.join(GGGPATH, 'models', 'gnd', mod_file))
     if not found_geos_vers:
         assumed_geos_versions += 1
     nlines = d['altitude'].size - nlev # the number of lines in the .mav file starting from "Next spectrum" of the SECOND block
@@ -685,7 +719,7 @@ def read_mav(path,GGGPATH,maxspec,show_progress):
         eflat, mid_trop_pt = get_eflat(os.path.join(GGGPATH,'vmrs','gnd',vmr_file))
         DATA[spectrum]['effective_latitude'] = eflat
         DATA[spectrum]['mid_tropospheric_potential_temperature'] = mid_trop_pt
-        DATA[spectrum]['geos_versions'], found_geos_vers = get_geos_versions(os.path.join(GGGPATH, 'models', 'gnd', mod_file))
+        DATA[spectrum]['geos_versions'], DATA[spectrum]['geos_filenames'], DATA[spectrum]['geos_checksums'], found_geos_vers = get_geos_versions(os.path.join(GGGPATH, 'models', 'gnd', mod_file))
         if not found_geos_vers:
             assumed_geos_versions += 1
 
@@ -2796,7 +2830,7 @@ def main():
         }
         nc_data['prior_index'].setncatts(att_dict)
 
-        prior_var_list = [ i for i in list(prior_data[list(prior_data.keys())[0]]['data'].keys()) if i not in {'altitude', 'geos_versions'}]
+        prior_var_list = [ i for i in list(prior_data[list(prior_data.keys())[0]]['data'].keys()) if i not in {'altitude', 'geos_versions', 'geos_filenames', 'geos_checksums'}]
         cell_var_list = []
         units_dict.update({'prior_{}'.format(var):'' for var in prior_var_list if 'prior_{}'.format(var) not in units_dict})
         for var in prior_var_list:
@@ -2838,7 +2872,6 @@ def main():
         nc_data['prior_tropopause_altitude'].setncatts(att_dict)
 
         geos_version_keys = get_geos_versions_key_set(prior_data)
-        geos_version_vars = dict()
 
         prior_var_list += ['modfile','vmrfile'] + [geos_version_varname(k) for k in geos_version_keys]
         if classic:
@@ -2847,17 +2880,13 @@ def main():
             prior_vmrfile_var = nc_data.createVariable('prior_vmrfile','S1',('prior_time','a32'))
             prior_vmrfile_var._Encoding = 'ascii'
 
-            gv_len = get_geos_version_max_length(prior_data)
-            nc_data.createDimension(f'a{gv_len}', gv_len)
-            for k in geos_version_keys:
-                geos_version_vars[k] = nc_data.createVariable(geos_version_varname(k), 'S1', ('prior_time', f'a{gv_len}'))
-                geos_version_vars[k]._Encoding = 'ascii'
-
+            for (vkey, vfxn) in zip(['geos_versions', 'geos_filenames', 'geos_checksums'], [geos_version_varname, geos_file_varname, geos_checksum_varname]):
+                add_geos_version_variables(nc_data, prior_data, vkey, vfxn, geos_version_keys, is_classic=True)
         else:
             prior_modfile_var = nc_data.createVariable('prior_modfile',str,('prior_time',))
             prior_vmrfile_var = nc_data.createVariable('prior_vmrfile',str,('prior_time',))
-            for k in geos_version_keys:
-                geos_version_vars[k] = nc_data.createVariable(geos_version_varname(k), str, ('prior_time',))
+            for (vkey, vfxn) in zip(['geos_versions', 'geos_filenames', 'geos_checksums'], [geos_version_varname, geos_file_varname, geos_checksum_varname]):
+                add_geos_version_variables(nc_data, prior_data, vkey, vfxn, geos_version_keys, is_classic=False)
         
         att_dict = {
             "standard_name":'prior_modfile',
@@ -2904,6 +2933,9 @@ def main():
                 "note": "A trailing * indicates that the version information was assumed from the prior time."
             }
             nc_data[geos_version_varname(k)].setncatts(att_dict)
+
+            nc_data[geos_file_varname(k)].description = f"Base name of the {desc} GEOS file used as input for the priors of this observations."
+            nc_data[geos_checksum_varname(k)].description = f"MD5 checksum of the {desc} GEOS file used as input for the priors of this observation."
 
         # checksums
         logging.info('\t- Checksums')
@@ -3356,6 +3388,8 @@ def main():
         logging.info('Writing prior data ...')
         special_prior_vars = ['tropopause_altitude','modfile','vmrfile','mid_tropospheric_potential_temperature','effective_latitude']
         special_prior_vars += [geos_version_varname(k) for k in geos_version_keys]
+        special_prior_vars += [geos_file_varname(k) for k in geos_version_keys]
+        special_prior_vars += [geos_checksum_varname(k) for k in geos_version_keys]
         for prior_spec_id, prior_spectrum in enumerate(prior_spec_list):
             #for var in ['temperature','pressure','density','gravity','1h2o','1hdo','1co2','1n2o','1co','1ch4','1hf','1o2']:
             for var in prior_var_list:
@@ -3375,6 +3409,8 @@ def main():
             nc_data['prior_mid_tropospheric_potential_temperature'][prior_spec_id] = prior_data[prior_spectrum]['mid_tropospheric_potential_temperature']
             for k in geos_version_keys:
                 nc_data[geos_version_varname(k)][prior_spec_id] = prior_data[prior_spectrum]['geos_versions'][k]
+                nc_data[geos_file_varname(k)][prior_spec_id] = prior_data[prior_spectrum]['geos_filenames'][k]
+                nc_data[geos_checksum_varname(k)][prior_spec_id] = prior_data[prior_spectrum]['geos_checksums'][k]
 
         logging.info('Finished writing prior data')
         del prior_data
