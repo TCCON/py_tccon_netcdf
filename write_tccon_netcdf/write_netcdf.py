@@ -3209,7 +3209,7 @@ def main():
             nc_data.createVariable('column_'+varname,np.float32,('time',))
             att_dict = {
                 "description": varname+' column average.',
-                "units": 'molecules.m-2',
+                "units": 'molecules.cm-2',
                 "precision": 'e12.4',
             }
             nc_data['column_'+varname].setncatts(att_dict)
