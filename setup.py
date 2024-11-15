@@ -10,8 +10,8 @@ setup(
     long_description_content_type="text/markdown",
     author='Sebastien Roche',
     author_email='sebastien.roche@mail.utoronto.ca',
-    version='1.0.0',
-    url='https://bitbucket.org/rocheseb/tccon_netcdf',
+    version='1.1.0',
+    url='https://github.com/TCCON/py_tccon_netcdf',
     install_requires=[
         'netcdf4>=1.5.0',
         'numpy>=1.16.0',
