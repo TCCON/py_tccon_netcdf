@@ -204,6 +204,14 @@ def signal_handler(sig,frame):
     sys.exit()
 
 
+def raise_and_log(err):
+    """
+    A kludge for new code to log an error message and raise the normal traceback
+    """
+    logging.critical(str(err))
+    raise err
+
+
 def get_json_path(env_var, default, default_in_code_dir=True, none_allowed=False):
     if default_in_code_dir:
         code_dir = os.path.dirname(__file__)
@@ -402,6 +410,145 @@ def gravity(gdlat,altit):
     return gravity
 
 
+def get_geos_versions(mod_file):
+    """Extract GEOS versions from the header of a .mod file, if present
+
+    Input:
+        - ``mod_file``: full path to a .mod file
+
+    Output:
+        - ``versions``: a dictionary with keys of the different GEOS file types
+          (e.g. "Met2d", "Chm3d") and values that given the GEOS version description
+          (e.g. "fpit (GEOS v5.12.v)").
+        - ``found_versions``: a boolean indicating if any versions were found in the header
+          (True) or if it had to assume the versions based on the date of the .mod file (False).
+          If it had to assume the versions, the version strings themselves will end in an "*".
+    """
+    versions = dict()
+    filenames = dict()
+    checksums = dict()
+    expected_keys = ('Met3d', 'Met2d', 'Chm3d')
+    try:
+        with open(mod_file) as f:
+            nhead = int(f.readline().split()[0])
+            for _ in range(1,nhead):
+                line = f.readline()
+                if line.startswith('GEOS source'):
+                    _, key, vers, name, chksum = [x.strip() for x in line.split(':')]
+                    versions[key] = vers
+                    filenames[key] = name
+                    checksums[key] = chksum
+    except FileNotFoundError:
+        # If we can't find the files, then we can't actually assume that they
+        # have the default versions for their date - it's possible that the user
+        # ran with e.g. a file combining GEOS FP-IT met and GEOS IT CO but then
+        # deleted it.
+        logging.error(f'Could not find .mod file {mod_file}, will use fill values for GEOS file versions. Note that this is NOT ALLOWED for submitted TCCON data!')
+        versions = {k: 'UNKNOWN' for k in expected_keys}
+        filenames = {k: '' for k in expected_keys}
+        checksums = {k: '' for k in expected_keys}
+
+    found_versions = len(versions) > 0
+    
+    if not found_versions:
+        # Fallback if no GEOS version information - must assume that this is
+        # an unpatched .mod file and go by the transition date.
+        m = re.search(r'FPIT_(\d{10})', os.path.basename(mod_file))
+        if m is None:
+            raise_and_log(ValueError(f'Cannot find date in mod file name "{os.path.basename(mod_file)}"'))
+        file_date = datetime.strptime(m.group(1), '%Y%m%d%H')
+        if file_date < datetime(2024,4,1):
+            versions = {k: 'fpit (GEOS v5.12.4)*' for k in expected_keys}
+        else:
+            versions = {k: 'it (GEOS v5.29.4)*' for k in expected_keys}
+        filenames = {k: '' for k in expected_keys}
+        checksums = {k: '' for k in expected_keys}
+    else:
+        missing_keys = tuple(k for k in expected_keys if k not in versions)
+        if missing_keys:
+            s = ', '.join(missing_keys)
+            logging.warning(f'.mod file {mod_file} is missing some GEOS version keys: {s}')
+            for k in missing_keys:
+                versions[k] = 'Unknown'
+                filenames[k] = ''
+                checksums[k] = ''
+    return versions, filenames, checksums, found_versions
+
+
+def get_geos_version_max_length(mav_data, version_key):
+    """Return the length required to store the longest GEOS version string in ``mav_data``.
+
+    Inputs:
+        - ``mav_data``: a dictionary of dictionaries, where each child dictionary contains the
+          key ``version_key`` which itself points to a dictionary containing the GEOS version strings
+          as values, i.e.::
+
+            mav_data = {
+                'pa20040721saaaaa.043': {
+                    'geos_versions': {'Met2d': 'fpit (GEOS v5.12.4)', 'Met3d': 'fpit (GEOS v5.12.4)', 'Chm3d': 'fpit (GEOS v5.12.4)'},
+                    ...
+                }
+            }
+
+        - ``version_key``: the key that points to the GEOS versions dictionary in each of the
+          first-level child dictionaries of ``mav_data``.
+
+    Outputs:
+        - ``length``: the length of the longest version string.
+    """
+    length = 0
+    for data_dict in mav_data.values():
+        for version in data_dict[version_key].values():
+            length = max(length, len(version))
+    return max(length, 1)
+
+
+def get_geos_versions_key_set(mav_data, version_key='geos_versions'):
+    """Return the set of keys describing GEOS versions.
+
+    Inputs:
+        - ``mav_data``: a dictionary of dictionaries returned by ``read_mav``, see same named
+          argument of :func:`get_geos_version_max_length` for details.
+        - ``version_key``: the key that points to the GEOS versions dictionary in each of the
+          first-level child dictionaries of ``mav_data``.
+
+    Outputs:
+        - ``length``: the length of the longest version string.
+    """
+    keys = set()
+    for data_dict in mav_data.values():
+        keys.update(data_dict[version_key].keys())
+    return sorted(keys)
+
+
+def geos_version_varname(key):
+    return f'geos_{key.lower()}_version'
+
+
+def geos_file_varname(key):
+    return f'geos_{key.lower()}_filename'
+
+
+def geos_checksum_varname(key):
+    return f'geos_{key.lower()}_checksum'
+
+
+def add_geos_version_variables(nc_data, prior_data, version_key, varname_fxn, geos_version_keys, is_classic):
+    geos_version_vars = dict()
+    if is_classic:
+        gv_len = get_geos_version_max_length(prior_data, version_key)
+        gv_dim = f'a{gv_len}'
+        if gv_dim not in nc_data.dimensions.keys():
+            nc_data.createDimension(gv_dim, gv_len)
+        for k in geos_version_keys:
+            geos_version_vars[k] = nc_data.createVariable(varname_fxn(k), 'S1', ('prior_time', gv_dim))
+            geos_version_vars[k]._Encoding = 'ascii'
+    else:
+        for k in geos_version_keys:
+            geos_version_vars[k] = nc_data.createVariable(geos_version_varname(k), str, ('prior_time',))
+    return geos_version_vars
+
+
 def get_eqlat(mod_file,levels):
     """
     Input:
@@ -502,6 +649,7 @@ def read_mav(path,GGGPATH,maxspec,show_progress):
     """
     logging.info('Reading MAV file ...')
     DATA = OrderedDict()
+    assumed_geos_versions = 0
 
     with open(path,'r') as infile:
         for i in range(3): # line[0] is gsetup version and line[1] is a "next spectrum" line
@@ -534,7 +682,9 @@ def read_mav(path,GGGPATH,maxspec,show_progress):
     eflat, mid_trop_pt = get_eflat(os.path.join(GGGPATH,'vmrs','gnd',vmr_file))
     DATA[spectrum]['effective_latitude'] = eflat
     DATA[spectrum]['mid_tropospheric_potential_temperature'] = mid_trop_pt
-    
+    DATA[spectrum]['geos_versions'], DATA[spectrum]['geos_filenames'], DATA[spectrum]['geos_checksums'], found_geos_vers = get_geos_versions(os.path.join(GGGPATH, 'models', 'gnd', mod_file))
+    if not found_geos_vers:
+        assumed_geos_versions += 1
     nlines = d['altitude'].size - nlev # the number of lines in the .mav file starting from "Next spectrum" of the SECOND block
     nblocks = int(nlines/(nlev+7)) # number of mav blacks (starting at the SECOND block)
     ispec = 1
@@ -572,6 +722,9 @@ def read_mav(path,GGGPATH,maxspec,show_progress):
         eflat, mid_trop_pt = get_eflat(os.path.join(GGGPATH,'vmrs','gnd',vmr_file))
         DATA[spectrum]['effective_latitude'] = eflat
         DATA[spectrum]['mid_tropospheric_potential_temperature'] = mid_trop_pt
+        DATA[spectrum]['geos_versions'], DATA[spectrum]['geos_filenames'], DATA[spectrum]['geos_checksums'], found_geos_vers = get_geos_versions(os.path.join(GGGPATH, 'models', 'gnd', mod_file))
+        if not found_geos_vers:
+            assumed_geos_versions += 1
 
         ispec += 1
 
@@ -598,6 +751,8 @@ def read_mav(path,GGGPATH,maxspec,show_progress):
                     del DATA[spec]
     if not show_progress: # it's obsolete to print this if we show the progress bar
         logging.info('Finished reading MAV file')
+    if assumed_geos_versions > 0:
+        logging.warning(f'{assumed_geos_versions} of {ispec} .mod files were missing GEOS versions in the header; they have been assumed from the file dates.')
     return DATA, nlev, ncell
 
 
@@ -903,7 +1058,7 @@ def write_values(nc_data,var,values,inds=[]):
         nc_data[var][:] = full_array.astype(nc_data[var].dtype)
 
 
-def add_obs_op_variables(private_ds, public_ds, public_slice):
+def add_obs_op_variables(private_ds, public_ds, public_slice, mode):
     # This has two parts: converting the OVCs to original Xgas values and generating the
     # "observation operator" vectors, which combine the effective path length, number density,
     # and conversion to column average mole fraction all in one. We will need two of those: one
@@ -912,7 +1067,8 @@ def add_obs_op_variables(private_ds, public_ds, public_slice):
     # We'll do the observation operator first. 
     ret_o2_col = private_ds['vsw_o2_7885'][:][public_slice]
     x2007_o2 = std_o2_mole_frac
-    x2019_o2 = private_ds['o2_mean_mole_fraction_x2019'][:][public_slice]
+    if mode.lower()=="tccon":
+        x2019_o2 = private_ds['o2_mean_mole_fraction_x2019'][:][public_slice]
     eff_path = private_ds['effective_path_length'][:][public_slice]
     # use the public dataset for this one because it's already been expanded to one/spectrum and
     # subset to the kept data
@@ -922,7 +1078,8 @@ def add_obs_op_variables(private_ds, public_ds, public_slice):
     # This won't work when the experimental variables are in groups, but those won't be standard
     # files anyway.
     x2007_vars = ', '.join(v for v in public_ds.variables.keys() if re.match(r'x[a-z0-9]+$', v) and '_error_' not in v)
-    x2019_vars = ', '.join(v for v in public_ds.variables.keys() if re.match(r'x[a-z0-9]+.*_x2019$', v) and '_error_' not in v)
+    if mode.lower()=="tccon":
+        x2019_vars = ', '.join(v for v in public_ds.variables.keys() if re.match(r'x[a-z0-9]+.*_x2019$', v) and '_error_' not in v)
 
     obs_op_atts = {
         'description': ('A vector that, when the dot product is taken with a wet mole fraction profile, applies the TCCON column-average integration. '
@@ -936,10 +1093,11 @@ def add_obs_op_variables(private_ds, public_ds, public_slice):
     x2007_obs_var[:] = (eff_path * nair * x2007_o2 / ret_o2_col[:, np.newaxis]).astype(np.float32)
     x2007_obs_var.setncatts(obs_op_atts)
 
-    obs_op_atts['relates_to'] = x2019_vars
-    x2019_obs_var = public_ds.createVariable('integration_operator_x2019', 'f4', dimensions=('time', 'prior_altitude'))
-    x2019_obs_var[:] = (eff_path * nair * x2019_o2[:, np.newaxis] / ret_o2_col[:, np.newaxis]).astype(np.float32)
-    x2019_obs_var.setncatts(obs_op_atts)
+    if mode.lower()=="tccon":
+        obs_op_atts['relates_to'] = x2019_vars
+        x2019_obs_var = public_ds.createVariable('integration_operator_x2019', 'f4', dimensions=('time', 'prior_altitude'))
+        x2019_obs_var[:] = (eff_path * nair * x2019_o2[:, np.newaxis] / ret_o2_col[:, np.newaxis]).astype(np.float32)
+        x2019_obs_var.setncatts(obs_op_atts)
 
     # Now let's calculate the a priori column-average mole fractions
     private_vars = {
@@ -951,6 +1109,11 @@ def add_obs_op_variables(private_ds, public_ds, public_slice):
         "h2o": "h2o_4565_ovc_h2o",
         "hdo": "hdo_4054_ovc_hdo",
     }
+    for gas in list(private_vars.keys()):
+        if private_vars[gas] not in private_ds.variables:
+            logging.warning(f"{private_vars[gas]} missing from the private file, unexpected for TCCON products.")
+            del private_vars[gas]
+        
 
     conversions = {
         'ppm': 1e6,
@@ -971,22 +1134,23 @@ def add_obs_op_variables(private_ds, public_ds, public_slice):
             'description': f'Column-average mole fraction calculated from the PRIOR profile of {gas} using the standard mean O2 mole fraction of {std_o2_mole_frac} appropriate for use when comparing other profiles to non-x2019 variables.'
         })
 
-    # We'll also need to do a special one for co2 with the variable mole fraction
-    col = private_ds[private_vars['co2']][:][public_slice]
-    unit = public_ds[f'xco2_x2019'].units
-    xgas = col / ret_o2_col * x2019_o2
+    if mode.lower()=="tccon":
+        # We'll also need to do a special one for co2 with the variable mole fraction
+        col = private_ds[private_vars['co2']][:][public_slice]
+        unit = public_ds[f'xco2_x2019'].units
+        xgas = col / ret_o2_col * x2019_o2
 
-    var = public_ds.createVariable(f'prior_xco2_x2019', 'f4', dimensions=('time',))
-    var[:] = conversions[unit] * xgas
-    var.setncatts({
-        'standard_name': public_ds[f'xco2_x2019'].standard_name,
-        'units': unit,
-        'description': f'Column-average mole fraction calculated from the PRIOR profile of co2 using the variable mean O2 mole fraction appropriate for use when comparing other profiles to _x2019 variables ONLY.'
-    })
+        var = public_ds.createVariable(f'prior_xco2_x2019', 'f4', dimensions=('time',))
+        var[:] = conversions[unit] * xgas
+        var.setncatts({
+            'standard_name': public_ds[f'xco2_x2019'].standard_name,
+            'units': unit,
+            'description': f'Column-average mole fraction calculated from the PRIOR profile of co2 using the variable mean O2 mole fraction appropriate for use when comparing other profiles to _x2019 variables ONLY.'
+        })
 
 
 
-def apply_additional_fixes(ds, is_public):
+def apply_additional_fixes(ds, is_public, mode):
     _fix_unspecified_units(ds)
     _fix_inconsistent_units(ds)
     _add_prior_long_units(ds, is_public)
@@ -994,7 +1158,8 @@ def apply_additional_fixes(ds, is_public):
     _fix_incorrect_attributes(ds)
     _insert_missing_aks(ds, 'xhdo', is_public)
     _add_flag_usage(ds)
-    _add_x2019_co2(ds, is_public)
+    if mode.lower() == "tccon":
+        _add_x2019_co2(ds, is_public)
     write_file_fmt_attrs(ds)
     _add_effective_path(ds, is_public)
 
@@ -1011,7 +1176,7 @@ def _add_x2019_co2(ds, is_public):
         # from Dec 2022 telecon or GGG2020 data paper for derivation.
         return (beta - beta*fo2_ref - fo2_ref) * (xco2_prime - xco2_ref) / (1 - xco2_prime - beta * xco2_prime)
 
-    if is_public:
+    if is_public or "o2_mean_mole_fraction_x2019" in ds.variables:
         # The fields should already be generated in the private files.
         return
 
@@ -1435,7 +1600,7 @@ def _effective_vertical_path(z, zmin, d):
     return vpath
 
 
-def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False,rename_by_dates=True,flag0_only=True,expand_priors=True,expand_aks=True,full_ak_resolution=True):
+def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False,rename_by_dates=True,flag0_only=True,expand_priors=True,expand_aks=True,full_ak_resolution=True,mode="tccon"):
     """
     Take a private netcdf file and write the public file using the public_variables.json file
     """
@@ -1744,10 +1909,10 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             public_data['airmass'].units = ''
 
         # do this before update_attrs so that the standard names can be assigned from cf_standard_names_json
-        add_obs_op_variables(private_data, public_data, public_slice)
+        add_obs_op_variables(private_data, public_data, public_slice, mode=mode)
 
         logging.info('  --> Done copying variables')
-        apply_additional_fixes(public_data, is_public=True)
+        apply_additional_fixes(public_data, is_public=True, mode=mode)
 
         # Just before we close the file, get the start and end date for the new dates
         public_dates = public_data['time'][[0, -1]]
@@ -2161,11 +2326,11 @@ def main():
             # rely on a GGG installation.
             private_nc_file = set_release_flags(private_nc_file,args.rflag_file,qc_file=qc_file)
             with netCDF4.Dataset(private_nc_file, 'a') as privds:
-                apply_additional_fixes(privds, is_public=False)
+                apply_additional_fixes(privds, is_public=False, mode=args.mode)
             if not args.public:
                 sys.exit()
         logging.info('Writing public file from {}'.format(private_nc_file))
-        write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=not args.std_only,remove_if_no_experimental=args.remove_no_expt,flag0_only=not args.publish_all_flags,expand_priors=args.expand_priors,expand_aks=args.expand_aks,full_ak_resolution=args.full_ak_resolution)
+        write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=not args.std_only,remove_if_no_experimental=args.remove_no_expt,flag0_only=not args.publish_all_flags,expand_priors=args.expand_priors,expand_aks=args.expand_aks,full_ak_resolution=args.full_ak_resolution,mode=args.mode)
         sys.exit()
 
     # input and output file names
@@ -2672,7 +2837,7 @@ def main():
         }
         nc_data['prior_index'].setncatts(att_dict)
 
-        prior_var_list = [ i for i in list(prior_data[list(prior_data.keys())[0]]['data'].keys()) if i!='altitude']
+        prior_var_list = [ i for i in list(prior_data[list(prior_data.keys())[0]]['data'].keys()) if i not in {'altitude', 'geos_versions', 'geos_filenames', 'geos_checksums'}]
         cell_var_list = []
         units_dict.update({'prior_{}'.format(var):'' for var in prior_var_list if 'prior_{}'.format(var) not in units_dict})
         for var in prior_var_list:
@@ -2711,17 +2876,24 @@ def main():
             "description": 'altitude at which the gradient in the prior temperature profile becomes > -2 degrees per km',
             "units": units_dict[prior_var],
         }
-        nc_data['prior_tropopause_altitude'].setncatts(att_dict)       
+        nc_data['prior_tropopause_altitude'].setncatts(att_dict)
 
-        prior_var_list += ['modfile','vmrfile']
+        geos_version_keys = get_geos_versions_key_set(prior_data)
+
+        prior_var_list += ['modfile','vmrfile'] + [geos_version_varname(k) for k in geos_version_keys]
         if classic:
             prior_modfile_var = nc_data.createVariable('prior_modfile','S1',('prior_time','a32'))
             prior_modfile_var._Encoding = 'ascii'
             prior_vmrfile_var = nc_data.createVariable('prior_vmrfile','S1',('prior_time','a32'))
-            prior_vmrfile_var._Encoding = 'ascii'            
+            prior_vmrfile_var._Encoding = 'ascii'
+
+            for (vkey, vfxn) in zip(['geos_versions', 'geos_filenames', 'geos_checksums'], [geos_version_varname, geos_file_varname, geos_checksum_varname]):
+                add_geos_version_variables(nc_data, prior_data, vkey, vfxn, geos_version_keys, is_classic=True)
         else:
             prior_modfile_var = nc_data.createVariable('prior_modfile',str,('prior_time',))
             prior_vmrfile_var = nc_data.createVariable('prior_vmrfile',str,('prior_time',))
+            for (vkey, vfxn) in zip(['geos_versions', 'geos_filenames', 'geos_checksums'], [geos_version_varname, geos_file_varname, geos_checksum_varname]):
+                add_geos_version_variables(nc_data, prior_data, vkey, vfxn, geos_version_keys, is_classic=False)
         
         att_dict = {
             "standard_name":'prior_modfile',
@@ -2755,6 +2927,22 @@ def main():
             "units": units_dict['prior_mid_tropospheric_potential_temperature'],
         }
         nc_data['prior_mid_tropospheric_potential_temperature'].setncatts(att_dict)
+
+        geos_version_descriptions = {
+            'Met2d': 'two-dimensional meteorological',
+            'Met3d': 'three-dimensional meteorological',
+            'Chm3d': 'three-dimensional chemical'
+        }
+        for k in geos_version_keys:
+            desc = geos_version_descriptions.get(k, k)
+            att_dict = {
+                "description": f"Version information for the Goddard Earth Observing System model that provided the {desc} variables for the priors.",
+                "note": "A trailing * indicates that the version information was assumed from the prior time."
+            }
+            nc_data[geos_version_varname(k)].setncatts(att_dict)
+
+            nc_data[geos_file_varname(k)].description = f"Base name of the {desc} GEOS file used as input for the priors of this observations."
+            nc_data[geos_checksum_varname(k)].description = f"MD5 checksum of the {desc} GEOS file used as input for the priors of this observation."
 
         # checksums
         logging.info('\t- Checksums')
@@ -3028,7 +3216,7 @@ def main():
             nc_data.createVariable('column_'+varname,np.float32,('time',))
             att_dict = {
                 "description": varname+' column average.',
-                "units": 'molecules.m-2',
+                "units": 'molecules.cm-2',
                 "precision": 'e12.4',
             }
             nc_data['column_'+varname].setncatts(att_dict)
@@ -3205,10 +3393,14 @@ def main():
         
         # write prior and cell data
         logging.info('Writing prior data ...')
+        special_prior_vars = ['tropopause_altitude','modfile','vmrfile','mid_tropospheric_potential_temperature','effective_latitude']
+        special_prior_vars += [geos_version_varname(k) for k in geos_version_keys]
+        special_prior_vars += [geos_file_varname(k) for k in geos_version_keys]
+        special_prior_vars += [geos_checksum_varname(k) for k in geos_version_keys]
         for prior_spec_id, prior_spectrum in enumerate(prior_spec_list):
             #for var in ['temperature','pressure','density','gravity','1h2o','1hdo','1co2','1n2o','1co','1ch4','1hf','1o2']:
             for var in prior_var_list:
-                if var not in ['tropopause_altitude','modfile','vmrfile','mid_tropospheric_potential_temperature','effective_latitude']:
+                if var not in special_prior_vars:
                     prior_var = 'prior_{}'.format(var)
                     nc_data[prior_var][prior_spec_id,0:nlev] = prior_data[prior_spectrum]['data'][var].values
 
@@ -3222,6 +3414,10 @@ def main():
             nc_data['prior_vmrfile'][prior_spec_id] = prior_data[prior_spectrum]['vmr_file']
             nc_data['prior_effective_latitude'][prior_spec_id] = prior_data[prior_spectrum]['effective_latitude']
             nc_data['prior_mid_tropospheric_potential_temperature'][prior_spec_id] = prior_data[prior_spectrum]['mid_tropospheric_potential_temperature']
+            for k in geos_version_keys:
+                nc_data[geos_version_varname(k)][prior_spec_id] = prior_data[prior_spectrum]['geos_versions'][k]
+                nc_data[geos_file_varname(k)][prior_spec_id] = prior_data[prior_spectrum]['geos_filenames'][k]
+                nc_data[geos_checksum_varname(k)][prior_spec_id] = prior_data[prior_spectrum]['geos_checksums'][k]
 
         logging.info('Finished writing prior data')
         del prior_data
@@ -3562,6 +3758,8 @@ def main():
 
         # get a list of all the variables written to the private netcdf file, will be used below to check for missing variables before writing an eof.csv file
         private_var_list = [v for v in nc_data.variables]
+
+        update_attrs_for_public_files(nc_data, is_public=False, mode=args.mode)
     # end of the "with open(private_nc_file)" statement
     
     # both function return the path where the flags were written, so 
@@ -3573,7 +3771,7 @@ def main():
     logging.info('Finished writing {} {:.2f} MB'.format(private_nc_file,os.path.getsize(private_nc_file)/1e6))
 
     if args.public:
-        write_public_nc(private_nc_file,code_dir,nc_format,expand_priors=args.expand_priors,expand_aks=args.expand_aks)
+        write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=not args.std_only,remove_if_no_experimental=args.remove_no_expt,flag0_only=not args.publish_all_flags,expand_priors=args.expand_priors,expand_aks=args.expand_aks,full_ak_resolution=args.full_ak_resolution,mode=args.mode)
 
     if args.eof:
         ordered_var_list = ['flag','flagged_var_name','spectrum'] # list of variables for writing the eof file
