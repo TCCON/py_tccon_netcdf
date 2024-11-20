@@ -28,6 +28,8 @@ from shutil import copyfile
 from signal import signal, SIGINT
 import gc
 
+from . import common_utils
+
 wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-15; SR)\n'
 file_fmt_version = '2020.B'
 std_o2_mole_frac = 0.2095
@@ -1097,53 +1099,28 @@ def add_obs_op_variables(private_ds, public_ds, public_slice, mode):
         x2019_obs_var.setncatts(obs_op_atts)
 
     # Now let's calculate the a priori column-average mole fractions
-    private_vars = {
-        "co2": "co2_6220_ovc_co2",
-        "ch4": "ch4_5938_ovc_ch4",
-        "n2o": "n2o_4395_ovc_n2o",
-        "co": "co_4290_ovc_co",
-        "hf": "hf_4038_ovc_hf",
-        "h2o": "h2o_4565_ovc_h2o",
-        "hdo": "hdo_4054_ovc_hdo",
-    }
-    for gas in list(private_vars.keys()):
-        if private_vars[gas] not in private_ds.variables:
-            logging.warning(f"{private_vars[gas]} missing from the private file, unexpected for TCCON products.")
-            del private_vars[gas]
-        
-
-    conversions = {
-        'ppm': 1e6,
-        'ppb': 1e9,
-        'ppt': 1e12,
-    }
-
-    for gas, priv_var in private_vars.items():
+    for gas, priv_var in common_utils.TCCON_PRIOR_XGAS_OVC_VARS.copy().items():
+        if priv_var not in private_ds.variables.keys():
+            logging.warning(f'{priv_var} missing from the private file, unexpected for TCCON products')
+            continue
+        # Since we want to scale these by the units, it's easier to do the loop here rather
+        # than use common_utils.create_tccon_prior_xgas_variables
         col = private_ds[priv_var][:][public_slice]
         unit = public_ds[f'x{gas}'].units
-        xgas = col / ret_o2_col * x2007_o2
-
-        var = public_ds.createVariable(f'prior_x{gas}', 'f4', dimensions=('time',))
-        var[:] = conversions[unit] * xgas
-        var.setncatts({
-            'standard_name': public_ds[f'x{gas}'].standard_name,
-            'units': unit,
-            'description': f'Column-average mole fraction calculated from the PRIOR profile of {gas} using the standard mean O2 mole fraction of {std_o2_mole_frac} appropriate for use when comparing other profiles to non-x2019 variables.'
-        })
+        varname = common_utils.create_one_prior_xgas_variable(
+            ds=public_ds, gas=gas, col=col, ret_o2_col=ret_o2_col, o2_dmf=x2007_o2, units=unit
+        )
+        public_ds[varname].description = f'Column-average mole fraction calculated from the PRIOR profile of {gas} using the standard mean O2 mole fraction of {std_o2_mole_frac} appropriate for use when comparing other profiles to non-x2019 variables.'
 
     if mode.lower()=="tccon":
         # We'll also need to do a special one for co2 with the variable mole fraction
-        col = private_ds[private_vars['co2']][:][public_slice]
-        unit = public_ds[f'xco2_x2019'].units
-        xgas = col / ret_o2_col * x2019_o2
-
-        var = public_ds.createVariable(f'prior_xco2_x2019', 'f4', dimensions=('time',))
-        var[:] = conversions[unit] * xgas
-        var.setncatts({
-            'standard_name': public_ds[f'xco2_x2019'].standard_name,
-            'units': unit,
-            'description': f'Column-average mole fraction calculated from the PRIOR profile of co2 using the variable mean O2 mole fraction appropriate for use when comparing other profiles to _x2019 variables ONLY.'
-        })
+        col = private_ds[common_utils.TCCON_PRIOR_XGAS_OVC_VARS['co2']][:][public_slice]
+        unit = public_ds['xco2_x2019'].units
+        varname = 'prior_xco2_x2019'
+        common_utils.create_one_prior_xgas_variable(
+            ds=public_ds, gas=gas, col=col, ret_o2_col=ret_o2_col, o2_dmf=x2019_o2, units=unit, varname=varname
+        )
+        public_ds[varname].description = 'Column-average mole fraction calculated from the PRIOR profile of co2 using the variable mean O2 mole fraction appropriate for use when comparing other profiles to _x2019 variables ONLY.'
 
 
 
@@ -1160,6 +1137,19 @@ def apply_additional_fixes(ds, is_public, mode):
     # undo the GGG2020 X2019 variable O2 mole fraction.
     write_file_fmt_attrs(ds)
     _add_effective_path(ds, is_public)
+
+
+def update_prior_xgas_units(public_ds):
+    for gas in common_utils.TCCON_PRIOR_XGAS_OVC_VARS:
+        prior_profile_var = f'prior_{gas}'
+        prior_xgas_var = f'prior_x{gas}'
+        if prior_profile_var in public_ds.variables.keys() and prior_xgas_var in public_ds.variables.keys():
+            desired_units = public_ds[prior_profile_var].units
+            conv_fac = common_utils.MOLE_FRACTION_CONVERSIONS[desired_units]
+            assert public_ds[prior_xgas_var].units == '1', 'Expected private prior Xgas variable to have units of "1"'
+            original_prior_xgas = public_ds[prior_xgas_var][:]
+            public_ds[prior_xgas_var][:] = conv_fac * original_prior_xgas
+            public_ds[prior_xgas_var].units = desired_units
     
 
 def _add_x2019_co2(ds, is_public):
@@ -1905,7 +1895,15 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             public_data['airmass'].units = ''
 
         # do this before update_attrs so that the standard names can be assigned from cf_standard_names_json
-        add_obs_op_variables(private_data, public_data, public_slice, mode=mode)
+        private_file_fmt_version = common_utils.get_file_format_version(private_data)
+        if common_utils.file_fmt_less_than(private_file_fmt_version, '2020.C'):
+            # This is a pre-GGG2020.1 file, so use the old way of adding the observation operator.
+            add_obs_op_variables(private_data, public_data, public_slice, mode=mode)
+        else:
+            # For GGG2020.1, the intergration operator and prior xgas variables should already be present and copied,
+            # so we just need to convert the prior xgas variables from parts to the same units as the a priori profiles
+            # were converted to above
+            update_prior_xgas_units(public_data)
 
         logging.info('  --> Done copying variables')
         apply_additional_fixes(public_data, is_public=True, mode=mode)

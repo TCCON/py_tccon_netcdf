@@ -1,16 +1,42 @@
+import logging
 import netCDF4
 import numpy as np
+import re
+
 from typing import Union
 
+DEFAULT_EFF_PATH_VARNAME = 'effective_path_length'
+DEFAULT_O2_DMF_VARNAME = 'o2_mean_mole_fraction'
+DEFAULT_NAIR_VARNAME = 'prior_density'
+DEFAULT_O2_RET_COL_VARNAME = 'vsw_o2_7885'
+DEFAULT_INT_OP_VARNAME = 'integration_operator'
+TCCON_PRIOR_XGAS_OVC_VARS = {
+    "co2": "co2_6220_ovc_co2",
+    "ch4": "ch4_5938_ovc_ch4",
+    "n2o": "n2o_4395_ovc_n2o",
+    "co": "co_4290_ovc_co",
+    "hf": "hf_4038_ovc_hf",
+    "h2o": "h2o_4565_ovc_h2o",
+    "hdo": "hdo_4054_ovc_hdo",
+}
+MOLE_FRACTION_CONVERSIONS = {
+    '1': 1.0,
+    'parts': 1.0,
+    'ppm': 1e6,
+    'ppb': 1e9,
+    'ppt': 1e12,
+}
+
 def create_observation_operator_variable(
-        ds: netCDF4.Dataset, eff_path: Union[str, np.ndarray] = 'effective_path_length', o2_dmf: Union[str, float, np.ndarray] = 'o2_mean_mole_fraction',
-        nair: Union[str, np.ndarray] = 'prior_density', ret_o2_col: Union[str, np.ndarray] = 'vsw_o2_7885', varname: str = 'integration_operator'):
+        ds: netCDF4.Dataset, eff_path: Union[str, np.ndarray] = DEFAULT_EFF_PATH_VARNAME, o2_dmf: Union[str, float, np.ndarray] = DEFAULT_O2_DMF_VARNAME,
+        nair: Union[str, np.ndarray] = DEFAULT_NAIR_VARNAME, ret_o2_col: Union[str, np.ndarray] = DEFAULT_O2_RET_COL_VARNAME,
+        varname: str = DEFAULT_INT_OP_VARNAME):
     """Compute the observation operator and add it as a new variable
 
     Parameters
     ----------
     ds
-        The netCDF dataset to add the variable to
+        The netCDF dataset for a TCCON private file to add the variable to
 
     eff_path
         The effective path length profiles (2D array, time by altitude) in units of centimeters, or the name of the variable
@@ -27,6 +53,9 @@ def create_observation_operator_variable(
 
     ret_o2_col
         The retrieved O2 column densities, in molecules/cm2 or the name of the variable in ``ds`` to read for this.
+
+    varname
+        The name to give the intergration operator variable.
     """
     if isinstance(eff_path, str):
         assert ds[eff_path].units == 'cm'
@@ -57,3 +86,93 @@ def create_observation_operator_variable(
     obs_var = ds.createVariable(varname, 'f4', dimensions=('time', 'prior_altitude'), zlib=True, complevel=9)
     obs_var[:] = (eff_path * nair * o2_dmf / ret_o2_col[:, np.newaxis]).astype(np.float32)
     obs_var.setncatts(obs_op_atts)
+
+
+def create_tccon_prior_xgas_variables(ds, o2_dmf: Union[str, np.ndarray] = DEFAULT_O2_DMF_VARNAME, ret_o2_col: Union[str, np.ndarray] = DEFAULT_O2_RET_COL_VARNAME):
+    if isinstance(o2_dmf, str):
+        assert ds[o2_dmf].units == '1'
+        o2_dmf = ds[o2_dmf][:]
+    if isinstance(ret_o2_col, str):
+        # This has the wrong units in the private files...
+        ret_o2_col = ds[ret_o2_col][:]
+
+    prior_varnames = dict()
+
+    for gas, priv_var in TCCON_PRIOR_XGAS_OVC_VARS.items():
+        if priv_var not in ds.variables.keys():
+            logging.warning(f'{priv_var} missing from the private file, unexpected for TCCON products')
+            continue
+        col = ds[priv_var][:]
+        xgas = col / ret_o2_col * o2_dmf
+
+        varname = f'prior_x{gas}'
+        var = ds.createVariable(varname, 'f4', dimensions=('time',))
+        var[:] = xgas
+        set_private_name_attrs(var)
+        var.setncatts({
+            'units': '1',
+            'description': f'Column-average mole fraction calculated from the PRIOR profile of {gas}'
+        })
+
+        prior_varnames[gas] = varname
+
+    return prior_varnames
+
+
+def create_one_prior_xgas_variable(ds, gas, col, ret_o2_col, o2_dmf, varname=None, units='1'):
+    xgas = col / ret_o2_col * o2_dmf
+
+    if varname is None:
+        varname = f'prior_x{gas}'
+    var = ds.createVariable(varname, 'f4', dimensions=('time',))
+    if units == '1':
+        var[:] = xgas
+    else:
+        var[:] = xgas * MOLE_FRACTION_CONVERSIONS[units]
+
+    set_private_name_attrs(var)
+    var.setncatts({
+        'units': units,
+        'description': f'Column-average mole fraction calculated from the PRIOR profile of {gas}'
+    })
+    return varname
+
+def set_private_name_attrs(var):
+    varname = var.name
+    var.standard_name = varname
+    var.long_name = varname.replace('_', ' ')
+
+
+def get_file_format_version(ds):
+    try:
+        return ds.file_format_version
+    except AttributeError:
+        logging.warning('file_format_version attribute not found, assuming 2020.A')
+        return '2020.A'
+
+
+def file_fmt_less_than(file_fmt_vers, target_file_fmt_vers):
+    major, minor, file_rev = _parse_file_fmt_verse(file_fmt_vers)
+    tgt_major, tgt_minor, tgt_rev = _parse_file_fmt_verse(target_file_fmt_vers)
+    if major != tgt_major:
+        return major < tgt_major
+    elif minor != tgt_minor:
+        return minor < tgt_minor
+    else:
+        return file_rev < tgt_rev
+
+
+def _parse_file_fmt_verse(file_fmt_vers):
+    parts = file_fmt_vers.split('.')
+    if len(parts) == 3:
+        major, minor, file_rev = parts
+    elif len(parts) == 2:
+        major, file_rev = parts
+        minor = '0'
+    else:
+        raise ValueError(f'cannot parse file format version "{file_fmt_vers}"')
+    
+    major = int(major)
+    minor = int(minor)
+    if not re.match(r'[A-Z]', file_rev):
+        raise ValueError('file revision in file format is not a single upper case letter')

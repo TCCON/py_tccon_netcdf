@@ -19,7 +19,9 @@
 		"sia", 
 		"fvsi", 
 		"wspd", 
-		"wdir"],
+		"wdir",
+		"integration_operator"
+	],
 
 	"startswith": [
 		"xluft",
@@ -30,7 +32,8 @@
 		"xco2", 
 		"xn2o", 
 		"xch4", 
-		"prior_", 
+		"prior_",
+		"prior_x",
 		"ak_"],
 
 	"experimental_group_startswith": [
