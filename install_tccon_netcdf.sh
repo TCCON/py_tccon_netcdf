@@ -5,6 +5,9 @@ if [ $(basename $CONDA_PREFIX) != 'ggg-tccon-default' ]; then
     exit 1
 fi
 
+# Install ginput if missing, update it otherwise
+./deps/install_extra_dependencies.sh
+
 if [ ! -d scripts ]; then
     mkdir -v scripts
 fi
