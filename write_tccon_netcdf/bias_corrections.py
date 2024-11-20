@@ -253,7 +253,7 @@ def _split_by_gaps(df: pd.DataFrame, gap: pd.Timedelta, time):
     return df_by_gaps
 
 
-def correct_xn2o_from_pt700(ds, m=0.000646, b=0.782):
+def correct_xn2o_from_pt700(ds, m=0.000626, b=0.787):
     xn2o = ds['xn2o'][:]
     n2o_aicf = ds['xn2o_aicf'][:]
 

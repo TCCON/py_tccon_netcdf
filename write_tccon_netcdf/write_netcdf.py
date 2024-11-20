@@ -28,9 +28,6 @@ from shutil import copyfile
 from signal import signal, SIGINT
 import gc
 
-from . import bias_corrections as bc
-
-
 wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-15; SR)\n'
 file_fmt_version = '2020.B'
 std_o2_mole_frac = 0.2095
@@ -1158,18 +1155,17 @@ def apply_additional_fixes(ds, is_public, mode):
     _fix_incorrect_attributes(ds)
     _insert_missing_aks(ds, 'xhdo', is_public)
     _add_flag_usage(ds)
-    if mode.lower() == "tccon":
-        _add_x2019_co2(ds, is_public)
+    # Starting with GGG2020.1, x2019 variables will be handled by the separate program to
+    # convert GGG2020 files to GGG2020.1 - this just makes things easier than trying to
+    # undo the GGG2020 X2019 variable O2 mole fraction.
     write_file_fmt_attrs(ds)
     _add_effective_path(ds, is_public)
-
-
-
-
     
 
 def _add_x2019_co2(ds, is_public):
     """Adds fields for XCO2, XwCO2, and XlCO2 that are converted to the X2019 CO2 scale and variable O2 mole fraction
+
+    DEPRECATED! This should be handled by make_ggg2020.1 starting with GGG2020.1.
     """
     def delta_fo2(xco2_prime, fo2_ref, xco2_ref=400e-6, beta=-1/0.4575):
         # Equation for how the change in O2 mole fraction changes from the reference given. See J. Laughner slides
@@ -3759,7 +3755,7 @@ def main():
         # get a list of all the variables written to the private netcdf file, will be used below to check for missing variables before writing an eof.csv file
         private_var_list = [v for v in nc_data.variables]
 
-        update_attrs_for_public_files(nc_data, is_public=False, mode=args.mode)
+        apply_additional_fixes(nc_data, is_public=False, mode=args.mode)
     # end of the "with open(private_nc_file)" statement
     
     # both function return the path where the flags were written, so 

@@ -1,15 +1,64 @@
 from argparse import ArgumentParser
 import logging
 import netCDF4 as ncdf
+import numpy as np
+import pandas as pd
 import os
-import shutil
 
+from ginput.priors.tccon_priors import O2MeanMoleFractionRecord
+
+from . import nc_ops, common_utils
 from . import bias_corrections as bc
 
+GGG2020p1_FILE_FORMAT_VERSION = '2020.1.A'
+
+# First value is the AICF, second is its error
+GGG2020p1_AICFS = {
+    'xco2_x2007': (1.00950, 0.00044),  # WMO X2007 scale
+    'xco2_x2019': (1.00901, 0.00045),
+    'xwco2_x2007': (1.00008, 0.00045), # WMO X2007 scale
+    'xwco2_x2019': (0.99959, 0.00047),
+    'xlco2_x2007': (1.00106, 0.00067), # WMO X2007 scale
+    'xlco2_x2019': (1.00059, 0.00068),
+    'xch4': (1.00214, 0.00133),
+    'xh2o': (0.98676, 0.01701),
+}
+
+VAR_RENAMES = {
+    'xco2': 'xco2_x2007',
+    'xco2_error': 'xco2_error_x2007',
+    'xco2_aicf': 'xco2_aicf_x2007',
+    'xco2_aicf_error': 'xco2_aicf_error_x2007',
+    'aicf_xco2_scale': 'aicf_xco2_x2007_scale',
+
+    'xwco2': 'xwco2_x2007',
+    'xwco2_error': 'xwco2_error_x2007',
+    'xwco2_aicf': 'xwco2_aicf_x2007',
+    'xwco2_aicf_error': 'xwco2_aicf_error_x2007',
+    'aicf_xwco2_scale': 'aicf_xwco2_x2007_scale',
+
+    'xlco2': 'xlco2_x2007',
+    'xlco2_error': 'xlco2_error_x2007',
+    'xlco2_aicf': 'xlco2_aicf_x2007',
+    'xlco2_aicf_error': 'xlco2_aicf_error_x2007',
+    'aicf_xlco2_scale': 'aicf_xlco2_x2007_scale',
+}
+
+VARS_TO_REMOVE = {
+    'xco2_x2019',
+    'xco2_error_x2019',
+    'xwco2_x2019',
+    'xwco2_error_x2019',
+    'xlco2_x2019',
+    'xlco2_error_x2019',
+    'o2_mean_mole_fraction_x2019',
+}
+
+OLD_O2_DMF = 0.2095
 
 def main():
-    p = ArgumentParser(description='Create a GGG2020.1 netCDF file from a GGG2020 file with the 2020.B format file.')
-    p.add_argument('input_file', help='The GGG2020.B format netCDF file to start from.')
+    p = ArgumentParser(description='Create a GGG2020.1 netCDF file from a GGG2020 file with the 2020.C format file.')
+    p.add_argument('input_file', help='The GGG2020.C format netCDF file to start from.')
     p.add_argument('--pdb', action='store_true', help='Launch Python debugger')
 
     out_grp = p.add_mutually_exclusive_group(required=True)
@@ -28,47 +77,129 @@ def driver(input_file, output_file=None, in_place=False):
         raise IOError(f'Input file {input_file} does not exist')
 
     if in_place:
-        nc_path = input_file
-    elif output_file is not None:
-        if os.path.exists(output_file) and os.path.samefile(input_file, output_file):
-            raise IOError('input_file cannot be the same as output_file. Use in_place=True to modify the input file directly.')
-        shutil.copy2(input_file, output_file)
-        nc_path = output_file
-    else:
-        raise TypeError('Either in_place must be True or output_file must not be None')
+        output_file = f'{input_file}.tmp'
+
+    nc_ops.copy_netcdf(
+        input_nc_file=input_file,
+        output_file=output_file,
+        clobber=True,
+        var_renames=VAR_RENAMES,
+        exclude_vars=VARS_TO_REMOVE
+    )
+
+    with ncdf.Dataset(output_file, 'a') as ds:
+        update_o2_and_aicfs(ds)
+        bias_correct_xn2o(ds)
+
+    if in_place:
+        os.rename(output_file, input_file)
 
 
-    with ncdf.Dataset(nc_path, 'a') as ds:
-        _bias_correct_xco2(ds)
-        _bias_correct_xn2o(ds)
+def update_o2_and_aicfs(ds):
+    new_o2_dmfs = _get_new_o2_dmfs(ds)
+    # For every gas and its error, it was calculated as X = V * fO2 / AICF, so we
+    # need to multiple by new_fO2 / old_fO2 and old_AICF / new_AICF
+    for xgas_varname, (new_aicf, new_aicf_error) in GGG2020p1_AICFS.items():
+        if xgas_varname not in ds.variables.keys() and xgas_varname.endswith('x2019'):
+            # This is okay, we know we need to add it back in later
+            continue
+        elif xgas_varname.endswith('x2019'):
+            raise RuntimeError('x2019 variables must not be present in the file')
 
+        if xgas_varname.startswith(('xco2_', 'xwco2_', 'xlco2_')):
+            gas, scale = xgas_varname.split('_', 1)
+            aicf_varname = f'{gas}_aicf_{scale}'
+            aicf_error_varname = f'{gas}_aicf_error_{scale}'
+            error_varname = f'{gas}_error_{scale}'
+            create_x2019 = True
+        else:
+            aicf_varname = f'{xgas_varname}_aicf'
+            aicf_error_varname = f'{xgas_varname}_aicf_error'
+            error_varname = f'{xgas_varname}_error'
+            create_x2019 = False
+
+        # First the Xgas values, ensure that the standard and long name attributes match the variable name
+        old_aicfs = ds[aicf_varname][:]
+        unscaled_values = ds[xgas_varname][:] * old_aicfs / OLD_O2_DMF * new_o2_dmfs
+        ds[xgas_varname][:] = unscaled_values / new_aicf
+        _set_name_attrs(ds[xgas_varname])
+
+        # Then the error values, ditto on the attributes
+        unscaled_error_values = ds[error_varname][:] * old_aicfs / OLD_O2_DMF * new_o2_dmfs
+        ds[error_varname][:] = unscaled_error_values / new_aicf
+        _set_name_attrs(ds[error_varname])
+
+        # We also have to update the AICF values themselves and the error
+        ds[aicf_varname] = new_aicf
+        _set_name_attrs(ds[aicf_varname])
+
+        ds[aicf_error_varname] = new_aicf_error
+        _set_name_attrs(ds[aicf_varname])
+
+        if create_x2019:
+            xgas = xgas_varname.split('_')[0]
+            add_x2019_xco2(ds, xgas, unscaled_values, unscaled_error_values)
+
+
+    # Create a new variable that stores the O2 DMF
+    o2_var = ds.createVariable('o2_mean_mole_fraction', 'f4', dimensions=('time',))
+    o2_var[:] = new_o2_dmfs
+    o2_var.description = 'Global mean O2 dry mole fraction used to calculate the Xgas column averages; Xgas = column_gas / column_2 * o2_dmf'
+    o2_var.units = '1'
+    o2_var.standard_name = 'dry_atmospheric_mole_fraction_of_oxygen'
+
+    # We might as well create the observation operator here, that way it's available in both the private and public files
+    common_utils.create_observation_operator_variable(ds)
+
+    # Update the file format version and add an algorithm version 
+    ds.file_format_version = GGG2020p1_FILE_FORMAT_VERSION
+    ds.algorithm_version = 'GGG2020.1'
     
-def _bias_correct_xco2(ds, variables=('xco2', 'xwco2', 'xlco2')):
-    pretty_names = {'xco2': 'XCO2', 'xwco2': 'XwCO2', 'xlco2': 'XlCO2'}
-    corrected_df, xluft_attrs = bc.correct_xco2_from_xluft(ds, variables)
 
-    # We want to store the original XCO2 for comparison, along with the rolling Xluft used for the correction
-    # which requires making a couple new variables
-    for varname in variables:
-        logging.info(f'Applying Xluft bias correction to {varname}')
-        xco2_orig = ds.createVariable(f'{varname}_original', ds[varname].dtype, dimensions=ds[varname].dimensions)
-        xco2_orig.setncatts(ds[varname].__dict__)
-        xco2_orig.note = f'This variable contains the {pretty_names[varname]} values from the .aia file BEFORE the Xluft bias correction is applied.'
-        xco2_orig[:] = ds[varname][:]
+def _get_new_o2_dmfs(ds):
+    time_index = pd.Timestamp(1970, 1, 1) + pd.to_timedelta(ds['time'][:], unit='s')
+    o2_dmf_record = O2MeanMoleFractionRecord()
+    o2_dmfs = np.full(time_index.size, np.nan)
+    for i, time in enumerate(time_index):
+        o2_dmfs[i] = o2_dmf_record.get_o2_mole_fraction(time)
+    return o2_dmfs
 
-        xco2_new = ds[varname]
-        xco2_new.note = f'This variable contains the {pretty_names[varname]} values with a bias correction applied based on a moving median of Xluft.'
-        xco2_new.ancillary_variables = 'xluft_for_bias_correction'
-        xco2_new[:] = corrected_df[f'{varname}_corr'].to_numpy()
+def _set_name_attrs(var):
+    varname = var.name
+    var.standard_name = varname
+    var.long_name = varname.replace('_', ' ')
+    
+def add_x2019_xco2(ds, xgas, unscaled_xgas_values, unscaled_xgas_error_values):
+    x2007_xgas_varname = f'{xgas}_x2007'
+    x2007_error_varname = f'{xgas}_error_x2007'
+    x2007_aicf_varname = f'{xgas}_aicf_x2007'
+    x2007_aicf_error_varname = f'{xgas}_aicf_error_x2007'
+    x2007_aicf_scale_varname = f'aicf_{xgas}_scale'
+    # Calculate the X2019 values from the already-read-in X2007 values,
+    # copy the existing variable's attributes and update the standard and long name
+    # then replace the values
+    new_aicf, new_aicf_error = GGG2020p1_AICFS[f'{xgas}_x2019']
+    _add_x2019_variable(ds, x2007_xgas_varname, unscaled_xgas_values / new_aicf)
+    _add_x2019_variable(ds, x2007_error_varname, unscaled_xgas_error_values / new_aicf)
 
-    xluft_rolling = ds.createVariable('xluft_for_bias_correction', ds['xluft'].dtype, dimensions=ds['xluft'].dimensions)
-    xluft_rolling.setncatts(ds['xluft'].__dict__)
-    xluft_rolling.setncatts(xluft_attrs)
-    xluft_rolling.note = 'This is the moving median Xluft used for the XCO2 bias corrections'
-    xluft_rolling[:] = corrected_df['xluft_rolled'].to_numpy()
+    # Now add in the ancillary variables: the AICF and its error, plus the new scale variables
+    _add_x2019_variable(ds, x2007_aicf_varname, new_aicf)
+    _add_x2019_variable(ds, x2007_aicf_error_varname, new_aicf_error)
+    # For the scale, since it can be tricky to get the right array type for character, just read in the existing
+    # array and replace its values
+    new_scale_values = ds[x2007_aicf_scale_varname][:]
+    new_scale_values[:] = 'WMO CO2 X2019'
+    _add_x2019_variable(ds, x2007_aicf_scale_varname, new_scale_values)
+
+def _add_x2019_variable(ds, x2007_varname, new_values):
+    x2019_varname = x2007_varname.replace('x2007', 'x2019')
+    x2019_var = ds.createVariable(x2019_varname, ds[x2007_varname].dtype, ds[x2007_varname].dimensions)
+    x2019_var[:] = new_values
+    x2019_var.setncatts(ds[x2007_varname].__dict__)
+    _set_name_attrs(x2019_var)
 
 
-def _bias_correct_xn2o(ds):
+def bias_correct_xn2o(ds):
     logging.info('Applying PT700 bias correction to XN2O')
     xn2o_corr, pt700 = bc.correct_xn2o_from_pt700(ds)
 
