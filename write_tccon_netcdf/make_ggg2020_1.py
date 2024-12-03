@@ -23,6 +23,7 @@ GGG2020p1_TCCON_AICFS = {
     'xlco2_x2019': (1.00059, 0.00068),
     'xch4': (1.00214, 0.00133),
     'xh2o': (0.98676, 0.01701),
+    'xn2o': (0.9821,  0.0098), # apply the same AICF to XN2O so that it gets the new O2 mole fractions
 }
 
 GGG2020p1_EM27_AICFS = {
@@ -218,11 +219,14 @@ def _add_x2019_variable(ds, x2007_varname, new_values):
 
 def bias_correct_xn2o(ds):
     logging.info('Applying PT700 bias correction to XN2O')
-    xn2o_corr, pt700 = bc.correct_xn2o_from_pt700(ds)
+    # This m and b value were computed from XN2O that uses the new O2 mole fraction.
+    # Therefore, the XN2O in ``ds`` MUST have bee converted to the new O2 mole fractions
+    # before calling this function.
+    xn2o_corr, pt700 = bc.correct_xn2o_from_pt700(ds, m=0.000626, b=0.787)
 
     var_xn2o_orig = ds.createVariable('xn2o_original', ds['xn2o'].dtype, dimensions=ds['xn2o'].dimensions)
     var_xn2o_orig.setncatts(ds['xn2o'].__dict__)
-    var_xn2o_orig.note = 'This variable contains the XN2O values from the .aia file BEFORE the temperature bias correction is applied'
+    var_xn2o_orig.note = 'This variable contains the XN2O values BEFORE the temperature bias correction is applied but AFTER the new O2 mole fractions were applied'
     var_xn2o_orig[:] = ds['xn2o'][:]
 
     var_xn2o_new = ds['xn2o']
