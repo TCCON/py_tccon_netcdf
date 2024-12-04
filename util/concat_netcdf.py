@@ -376,6 +376,10 @@ def main():
                 continue
 
             # If this is a character variable, provide a text encoding
+            # TODO: handle the GEOS version variables (which won't necessarily be "a32")
+            # - both give then the ascii encoding _and_ handle if their second dimension
+            # varies from file to file - we'd want to use the largest dimension for the
+            # concatenated file.
             if 'a32' in variable.dimensions or 'specname' in variable.dimensions:
                 ncout[name]._Encoding = 'ascii'
 

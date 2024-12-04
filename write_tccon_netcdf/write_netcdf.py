@@ -28,11 +28,12 @@ from shutil import copyfile
 from signal import signal, SIGINT
 import gc
 
-from . import common_utils
+from . import common_utils as cu
 
 wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-15; SR)\n'
 file_fmt_version = '2020.B'
 std_o2_mole_frac = 0.2095
+
 
 # Let's try to be CF compliant: http://cfconventions.org/Data/cf-conventions/cf-conventions-1.7/cf-conventions.pdf
 standard_name_dict = {
@@ -201,14 +202,6 @@ def signal_handler(sig,frame):
     """
     logging.critical('The code was interrupted')
     sys.exit()
-
-
-def raise_and_log(err):
-    """
-    A kludge for new code to log an error message and raise the normal traceback
-    """
-    logging.critical(str(err))
-    raise err
 
 
 def get_json_path(env_var, default, default_in_code_dir=True, none_allowed=False):
@@ -426,7 +419,6 @@ def get_geos_versions(mod_file):
     versions = dict()
     filenames = dict()
     checksums = dict()
-    expected_keys = ('Met3d', 'Met2d', 'Chm3d')
     try:
         with open(mod_file) as f:
             nhead = int(f.readline().split()[0])
@@ -443,27 +435,18 @@ def get_geos_versions(mod_file):
         # ran with e.g. a file combining GEOS FP-IT met and GEOS IT CO but then
         # deleted it.
         logging.error(f'Could not find .mod file {mod_file}, will use fill values for GEOS file versions. Note that this is NOT ALLOWED for submitted TCCON data!')
-        versions = {k: 'UNKNOWN' for k in expected_keys}
-        filenames = {k: '' for k in expected_keys}
-        checksums = {k: '' for k in expected_keys}
+        versions = {k: 'UNKNOWN' for k in cu.GEOS_VERSION_EXPECTED_KEYS}
+        filenames = {k: '' for k in cu.GEOS_VERSION_EXPECTED_KEYS}
+        checksums = {k: '' for k in cu.GEOS_VERSION_EXPECTED_KEYS}
 
     found_versions = len(versions) > 0
     
     if not found_versions:
         # Fallback if no GEOS version information - must assume that this is
         # an unpatched .mod file and go by the transition date.
-        m = re.search(r'FPIT_(\d{10})', os.path.basename(mod_file))
-        if m is None:
-            raise_and_log(ValueError(f'Cannot find date in mod file name "{os.path.basename(mod_file)}"'))
-        file_date = datetime.strptime(m.group(1), '%Y%m%d%H')
-        if file_date < datetime(2024,4,1):
-            versions = {k: 'fpit (GEOS v5.12.4)*' for k in expected_keys}
-        else:
-            versions = {k: 'it (GEOS v5.29.4)*' for k in expected_keys}
-        filenames = {k: '' for k in expected_keys}
-        checksums = {k: '' for k in expected_keys}
+        versions, filenames, checksums = cu.infer_geos_version_from_modfile_time(mod_file)
     else:
-        missing_keys = tuple(k for k in expected_keys if k not in versions)
+        missing_keys = tuple(k for k in cu.GEOS_VERSION_EXPECTED_KEYS if k not in versions)
         if missing_keys:
             s = ', '.join(missing_keys)
             logging.warning(f'.mod file {mod_file} is missing some GEOS version keys: {s}')
@@ -519,33 +502,6 @@ def get_geos_versions_key_set(mav_data, version_key='geos_versions'):
         keys.update(data_dict[version_key].keys())
     return sorted(keys)
 
-
-def geos_version_varname(key):
-    return f'geos_{key.lower()}_version'
-
-
-def geos_file_varname(key):
-    return f'geos_{key.lower()}_filename'
-
-
-def geos_checksum_varname(key):
-    return f'geos_{key.lower()}_checksum'
-
-
-def add_geos_version_variables(nc_data, prior_data, version_key, varname_fxn, geos_version_keys, is_classic):
-    geos_version_vars = dict()
-    if is_classic:
-        gv_len = get_geos_version_max_length(prior_data, version_key)
-        gv_dim = f'a{gv_len}'
-        if gv_dim not in nc_data.dimensions.keys():
-            nc_data.createDimension(gv_dim, gv_len)
-        for k in geos_version_keys:
-            geos_version_vars[k] = nc_data.createVariable(varname_fxn(k), 'S1', ('prior_time', gv_dim))
-            geos_version_vars[k]._Encoding = 'ascii'
-    else:
-        for k in geos_version_keys:
-            geos_version_vars[k] = nc_data.createVariable(geos_version_varname(k), str, ('prior_time',))
-    return geos_version_vars
 
 
 def get_eqlat(mod_file,levels):
@@ -1099,25 +1055,25 @@ def add_obs_op_variables(private_ds, public_ds, public_slice, mode):
         x2019_obs_var.setncatts(obs_op_atts)
 
     # Now let's calculate the a priori column-average mole fractions
-    for gas, priv_var in common_utils.TCCON_PRIOR_XGAS_OVC_VARS.copy().items():
+    for gas, priv_var in cu.TCCON_PRIOR_XGAS_OVC_VARS.copy().items():
         if priv_var not in private_ds.variables.keys():
             logging.warning(f'{priv_var} missing from the private file, unexpected for TCCON products')
             continue
         # Since we want to scale these by the units, it's easier to do the loop here rather
-        # than use common_utils.create_tccon_prior_xgas_variables
+        # than use cu.create_tccon_prior_xgas_variables
         col = private_ds[priv_var][:][public_slice]
         unit = public_ds[f'x{gas}'].units
-        varname = common_utils.create_one_prior_xgas_variable(
+        varname = cu.create_one_prior_xgas_variable(
             ds=public_ds, gas=gas, col=col, ret_o2_col=ret_o2_col, o2_dmf=x2007_o2, units=unit
         )
         public_ds[varname].description = f'Column-average mole fraction calculated from the PRIOR profile of {gas} using the standard mean O2 mole fraction of {std_o2_mole_frac} appropriate for use when comparing other profiles to non-x2019 variables.'
 
     if mode.lower()=="tccon":
         # We'll also need to do a special one for co2 with the variable mole fraction
-        col = private_ds[common_utils.TCCON_PRIOR_XGAS_OVC_VARS['co2']][:][public_slice]
+        col = private_ds[cu.TCCON_PRIOR_XGAS_OVC_VARS['co2']][:][public_slice]
         unit = public_ds['xco2_x2019'].units
         varname = 'prior_xco2_x2019'
-        common_utils.create_one_prior_xgas_variable(
+        cu.create_one_prior_xgas_variable(
             ds=public_ds, gas=gas, col=col, ret_o2_col=ret_o2_col, o2_dmf=x2019_o2, units=unit, varname=varname
         )
         public_ds[varname].description = 'Column-average mole fraction calculated from the PRIOR profile of co2 using the variable mean O2 mole fraction appropriate for use when comparing other profiles to _x2019 variables ONLY.'
@@ -1140,12 +1096,12 @@ def apply_additional_fixes(ds, is_public, mode):
 
 
 def update_prior_xgas_units(public_ds):
-    for gas in common_utils.TCCON_PRIOR_XGAS_OVC_VARS:
+    for gas in cu.TCCON_PRIOR_XGAS_OVC_VARS:
         prior_profile_var = f'prior_{gas}'
         prior_xgas_var = f'prior_x{gas}'
         if prior_profile_var in public_ds.variables.keys() and prior_xgas_var in public_ds.variables.keys():
             desired_units = public_ds[prior_profile_var].units
-            conv_fac = common_utils.MOLE_FRACTION_CONVERSIONS[desired_units]
+            conv_fac = cu.MOLE_FRACTION_CONVERSIONS[desired_units]
             assert public_ds[prior_xgas_var].units == '1', 'Expected private prior Xgas variable to have units of "1"'
             original_prior_xgas = public_ds[prior_xgas_var][:]
             public_ds[prior_xgas_var][:] = conv_fac * original_prior_xgas
@@ -1298,6 +1254,12 @@ def _fix_incorrect_attributes(ds):
         if not hasattr(ds[varname], 'usage'):
             ds[varname].usage = 'Please see https://tccon-wiki.caltech.edu/Main/GGG2020DataChanges for instructions on how to use the AK variables.'
 
+    # The column densities and their errors should be in molecules per cm2, not per m2
+    # This was fixed in file format version GGG2020.C, but we need this for updating the
+    # already-uploaded files.
+    for varname, var in ds.variables.items():
+        if varname.startswitch('column') and var.units == 'molecules.m-2':
+            var.units = 'molecules.cm-2'
 
 def _fix_inconsistent_units(ds):
     # The slant XCH4 bins were originally given in ppb, while the XCH4 values were in ppm.
@@ -1895,8 +1857,8 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             public_data['airmass'].units = ''
 
         # do this before update_attrs so that the standard names can be assigned from cf_standard_names_json
-        private_file_fmt_version = common_utils.get_file_format_version(private_data)
-        if common_utils.file_fmt_less_than(private_file_fmt_version, '2020.C'):
+        private_file_fmt_version = cu.get_file_format_version(private_data)
+        if cu.file_fmt_less_than(private_file_fmt_version, '2020.C'):
             # This is a pre-GGG2020.1 file, so use the old way of adding the observation operator.
             add_obs_op_variables(private_data, public_data, public_slice, mode=mode)
         else:
@@ -2874,20 +2836,26 @@ def main():
 
         geos_version_keys = get_geos_versions_key_set(prior_data)
 
-        prior_var_list += ['modfile','vmrfile'] + [geos_version_varname(k) for k in geos_version_keys]
+        prior_var_list += ['modfile','vmrfile'] + [cu.geos_version_varname(k) for k in geos_version_keys]
         if classic:
             prior_modfile_var = nc_data.createVariable('prior_modfile','S1',('prior_time','a32'))
             prior_modfile_var._Encoding = 'ascii'
             prior_vmrfile_var = nc_data.createVariable('prior_vmrfile','S1',('prior_time','a32'))
             prior_vmrfile_var._Encoding = 'ascii'
 
-            for (vkey, vfxn) in zip(['geos_versions', 'geos_filenames', 'geos_checksums'], [geos_version_varname, geos_file_varname, geos_checksum_varname]):
-                add_geos_version_variables(nc_data, prior_data, vkey, vfxn, geos_version_keys, is_classic=True)
+            for (vkey, vfxn) in cu.geos_version_keys_and_fxns():
+                gv_max_len = get_geos_version_max_length(prior_data, vkey)
+                for gkey in geos_version_keys:
+                    gv_varname = vfxn(gkey)
+                    cu.add_geos_version_variables(nc_data, gv_max_len, gv_varname, is_classic=True)
         else:
             prior_modfile_var = nc_data.createVariable('prior_modfile',str,('prior_time',))
             prior_vmrfile_var = nc_data.createVariable('prior_vmrfile',str,('prior_time',))
-            for (vkey, vfxn) in zip(['geos_versions', 'geos_filenames', 'geos_checksums'], [geos_version_varname, geos_file_varname, geos_checksum_varname]):
-                add_geos_version_variables(nc_data, prior_data, vkey, vfxn, geos_version_keys, is_classic=False)
+            for (vkey, vfxn) in cu.geos_version_keys_and_fxns():
+                gv_max_len = get_geos_version_max_length(prior_data, vkey)
+                for gkey in geos_version_keys:
+                    gv_varname = vfxn(gkey)
+                    cu.add_geos_version_variables(nc_data, gv_max_len, gv_varname, is_classic=False)
         
         att_dict = {
             "standard_name":'prior_modfile',
@@ -2922,22 +2890,8 @@ def main():
         }
         nc_data['prior_mid_tropospheric_potential_temperature'].setncatts(att_dict)
 
-        geos_version_descriptions = {
-            'Met2d': 'two-dimensional meteorological',
-            'Met3d': 'three-dimensional meteorological',
-            'Chm3d': 'three-dimensional chemical'
-        }
-        for k in geos_version_keys:
-            desc = geos_version_descriptions.get(k, k)
-            att_dict = {
-                "description": f"Version information for the Goddard Earth Observing System model that provided the {desc} variables for the priors.",
-                "note": "A trailing * indicates that the version information was assumed from the prior time."
-            }
-            nc_data[geos_version_varname(k)].setncatts(att_dict)
-
-            nc_data[geos_file_varname(k)].description = f"Base name of the {desc} GEOS file used as input for the priors of this observations."
-            nc_data[geos_checksum_varname(k)].description = f"MD5 checksum of the {desc} GEOS file used as input for the priors of this observation."
-
+        cu.add_geos_version_var_attrs(nc_data, geos_version_keys)
+        
         # checksums
         logging.info('\t- Checksums')
         for var in checksum_var_list:
@@ -3388,9 +3342,9 @@ def main():
         # write prior and cell data
         logging.info('Writing prior data ...')
         special_prior_vars = ['tropopause_altitude','modfile','vmrfile','mid_tropospheric_potential_temperature','effective_latitude']
-        special_prior_vars += [geos_version_varname(k) for k in geos_version_keys]
-        special_prior_vars += [geos_file_varname(k) for k in geos_version_keys]
-        special_prior_vars += [geos_checksum_varname(k) for k in geos_version_keys]
+        special_prior_vars += [cu.geos_version_varname(k) for k in geos_version_keys]
+        special_prior_vars += [cu.geos_file_varname(k) for k in geos_version_keys]
+        special_prior_vars += [cu.geos_checksum_varname(k) for k in geos_version_keys]
         for prior_spec_id, prior_spectrum in enumerate(prior_spec_list):
             #for var in ['temperature','pressure','density','gravity','1h2o','1hdo','1co2','1n2o','1co','1ch4','1hf','1o2']:
             for var in prior_var_list:
@@ -3409,9 +3363,9 @@ def main():
             nc_data['prior_effective_latitude'][prior_spec_id] = prior_data[prior_spectrum]['effective_latitude']
             nc_data['prior_mid_tropospheric_potential_temperature'][prior_spec_id] = prior_data[prior_spectrum]['mid_tropospheric_potential_temperature']
             for k in geos_version_keys:
-                nc_data[geos_version_varname(k)][prior_spec_id] = prior_data[prior_spectrum]['geos_versions'][k]
-                nc_data[geos_file_varname(k)][prior_spec_id] = prior_data[prior_spectrum]['geos_filenames'][k]
-                nc_data[geos_checksum_varname(k)][prior_spec_id] = prior_data[prior_spectrum]['geos_checksums'][k]
+                nc_data[cu.geos_version_varname(k)][prior_spec_id] = prior_data[prior_spectrum]['geos_versions'][k]
+                nc_data[cu.geos_file_varname(k)][prior_spec_id] = prior_data[prior_spectrum]['geos_filenames'][k]
+                nc_data[cu.geos_checksum_varname(k)][prior_spec_id] = prior_data[prior_spectrum]['geos_checksums'][k]
 
         logging.info('Finished writing prior data')
         del prior_data
