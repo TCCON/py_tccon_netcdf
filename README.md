@@ -1,17 +1,16 @@
-# README #
+# README 
 
-## Installation ##
+## Installation
 
 This package will typically be installed as part of the [GGG](https://github.com/TCCON/GGG/) installation process.
 Installation outside of GGG is not officially supported.
 If that is needed, the recommended steps are:
 
-1. Create a conda environment with Python 3.7 and the dependencies specified in `setup.py`
+1. Create a conda environment with Python 3.10 and the dependencies specified in `pyproject.toml`
 2. Activate that environment
-3. In this directory, run `python setup.py --no-user-cfg develop`
+3. In this directory, run `pip install -e . --isolated`
 
 This will install the entry point scripts into the `bin` directory of your environment.
-To install them elsewhere, add the `--script-dir` option to the `python setup.py` call, e.g. `--script-dir ./scripts` to install to `./scripts`
 
 ## Included programs
 
