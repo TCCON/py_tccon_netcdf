@@ -9,9 +9,8 @@ from ginput.priors.tccon_priors import O2MeanMoleFractionRecord
 
 from . import nc_ops, common_utils
 from . import bias_corrections as bc
-from common_utils import set_private_name_attrs
-
-GGG2020p1_FILE_FORMAT_VERSION = '2020.1.A'
+from .common_utils import set_private_name_attrs
+from .constants import FILE_FMT_V2020p1pA
 
 # First value is the AICF, second is its error
 GGG2020p1_TCCON_AICFS = {
@@ -24,6 +23,7 @@ GGG2020p1_TCCON_AICFS = {
     'xch4': (1.00214, 0.00133),
     'xh2o': (0.98676, 0.01701),
     'xn2o': (0.9821,  0.0098), # apply the same AICF to XN2O so that it gets the new O2 mole fractions
+    'xco': (1.0000, 0.0526), # ditto for XCO
 }
 
 GGG2020p1_EM27_AICFS = {
@@ -116,16 +116,21 @@ def update_o2_and_aicfs(ds, mode):
     else:
         raise NotImplementedError(f'mode = {mode}')
     
+    # We have to check here whether the x2019 variables were removed correctly
+    # because inside the next for loop they'll be added back in as each CO2 variable
+    # comes up.
+    for xgas_varname in aicfs.keys():
+        if xgas_varname.endswith('x2019') and xgas_varname in ds.variables.keys():
+            raise RuntimeError('x2019 variables must not be present in the file')
+    
     for xgas_varname, (new_aicf, new_aicf_error) in aicfs.items():
         var_is_missing = xgas_varname not in ds.variables.keys()
-        if var_is_missing and xgas_varname.endswith('x2019'):
-            # This is okay, we know we need to add it back in later
+        if xgas_varname.endswith('x2019'):
+            # These will be handled by their respective x2007 variables.
             continue
         elif var_is_missing:
             logging.warning(f'{xgas_varname} missing - if this is not an EM27 file, something may have gone wrong during post processing')
             continue
-        elif xgas_varname.endswith('x2019'):
-            raise RuntimeError('x2019 variables must not be present in the file')
 
         if xgas_varname.startswith(('xco2_', 'xwco2_', 'xlco2_')):
             gas, scale = xgas_varname.split('_', 1)
@@ -151,16 +156,23 @@ def update_o2_and_aicfs(ds, mode):
         set_private_name_attrs(ds[error_varname])
 
         # We also have to update the AICF values themselves and the error
-        ds[aicf_varname] = new_aicf
+        ds[aicf_varname][:] = new_aicf
         set_private_name_attrs(ds[aicf_varname])
 
-        ds[aicf_error_varname] = new_aicf_error
+        ds[aicf_error_varname][:] = new_aicf_error
         set_private_name_attrs(ds[aicf_varname])
 
         if create_x2019:
             xgas = xgas_varname.split('_')[0]
             add_x2019_xco2(ds, xgas, unscaled_values, unscaled_error_values, aicfs)
 
+    # Confirm that all of the expected x2019 gases were added
+    for xgas_varname in aicfs.keys():
+        missed_xgases = []
+        if xgas_varname.endswith('x2019') and xgas_varname not in ds.variables.keys():
+            missed_xgases.append(xgas_varname)
+        if len(missed_xgases) > 0:
+            raise RuntimeError(f'Some x2019 gases were not added {", ".join(missed_xgases)}')
 
     # Create a new variable that stores the O2 DMF
     o2_var = ds.createVariable('o2_mean_mole_fraction', 'f4', dimensions=('time',))
@@ -175,7 +187,7 @@ def update_o2_and_aicfs(ds, mode):
     common_utils.create_tccon_prior_xgas_variables(ds)
 
     # Update the file format version and add an algorithm version 
-    ds.file_format_version = GGG2020p1_FILE_FORMAT_VERSION
+    ds.file_format_version = FILE_FMT_V2020p1pA
     ds.algorithm_version = 'GGG2020.1'
 
 
@@ -192,7 +204,7 @@ def add_x2019_xco2(ds, xgas, unscaled_xgas_values, unscaled_xgas_error_values, a
     x2007_error_varname = f'{xgas}_error_x2007'
     x2007_aicf_varname = f'{xgas}_aicf_x2007'
     x2007_aicf_error_varname = f'{xgas}_aicf_error_x2007'
-    x2007_aicf_scale_varname = f'aicf_{xgas}_scale'
+    x2007_aicf_scale_varname = f'aicf_{xgas}_x2007_scale'
     # Calculate the X2019 values from the already-read-in X2007 values,
     # copy the existing variable's attributes and update the standard and long name
     # then replace the values
@@ -207,12 +219,19 @@ def add_x2019_xco2(ds, xgas, unscaled_xgas_values, unscaled_xgas_error_values, a
     # array and replace its values
     new_scale_values = ds[x2007_aicf_scale_varname][:]
     new_scale_values[:] = 'WMO CO2 X2019'
-    _add_x2019_variable(ds, x2007_aicf_scale_varname, new_scale_values)
+    _add_x2019_variable(ds, x2007_aicf_scale_varname, new_scale_values, is_text=True)
 
-def _add_x2019_variable(ds, x2007_varname, new_values):
+def _add_x2019_variable(ds, x2007_varname, new_values, is_text=False):
+    dtype = 'S1' if is_text else ds[x2007_varname].dtype
     x2019_varname = x2007_varname.replace('x2007', 'x2019')
-    x2019_var = ds.createVariable(x2019_varname, ds[x2007_varname].dtype, ds[x2007_varname].dimensions)
-    x2019_var[:] = new_values
+    x2019_var = ds.createVariable(x2019_varname, dtype, ds[x2007_varname].dimensions)
+    if is_text:
+        x2019_var._Encoding = 'ascii'
+        # not entirely sure why the conversion to byte string type ('S') is necessary, maybe
+        # because it's ASCII encoded? Without this, it makes each character try to use 4 bytes
+        x2019_var[:] = new_values.astype('S')
+    else:
+        x2019_var[:] = new_values
     x2019_var.setncatts(ds[x2007_varname].__dict__)
     set_private_name_attrs(x2019_var)
 

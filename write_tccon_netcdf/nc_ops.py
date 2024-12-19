@@ -85,7 +85,7 @@ def _copy_variable(ncin: netCDF4.Dataset, ncout: netCDF4.Dataset, varname: str, 
     if 'time' in var_in.dimensions and 'prior_time' in var_in.dimensions:
         raise NotImplementedError('Cannot copy/subset a variable ({}) with both time and prior_time as dimensions!'.format(varname))
 
-    var_out = ncout.createVariable(varname, var_in.datatype, var_in.dimensions)
+    var_out = ncout.createVariable(new_varname, var_in.datatype, var_in.dimensions)
     var_out.setncatts(var_in.__dict__)
     if 'a32' in var_in.dimensions or 'specname' in var_in.dimensions:
         var_out._Encoding = 'ascii'

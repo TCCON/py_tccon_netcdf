@@ -6,3 +6,4 @@ bin/**/*
 build/**/*
 *.egg
 *.log
+.DS_Store
