@@ -42,7 +42,6 @@ from .constants import (
     STANDARD_NAME_DICT,
     STD_O2_MOLE_FRAC,
     UNITS_DICT,
-    WNC_VERSION,
 )
 
 
@@ -561,7 +560,8 @@ def write_eof(private_nc_file,eof_file,qc_file,nc_var_list,show_progress):
         nrow = nc['time'].size
 
         writer.writerow([nhead,ncol,nrow])
-        eof.write(WNC_VERSION)
+        eof.write(cu.get_version_string())
+        eof.write('\n')
         eof.writelines(qc_content)
 
         eof_var_list = [] # make a new list of variables for the eof file, including units
@@ -967,7 +967,15 @@ def _expand_aks(ds, xgas, n=500, full_ak_resolution=False, min_extrap=0):
         raise ImportError('xarray is required to save per-spectrum AKs. Please install it in this environment.')
     logging.debug('Expanding AKs for %s', xgas)
     airmass = ds['o2_7885_am_o2'][:]
-    slant_xgas_values = ds[xgas][:] * airmass
+    if re.match('x[wl]?co2', xgas) and xgas not in ds.variables.keys():
+        # The difference in Xgas value between the X2007 and X2019 scale should be minor on the scale
+        # of what the AKs care about, so to avoid adding three more AK variables, just use the X2019
+        # Xgas value to expand the AKs.
+        varname = f'{xgas}_x2019'
+        logging.info(f'Using {varname} to compute slant Xgas for {xgas} AKs')
+        slant_xgas_values = ds[varname][:] * airmass
+    else:
+        slant_xgas_values = ds[xgas][:] * airmass
     slant_xgas_bins = ds['ak_slant_{}_bin'.format(xgas)][:]
     if xgas == 'xch4' and ds['ak_slant_{}_bin'.format(xgas)].units == 'ppb':
         # XCH4 bins are given in ppb, but XCH4 itself in ppm. Oops!
@@ -1025,6 +1033,33 @@ def _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=500, min
     quant_slant[xx_below] = min_extrap
     quant_slant[xx_above] = smax
     return quant_slant
+
+
+def _create_geos_source_summary_var(public_ds, private_ds, public_slice):
+    logging.debug('Summarizing GEOS sources')
+    prior_index = private_ds['prior_index'][:]
+    met3d_version = private_ds[cu.geos_version_varname('met3d')][:][prior_index][public_slice]
+    met2d_version = private_ds[cu.geos_version_varname('met2d')][:][prior_index][public_slice]
+    chm3d_version = private_ds[cu.geos_version_varname('chm3d')][:][prior_index][public_slice]
+
+    met_is_fpit = np.char.startswith(met3d_version, 'fpit') & np.char.startswith(met2d_version, 'fpit')
+    met_is_it = np.char.startswith(met3d_version, 'it') & np.char.startswith(met2d_version, 'it')
+    chm_is_fpit = np.char.startswith(chm3d_version, 'fpit')
+    chm_is_it = np.char.startswith(chm3d_version, 'it')
+
+    geos_flag = np.full(public_ds.dimensions['time'].size, 99, np.int8)
+    geos_flag[met_is_fpit & chm_is_fpit] = 0
+    geos_flag[met_is_it & chm_is_it] = 1
+    geos_flag[met_is_fpit & chm_is_it] = 2
+
+    geos_flag_var = public_ds.createVariable('apriori_data_source', geos_flag.dtype, ('time',))
+    geos_flag_var[:] = geos_flag
+    geos_flag_var.setncatts({
+        'long_name': 'A priori Met & VMR profile data source',
+        'usage': 'Used to identify different combination of meteorological and chemical a priori information used in the retrieval. See https://tccon-wiki.caltech.edu/Main/GGG2020DataChanges for additional information.',
+        'flag_values': np.asarray([0, 1, 2, 99], dtype=geos_flag.dtype),
+        'flag_meanings': 'all a priori from GEOS FP-IT\nall a priori from GEOS IT\nmet a priori from GEOS FP-IT, CO from GEOS IT\nnon-standard a priori source set',
+    })
 
 
 def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False,rename_by_dates=True,flag0_only=True,expand_priors=True,expand_aks=True,full_ak_resolution=True,mode="tccon"):
@@ -1181,6 +1216,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                 write_atts = True
                 outname = name
                 extra_atts = dict()
+                logging.debug(f'Writing "{name}" to public file')
 
                 if expand_priors and name in {'prior_index'}:
                     # We do not need these variables if we are expanding the priors
@@ -1343,6 +1379,9 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             # so we just need to convert the prior xgas variables from parts to the same units as the a priori profiles
             # were converted to above
             update_prior_xgas_units(public_data)
+
+        # Add a summary variable about the GEOS files
+        _create_geos_source_summary_var(public_data, private_data, public_slice)
 
         logging.info('  --> Done copying variables')
         ggg2020a_to_ggg2020c(public_data, is_public=True, mode=mode)
@@ -1597,7 +1636,7 @@ def main():
     code_dir = os.path.dirname(__file__) # path to the tccon_netcdf repository
     GGGPATH = cu.get_ggg_path()
 
-    description = WNC_VERSION + "This writes TCCON outputs in a NETCDF file"
+    description = f"{cu.get_version_string()} This writes TCCON outputs in a NETCDF file"
     
     parser = argparse.ArgumentParser(description=description,formatter_class=argparse.RawTextHelpFormatter)
     
@@ -1936,7 +1975,7 @@ def main():
                 line = infile.readline()
                 if 'sf=' in line:
                     vsw_sf_check = True
-                    vsw_sf = (j for j in np.array(line.split()[1:]).astype(np.float))
+                    vsw_sf = (j for j in np.array(line.split()[1:]).astype(np.float32))
                     break
                 i += 1
         vsw_data = pd.read_csv(vsw_file,delim_whitespace=True,skiprows=nhead)
@@ -1997,7 +2036,7 @@ def main():
         nc_data.source = "Products retrieved from solar absorption spectra using the GGG2020 software"
         nc_data.description = '\n'+header_content
         nc_data.file_creation = "Created with Python {} and the library netCDF4 {}".format(platform.python_version(),netCDF4.__version__)
-        nc_data.code_version = "Created using commit {} of the code {}".format(HEAD_commit,WNC_VERSION)
+        nc_data.code_version = "Created using commit {} of the code {}".format(HEAD_commit,cu.get_version_string())
         nc_data.flag_info = 'The Vmin and Vmax attributes of the variables indicate the range of valid values.\nThe values comes from the xx_qc.dat file.\n the variable "flag" stores the index of the variable that contains out of range values.\nThe variable "flagged_var_name" stores the name of that variable'
         
         if args.mode == 'TCCON':
@@ -3143,7 +3182,12 @@ def compare_nc_files(base_file, other_file, log_file=None, log_level='INFO', ign
             return variables
 
     cu.setup_logging(log_level=log_level, log_file=log_file, message='')
-
+    logging.info(f'Base file = {base_file}')
+    logging.info(f'Other file = {other_file}')
+    if len(ignore) == 0:
+        logging.info('Will check all variables (ignore input was empty)')
+    else:
+        logging.info(f'Will ignore the variables: {", ".join(ignore)}')
     base_variables = get_file_variables(base_file)
     other_variables = get_file_variables(other_file)
     common_variables = base_variables.intersection(other_variables)
@@ -3155,7 +3199,7 @@ def compare_nc_files(base_file, other_file, log_file=None, log_level='INFO', ign
 
     missing_other_vars = other_variables.difference(common_variables)
     if len(missing_other_vars) > 0:
-        logging.warning('{} variables present in the second file ({}) were not present in the first file ({})'
+        logging.warning('{} variables ({}) present in the second file ({}) were not present in the first file ({})'
                         .format(len(missing_other_vars), ', '.join(missing_other_vars), other_file, base_file))
 
     common_variables = sorted(list(common_variables))

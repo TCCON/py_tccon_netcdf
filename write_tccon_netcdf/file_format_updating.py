@@ -56,13 +56,19 @@ def driver(netcdf_file: os.PathLike, mode: str = 'TCCON', tgt_ver: cu.FileFmtVer
 
 
 def ggg2020a_to_ggg2020c(ds, is_public, mode):
+    # inserting missing AKs should come first so they get the missing attributes added
+    # and incorrect units fixed just like the other AK variables.
+    _insert_missing_aks(ds, 'xhdo', is_public)
     _fix_unspecified_units(ds)
     _fix_inconsistent_units(ds)
     _add_prior_long_units(ds, is_public)
     _fix_public_cf_attributes(ds, is_public)
     _fix_incorrect_attributes(ds)
-    _insert_missing_aks(ds, 'xhdo', is_public)
     _add_flag_usage(ds)
+    if not is_public:
+        # The public file should not include the detailed GEOS file information;
+        # so don't try to re-add these variables when working with public files.
+        add_geos_versions_by_date(ds)
     # Starting with GGG2020.1, x2019 variables will be handled by the separate program to
     # convert GGG2020 files to GGG2020.1 - this just makes things easier than trying to
     # undo the GGG2020 X2019 variable O2 mole fraction.
@@ -93,8 +99,10 @@ def add_geos_versions_by_date(ds):
         for gkey in geos_version_keys:
             gv_varname = vfxn(gkey)
             if gv_varname not in ds.variables.keys():
-                var = cu.add_geos_version_variable(ds, gv_max_len, gv_varname, is_classic)
-                var[:] = gv_values
+                var = cu.add_geos_version_variables(ds, gv_max_len, gv_varname, is_classic)
+                # Must convert to a byte array otherwise the UTF-encoded array tries to use 4
+                # bytes per character. Guessing this is an issue between ASCII and UTF encoding.
+                var[:] = gv_values.astype('S')
 
     # This will overwrite the attributes if any of this variables existed. That's fine;
     # we're using the same function to write the attributes here as we do in the main writer
@@ -124,8 +132,9 @@ def _fix_public_cf_attributes(ds, is_public):
 
 def _fix_incorrect_attributes(ds):
     # The default pa_qc.dat file with GGG2020 has the description for XCO2 refer to
-    # column_*w*co2. If that slips through, fix it.
-    if ds['xco2'].description == '0.2095*column_wco2/column_o2':
+    # column_*w*co2. If that slips through, fix it. If we're calling this on a GGG2020.1.A
+    # file, xco2 will have been renamed to xco2_x2007, but it will also have been fixed already.
+    if 'xco2' in ds.variables.keys() and ds['xco2'].description == '0.2095*column_wco2/column_o2':
         ds['xco2'].description = '0.2095*column_co2/column_o2'
         logging.info('Corrected description of "xco2" variable')
 

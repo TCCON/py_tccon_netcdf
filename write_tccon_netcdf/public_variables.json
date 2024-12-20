@@ -75,7 +75,11 @@
 		"xth2o_"],
 	"exclude_regex": [
 		"_g$",
-		"_p$"],
+		"_p$",
+		"geos_[a-zA-Z0-9]+_version",
+		"geos_[a-zA-Z0-9]+_filename",
+		"geos_[a-zA-Z0-9]+_checksum"
+	],
 	"has_aicf_scale": [
 		"xco2",
 		"xwco2",

@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 
+from . import __version__
 from .constants import (
     DEFAULT_EFF_PATH_VARNAME,
     DEFAULT_INT_OP_VARNAME,
@@ -21,10 +22,8 @@ from .constants import (
     FPIT_ASSUMED_VERSION,
     IT_CUTOVER_DATE,
     IT_ASSUMED_VERSION,
-    LOG_LEVEL_CHOICES,
     MOLE_FRACTION_CONVERSIONS,
     TCCON_PRIOR_XGAS_OVC_VARS,
-    WNC_VERSION,
 )
 
 from typing import Union
@@ -36,6 +35,11 @@ def raise_and_log(err):
     """
     logging.critical(str(err))
     raise err
+
+
+def get_version_string():
+    pgrm = os.path.basename(sys.argv[0])
+    return f'{pgrm} (Version {__version__}; 2024-12-19; SR,JL)'
 
 
 def setup_logging(log_level, log_file, message='', to_stdout=False):
@@ -100,7 +104,7 @@ def setup_logging(log_level, log_file, message='', to_stdout=False):
             handler.setFormatter(logging.Formatter('[%(levelname)s @ %(asctime)s]: %(message)s'))
     if message:
         logging.info('Note: %s', message)
-    logging.info('Running %s', WNC_VERSION.strip())
+    logging.info('Running %s', get_version_string())
     proc = subprocess.Popen(['git','rev-parse','--short','HEAD'],cwd=os.path.dirname(__file__),stdout=subprocess.PIPE)
     out, err = proc.communicate()
     HEAD_commit = out.decode("utf-8").strip()

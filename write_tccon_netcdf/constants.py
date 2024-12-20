@@ -4,7 +4,6 @@ import os
 
 from . import __version__
 
-WNC_VERSION = f'write_netcdf.py (Version {__version__}; 2024-12-19; SR,JL)\n'
 STD_O2_MOLE_FRAC = 0.2095
 FILE_FMT_V2020pC = '2020.C'
 FILE_FMT_V2020p1pA = '2020.1.A'

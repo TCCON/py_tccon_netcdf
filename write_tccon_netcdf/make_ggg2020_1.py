@@ -193,7 +193,7 @@ def update_o2_and_aicfs(ds, mode):
 
 def _get_new_o2_dmfs(ds):
     time_index = pd.Timestamp(1970, 1, 1) + pd.to_timedelta(ds['time'][:], unit='s')
-    o2_dmf_record = O2MeanMoleFractionRecord()
+    o2_dmf_record = O2MeanMoleFractionRecord(auto_update_fo2_file=True)
     o2_dmfs = np.full(time_index.size, np.nan)
     for i, time in enumerate(time_index):
         o2_dmfs[i] = o2_dmf_record.get_o2_mole_fraction(time)
