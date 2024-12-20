@@ -19,6 +19,7 @@ classifiers=[
 	"Programming Language :: Python :: 3.10",
 ]
 dependencies = [
+    "ginput>=1.3.1,<2.0.0",
 	"netcdf4>=1.5.0,<2.0.0",
 	"numpy>=1.16.0,<2.0.0",
 	"pandas>=0.23.0",
@@ -35,9 +36,10 @@ Repository = "https://github.com/TCCON/py_tccon_netcdf"
 
 [project.scripts]
 write_netcdf = "write_tccon_netcdf.write_netcdf:main"
+concat_netcdf = "write_tccon_netcdf.concat_netcdf:main"
 compare_netcdf = "write_tccon_netcdf.write_netcdf:compare_nc_files_command_line"
-update_site_info = "util.update_site_info:main"
-subset_netcdf = "util.subset_tccon_netcdf:main"
+update_site_info = "write_tccon_netcdf.update_site_info:main"
+subset_netcdf = "write_tccon_netcdf.subset_tccon_netcdf:main"
 update_manual_flags = "write_tccon_netcdf.update_manual_flags:main"
 update_file_format = "write_tccon_netcdf.file_format_updating:main"
 
