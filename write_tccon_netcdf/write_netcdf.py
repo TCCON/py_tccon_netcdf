@@ -757,8 +757,11 @@ def print_detailed_diff(variable, old_vals, new_vals, threshold=0.01):
         logging.warning('  %s has more than 2 dimensions, not set up to give detailed diffs', variable)
         return
 
-    imax = _nanabsargmax(perdiffs)
-    logging.info('  %s has max percent diff (%.4f %%) at spectrum %d', variable, perdiffs[imax], imax+1)
+    if np.all(np.isnan(perdiffs)):
+        logging.info('  %s has all NaN percent differences', variable)
+    else:
+        imax = _nanabsargmax(perdiffs)
+        logging.info('  %s has max percent diff (%.4f %%) at spectrum %d', variable, perdiffs[imax], imax+1)
     ispec = 0
     for old, new, delta, pdelta in zip(old_vals, new_vals, diffs, perdiffs):
         ispec += 1
