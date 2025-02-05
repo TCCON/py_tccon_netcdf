@@ -1031,10 +1031,16 @@ def _add_x2019_co2(ds, is_public):
     # Now it's straightforward to convert each variable, it's just a matter of multiplying the old values by
     # old_aicf/new_aicf and new_fo2/old_fo2
     for key, new_aicf in new_aicfs.items():
+        x2019_varname = f'{key}_x2019'
+        if x2019_varname in ds.variables.keys():
+            logging.info(f'{x2019_varname} already exists, no need to calculate this X2019 time series')
+            continue
+
+        logging.info(f'Adding x2019 values ({x2019_varname})')
         old_aicf = ds[f'{key}_aicf'][:]
 
         old_var = ds[key]
-        new_var = ds.createVariable(f'{key}_x2019', old_var.dtype, dimensions=old_var.dimensions)
+        new_var = ds.createVariable(x2019_varname, old_var.dtype, dimensions=old_var.dimensions)
         # just copy the attributes, most of them are the same. We haven't added the scale yet, but do need
         # to update the description
         new_var.setncatts(old_var.__dict__)
@@ -1054,11 +1060,16 @@ def _add_x2019_co2(ds, is_public):
         new_var[:] = old_var[:] * fo2 / old_fo2_ref * old_aicf / new_aicf
 
     # Also write the fO2 value, we'll need it in the public file generation for the obs operator
-    o2_var = ds.createVariable('o2_mean_mole_fraction_x2019', 'f4', dimensions=('time',))
-    o2_var.description = f'O2 mole fraction used when calculating the x*_x2019 variables ONLY. Any Xgas variables without the _x2019 suffix use {std_o2_mole_frac} in their Xgas calculation.'
-    o2_var.units = '1'
-    o2_var.standard_name = 'dry_atmospheric_mole_fraction_of_oxygen'
-    o2_var[:] = fo2.astype('float32')
+    o2_varname = 'o2_mean_mole_fraction_x2019'
+    if o2_varname in ds.variables.keys():
+        logging.info(f'{o2_varname} already exists, no need to add the O2 mole fraction amounts')
+    else:
+        logging.info(f'Adding O2 mole fraction values ({o2_varname})')
+        o2_var = ds.createVariable(o2_varname, 'f4', dimensions=('time',))
+        o2_var.description = f'O2 mole fraction used when calculating the x*_x2019 variables ONLY. Any Xgas variables without the _x2019 suffix use {std_o2_mole_frac} in their Xgas calculation.'
+        o2_var.units = '1'
+        o2_var.standard_name = 'dry_atmospheric_mole_fraction_of_oxygen'
+        o2_var[:] = fo2.astype('float32')
 
 
 def _add_prior_long_units(ds, is_public):
