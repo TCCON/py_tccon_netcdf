@@ -10,7 +10,7 @@ from ginput.priors.tccon_priors import O2MeanMoleFractionRecord
 from . import nc_ops, common_utils
 from . import bias_corrections as bc
 from .common_utils import set_private_name_attrs
-from .constants import FILE_FMT_V2020p1pA
+from .constants import FILE_FMT_V2020p1pA, DEFAULT_O2_DMF_VARNAME
 
 # First value is the AICF, second is its error
 GGG2020p1_TCCON_AICFS = {
@@ -175,7 +175,7 @@ def update_o2_and_aicfs(ds, mode):
             raise RuntimeError(f'Some x2019 gases were not added {", ".join(missed_xgases)}')
 
     # Create a new variable that stores the O2 DMF
-    o2_var = ds.createVariable('o2_mean_mole_fraction', 'f4', dimensions=('time',))
+    o2_var = ds.createVariable(DEFAULT_O2_DMF_VARNAME, 'f4', dimensions=('time',))
     o2_var[:] = new_o2_dmfs
     o2_var.description = 'Global mean O2 dry mole fraction used to calculate the Xgas column averages; Xgas = column_gas / column_2 * o2_dmf'
     o2_var.units = '1'

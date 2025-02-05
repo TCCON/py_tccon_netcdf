@@ -274,6 +274,10 @@ def _compute_pt700(ds):
     p = 1013.25 * ds['prior_pressure'][:]
     pt700 = np.full(t.shape[0], np.nan, dtype=t.dtype)
     for (i, (tprof, pprof)) in enumerate(zip(t, p)):
+        # Normally I would interpolate temperature vs. ln(p). But the bias plot does a 
+        # straight linear-linear interpolation, so we do the same so that our PT that
+        # we use to determine the bias correction is calculated the same way as that
+        # used to determine the bias correction slope.
         f = interp1d(pprof, tprof)
         t700_i = f(700.0)
         pt700[i] = t700_i * (1000.0 / 700.0) ** 0.286
