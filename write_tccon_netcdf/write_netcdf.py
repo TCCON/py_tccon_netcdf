@@ -1318,6 +1318,8 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
 
                 if name.endswith('_x2019'):
                     public_name = name.replace('_x2019', '') + '_experimental_x2019'
+                elif name.endswith('_x2007'):
+                    public_name = name.replace('_x2007', '') + '_experimental_x2007'
                 else:
                     public_name = name+'_experimental'
 
