@@ -23,7 +23,6 @@ from .constants import (
     IT_CUTOVER_DATE,
     IT_ASSUMED_VERSION,
     MOLE_FRACTION_CONVERSIONS,
-    TCCON_PRIOR_XGAS_OVC_VARS,
 )
 
 from typing import Union
@@ -203,23 +202,25 @@ def create_tccon_prior_xgas_variables(ds, o2_dmf: Union[str, np.ndarray] = DEFAU
 
     prior_varnames = dict()
 
-    for gas, priv_var in TCCON_PRIOR_XGAS_OVC_VARS.items():
-        if priv_var not in ds.variables.keys():
-            logging.warning(f'{priv_var} missing from the private file, unexpected for TCCON products')
+    for xgas_var, ovc_var in collect_ovc_vars(ds).items():
+        if ovc_var not in ds.variables.keys():
+            logging.warning(f'{ovc_var} missing from the private file, unexpected for TCCON products')
             continue
-        col = ds[priv_var][:]
-        xgas = col / ret_o2_col * o2_dmf
+        desired_units = ds[xgas_var].units
+        conv_factor = MOLE_FRACTION_CONVERSIONS[desired_units]
+        col = ds[ovc_var][:]
+        xgas = col / ret_o2_col * o2_dmf * conv_factor
 
-        varname = f'prior_x{gas}'
+        varname = f'prior_{xgas_var}'
         var = ds.createVariable(varname, 'f4', dimensions=('time',))
         var[:] = xgas
         set_private_name_attrs(var)
         var.setncatts({
-            'units': '1',
-            'description': f'Column-average mole fraction calculated from the PRIOR profile of {gas}'
+            'units': desired_units,
+            'description': f'Column-average mole fraction calculated from the PRIOR profile of {xgas_var}'
         })
 
-        prior_varnames[gas] = varname
+        prior_varnames[xgas_var] = varname
 
     return prior_varnames
 
@@ -248,6 +249,59 @@ def set_private_name_attrs(var):
     var.long_name = varname.replace('_', ' ')
 
 
+def collect_xgas_vars(ds):
+    # Experimenting with just collecting all variables starting with "x" got also the error, ADCF, ACDF g, ADCF p, and AICF variables.
+    # Because "error", "aicf", and "adcf" are distinct enough, we can just filter those out, but "g" and "p" aren't that distinctive
+    # as substrings, so we assume that those variables have the "g" or "p" in the same place as the "adcf" in the ADCF variables
+    # and use that to subtract out those variables from the list.
+    xgas_vars = set(v for v in ds.variables.keys() if v.startswith('x') and 'error' not in v and 'aicf' not in v)
+    adcf_vars = set(v for v in xgas_vars if 'adcf' in v)
+    g_vars = set(v.replace('adcf', 'g') for v in adcf_vars)
+    p_vars = set(v.replace('adcf', 'p') for v in adcf_vars)
+    xgas_vars.difference_update(adcf_vars)
+    xgas_vars.difference_update(g_vars)
+    xgas_vars.difference_update(p_vars)
+    return sorted(xgas_vars)
+
+
+def collect_ovc_vars(ds, xgas_vars=None):
+    def is_pri_ovc(v):
+        # Want to distinguish 'ch4_6076_ovc_ch4' vs 'ch4_6076_ovc_co2' - 
+        # only want ones like the first one that give us the OVC for the primary gas
+        # for that window. (First gas name is the primary window gas, second is the
+        # gas the OVC is of.)
+        parts = v.split('_')
+        return parts[0] == parts[3]
+
+    if xgas_vars is None:
+        xgas_vars = collect_xgas_vars(ds)
+    ovc_vars = [v for v in ds.variables.keys() if 'ovc' in v and is_pri_ovc(v)]
+    ovc_by_xgas = dict()
+    for v in ovc_vars:
+        gas = v.split('_')[0]
+        var_list = ovc_by_xgas.setdefault(f'x{gas}', [])
+        var_list.append(v)
+
+    # It shouldn't really matter if we use an _si or _insb OVC for an _si or _insb
+    # Xgas, the OVC for a given gas should always be the same. But just in case, we'll
+    # be consistent. We will assume that the OVC across windows within one detector
+    # is the same.
+    xgas_to_ovc = dict()
+    for xgas_var in xgas_vars:
+        if xgas_var.endswith(('_si', '_insb', '_x2007', '_x2019')):
+            xgas, suffix = xgas_var.split('_')
+            for ovc_var in ovc_by_xgas[xgas]:
+                if ovc_var.endswith(suffix):
+                    xgas_to_ovc[xgas_var] = ovc_var
+                    break
+        else:
+            for ovc_var in ovc_by_xgas[xgas_var]:
+                if not ovc_var.endswith(('_si', '_insb')):
+                    xgas_to_ovc[xgas_var] = ovc_var
+
+    return xgas_to_ovc
+
+
 class FileFmtVer:
     def __init__(self, file_fmt_vers: str):
         parts = file_fmt_vers.split('.')
@@ -258,12 +312,12 @@ class FileFmtVer:
             minor = '0'
         else:
             raise ValueError(f'cannot parse file format version "{file_fmt_vers}"')
-        
+
         major = int(major)
         minor = int(minor)
         if not re.match(r'[A-Z]', file_rev):
             raise ValueError('file revision in file format is not a single upper case letter')
-        
+
         self.major = major
         self.minor = minor
         self.file_rev = file_rev
@@ -279,7 +333,7 @@ class FileFmtVer:
             return False
         else:
             return self.major == value.major and self.minor == value.minor and self.file_rev == value.file_rev
-        
+
     def __lt__(self, value: object) -> bool:
         if not isinstance(value, FileFmtVer):
             return False
@@ -289,7 +343,7 @@ class FileFmtVer:
             return self.minor < value.minor
         else:
             return self.file_rev < value.file_rev
-        
+
     def __gt__(self, value: object) -> bool:
         if not isinstance(value, FileFmtVer):
             return False
@@ -297,7 +351,7 @@ class FileFmtVer:
             return False
         else:
             return True
-        
+
     def __le__(self, value: object) -> bool:
         if not isinstance(value, FileFmtVer):
             return False
@@ -305,7 +359,7 @@ class FileFmtVer:
             return True
         else:
             return False
-        
+
     def __ge__(self, value: object) -> bool:
         if not isinstance(value, FileFmtVer):
             return False
@@ -313,8 +367,8 @@ class FileFmtVer:
             return False
         else:
             return True
-    
-    
+
+
 def get_file_format_version(ds) -> FileFmtVer:
     try:
         return FileFmtVer(ds.file_format_version)
@@ -409,7 +463,7 @@ def add_effective_path(ds, is_public):
 
     df = pd.DataFrame({'zmin': zmin_quant, 'prior_index': prior_index})
     eff_path = np.full([zmin.size, prior_alts.size], np.nan, dtype='float32')
-    
+
     logging.info('Computing effective vertical path (takes ~0.1 s per day, be patient)')
     # Because zmin doesn't vary that much, we can *significantly* reduce the amount of time this
     # calculation takes compared to doing the effective path length call for every spectrum by
@@ -420,7 +474,7 @@ def add_effective_path(ds, is_public):
         # convert km -> cm
         p = 1e5 * _effective_vertical_path(prior_alts, zm, prior_nair[pidx])
         eff_path[subdf.index] = p
-        
+
     var = ds.createVariable('effective_path_length', 'f4', dimensions=('time', 'prior_altitude'),zlib=True,complevel=9)
     var[:] = eff_path
     # Don't think there's a good standard name for this variable!
@@ -430,7 +484,7 @@ def add_effective_path(ds, is_public):
         'units': 'cm'
     })
     logging.info('Effective vertical path calculation complete')
-    
+
 
 def _effective_vertical_path(z, zmin, d):
     """  
@@ -442,7 +496,7 @@ def _effective_vertical_path(z, zmin, d):
     :param z: altitudes of the vertical levels. May be any unit, but note that the effective paths will be returned in
      the same unit.
     :type z: array-like
-    
+
     :param zmin: minimum altitude that the light ray reaches. This is given as ``zmin`` in the netCDF files and the .ray
      files. Must be in the same unit as ``z``.
     :type zmin: float
@@ -455,9 +509,9 @@ def _effective_vertical_path(z, zmin, d):
     """
     def integral(dz_in, lrp_in, sign):
         return dz_in * 0.5 * (1.0 + sign * lrp_in / 3 + lrp_in**2/12 + sign*lrp_in**3/60)
-    
+
     vpath = np.zeros_like(d)
-    
+
     # From gfit/compute_vertical_paths.f, we need to find the first level above zmin
     # If there is no such level (which should not happen for TCCON), we treat the top
     # level this way
@@ -465,7 +519,7 @@ def _effective_vertical_path(z, zmin, d):
         klev = np.flatnonzero(z > zmin)[0]
     except IndexError:
         klev = np.size(z) - 1
-        
+
     # from gfit/compute_vertical_paths.f, the calculation for level i is
     #   v_i = 0.5 * dz_{i+1} * (1 - l_{i+1}/3 + l_{i+1}**2/12 - l_{i+1}**3/60)
     #       + 0.5 * dz_i * (1 + l_i/3 + l_i**2/12 + l_i**3/60)
@@ -477,18 +531,18 @@ def _effective_vertical_path(z, zmin, d):
     dz = np.concatenate([[0.0], np.diff(z[klev:]), [0.0]])
     log_rp = np.log(d[klev:-1] / d[klev+1:])
     log_rp = np.concatenate([[0.0], log_rp, [0.0]])
-    
+
     # The indexing is complicated here, but with how dz and log_rp are constructed, this makes sure that, for vpath[klev],
     # the first integral(...) term uses dz = z[klev+1] - z[klev] and log_rp = ln(d[klev]/d[klev+1]) and the second integral
     # term is 0 (as vpath[klev] needs to account for the surface location below). For all other terms, this combines the
     # contributions from the weight above and below each level, with different integration signs to account for how the
     # weights increase from the level below to the current level and decrease from the current level to the level above.
     vpath[klev:] = integral(dz[1:], log_rp[1:], sign=-1) + integral(dz[:-1], log_rp[:-1], sign=1)
-       
+
     # Now handle the surface - I don't fully understand how this is constructed mathematically, but the idea is that both
     # the levels in the prior above and below zmin need to contribute to the column, however that contribution needs to be
     # 0 below zmin. 
-    
+
     dz = z[klev] - z[klev-1]
     xo = (zmin - z[klev-1])/dz
     log_rp = 0.0 if d[klev] <= 0 else np.log(d[klev-1]/d[klev])

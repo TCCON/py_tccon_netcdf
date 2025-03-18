@@ -9,7 +9,7 @@ from ginput.priors.tccon_priors import O2MeanMoleFractionRecord
 
 from . import nc_ops, common_utils
 from . import bias_corrections as bc
-from .common_utils import set_private_name_attrs
+from .common_utils import set_private_name_attrs, collect_xgas_vars
 from .constants import FILE_FMT_V2020p1pA, DEFAULT_O2_DMF_VARNAME
 
 # First value is the AICF, second is its error
@@ -22,8 +22,9 @@ GGG2020p1_TCCON_AICFS = {
     'xlco2_x2019': (1.00059, 0.00068),
     'xch4': (1.00214, 0.00133),
     'xh2o': (0.98676, 0.01701),
-    'xn2o': (0.9821,  0.0098), # apply the same AICF to XN2O so that it gets the new O2 mole fractions
+    'xn2o': (0.9821,  0.0098), # apply the same AICF to XN2O to be clear that the AICF didn't change
     'xco': (1.0000, 0.0526), # ditto for XCO
+    'xluft': (1.0000, 0.0000), # ditto for Xluft
 }
 
 GGG2020p1_EM27_AICFS = {
@@ -115,15 +116,16 @@ def update_o2_and_aicfs(ds, mode):
         aicfs = GGG2020p1_EM27_AICFS
     else:
         raise NotImplementedError(f'mode = {mode}')
-    
+
     # We have to check here whether the x2019 variables were removed correctly
     # because inside the next for loop they'll be added back in as each CO2 variable
     # comes up.
     for xgas_varname in aicfs.keys():
         if xgas_varname.endswith('x2019') and xgas_varname in ds.variables.keys():
             raise RuntimeError('x2019 variables must not be present in the file')
-    
-    for xgas_varname, (new_aicf, new_aicf_error) in aicfs.items():
+
+    xgas_vars = collect_xgas_vars(ds)
+    for xgas_varname in xgas_vars:
         var_is_missing = xgas_varname not in ds.variables.keys()
         if xgas_varname.endswith('x2019'):
             # These will be handled by their respective x2007 variables.
@@ -132,35 +134,66 @@ def update_o2_and_aicfs(ds, mode):
             logging.warning(f'{xgas_varname} missing - if this is not an EM27 file, something may have gone wrong during post processing')
             continue
 
-        if xgas_varname.startswith(('xco2_', 'xwco2_', 'xlco2_')):
+        if xgas_varname.startswith(('xco2_', 'xwco2_', 'xlco2_')) and not xgas_varname.endswith(('_insb', '_si')):
             gas, scale = xgas_varname.split('_', 1)
             aicf_varname = f'{gas}_aicf_{scale}'
             aicf_error_varname = f'{gas}_aicf_error_{scale}'
             error_varname = f'{gas}_error_{scale}'
             create_x2019 = True
+        elif xgas_varname.endswith(('_insb', '_si')):
+            gas, suffix = xgas_varname.split('_', 1)
+            aicf_varname = None
+            aicf_error_varname = None
+            error_varname = f'{gas}_error_{suffix}'
+            create_x2019 = False
         else:
             aicf_varname = f'{xgas_varname}_aicf'
             aicf_error_varname = f'{xgas_varname}_aicf_error'
             error_varname = f'{xgas_varname}_error'
             create_x2019 = False
 
-        # First the Xgas values, ensure that the standard and long name attributes match the variable name
-        old_aicfs = ds[aicf_varname][:]
-        unscaled_values = ds[xgas_varname][:] * old_aicfs / OLD_O2_DMF * new_o2_dmfs
-        ds[xgas_varname][:] = unscaled_values / new_aicf
-        set_private_name_attrs(ds[xgas_varname])
 
-        # Then the error values, ditto on the attributes
-        unscaled_error_values = ds[error_varname][:] * old_aicfs / OLD_O2_DMF * new_o2_dmfs
-        ds[error_varname][:] = unscaled_error_values / new_aicf
-        set_private_name_attrs(ds[error_varname])
+        if xgas_varname in aicfs:
+            # Xgas variables with a new AICF must have an old AICF as well. This is an attempt to check that we defined the 
+            # new AICF dictionary correctly, though it is a fragile check (if we get the AICF variable name wrong, this check
+            # would pass).
+            if aicf_varname not in ds.variables.keys():
+                raise RuntimeError(f'{xgas_varname} has an entry in the new AICFs dictionary, but no AICF variable - this should not happen')
 
-        # We also have to update the AICF values themselves and the error
-        ds[aicf_varname][:] = new_aicf
-        set_private_name_attrs(ds[aicf_varname])
+            new_aicf, new_aicf_error = aicfs[xgas_varname]
 
-        ds[aicf_error_varname][:] = new_aicf_error
-        set_private_name_attrs(ds[aicf_varname])
+            # First the Xgas values, ensure that the standard and long name attributes match the variable name
+            old_aicfs = ds[aicf_varname][:]
+            unscaled_values = ds[xgas_varname][:] * old_aicfs / OLD_O2_DMF * new_o2_dmfs
+            ds[xgas_varname][:] = unscaled_values / new_aicf
+            set_private_name_attrs(ds[xgas_varname])
+
+            # Then the error values, ditto on the attributes
+            unscaled_error_values = ds[error_varname][:] * old_aicfs / OLD_O2_DMF * new_o2_dmfs
+            ds[error_varname][:] = unscaled_error_values / new_aicf
+            set_private_name_attrs(ds[error_varname])
+
+            # We also have to update the AICF values themselves and the error
+            ds[aicf_varname][:] = new_aicf
+            set_private_name_attrs(ds[aicf_varname])
+
+            ds[aicf_error_varname][:] = new_aicf_error
+            set_private_name_attrs(ds[aicf_varname])
+        else:
+            if aicf_varname in ds.variables.keys():
+                raise RuntimeError(f'{xgas_varname} does not have an entry in the new AICFs dictionary, but DOES have an AICF variable ({aicf_varname}) - this implies that the AICFs dictionary is incomplete.')
+
+            # The x2019 netCDF variables (which need the unscaled_values and unscaled_error_values variables)
+            # should by definition have AICF values - otherwise they are not tied to an in situ scale.
+            if create_x2019:
+                raise RuntimeError(f'{xgas_varname} has create_x2019 = True, but does not define an AICF in the new AICFs dict. This is wrong!')
+
+            new_values = ds[xgas_varname][:] / OLD_O2_DMF * new_o2_dmfs
+            ds[xgas_varname][:] = new_values
+            set_private_name_attrs(ds[xgas_varname])
+            new_error_values = ds[error_varname][:] / OLD_O2_DMF * new_o2_dmfs
+            ds[error_varname][:] = new_error_values
+            set_private_name_attrs(ds[xgas_varname])
 
         if create_x2019:
             xgas = xgas_varname.split('_')[0]
@@ -198,7 +231,8 @@ def _get_new_o2_dmfs(ds):
     for i, time in enumerate(time_index):
         o2_dmfs[i] = o2_dmf_record.get_o2_mole_fraction(time)
     return o2_dmfs
-    
+
+
 def add_x2019_xco2(ds, xgas, unscaled_xgas_values, unscaled_xgas_error_values, aicfs):
     x2007_xgas_varname = f'{xgas}_x2007'
     x2007_error_varname = f'{xgas}_error_x2007'
@@ -241,7 +275,7 @@ def bias_correct_xn2o(ds):
     # This m and b value were computed from XN2O that uses the new O2 mole fraction.
     # Therefore, the XN2O in ``ds`` MUST have bee converted to the new O2 mole fractions
     # before calling this function.
-    xn2o_corr, pt700 = bc.correct_xn2o_from_pt700(ds, m=0.000626, b=0.787)
+    xn2o_corr, xn2o_error_corr, pt700 = bc.correct_xn2o_from_pt700(ds, m=0.000626, b=0.787)
 
     var_xn2o_orig = ds.createVariable('xn2o_original', ds['xn2o'].dtype, dimensions=ds['xn2o'].dimensions)
     var_xn2o_orig.setncatts(ds['xn2o'].__dict__)
@@ -252,6 +286,11 @@ def bias_correct_xn2o(ds):
     var_xn2o_new.note = 'This variable contains the XN2O values with a bias correction applied based on the prior potential temperature at 700 hPa'
     var_xn2o_new.ancillary_variables = 'potential_temperature_700hPa'
     var_xn2o_new[:] = xn2o_corr
+
+    var_xn2o_err = ds['xn2o_error']
+    var_xn2o_err.note = 'This variable contains the XN2O error values with a bias correction applied based on the prior potential temperature at 700 hPa'
+    var_xn2o_err.ancillary_variables = 'potential_temperature_700hPa'
+    var_xn2o_err[:] = xn2o_error_corr
 
     var_pt700 = ds.createVariable('potential_temperature_700hPa', ds['xn2o'].dtype, dimensions=ds['xn2o'].dimensions)
     var_pt700.standard_name = 'potential_temperature'

@@ -255,17 +255,19 @@ def _split_by_gaps(df: pd.DataFrame, gap: pd.Timedelta, time):
 
 def correct_xn2o_from_pt700(ds, m=0.000626, b=0.787):
     xn2o = ds['xn2o'][:]
+    xn2o_error = ds['xn2o_error'][:]
     n2o_aicf = ds['xn2o_aicf'][:]
 
     # We need to remove the AICF because the correction was calculated for pre-AICF XN2O data
     xn2o = xn2o * n2o_aicf
+    xn2o_error = xn2o_error * n2o_aicf
     pt700 = _compute_pt700(ds)
     # Apply the temperature correction. Counterintuitively, we do *NOT* need to reapply the AICF.
     # That is only because for N2O the AICF was calculated as the value of this fit at 310 K.
     # Hence, essentially this is applying a *temperature dependent* AICF. 
     xn2o_corr = xn2o / (m * pt700 + b)
-
-    return xn2o_corr, pt700    
+    xn2o_error_corr = xn2o_error / (m * pt700 + b)
+    return xn2o_corr, xn2o_error_corr, pt700
 
 
 def _compute_pt700(ds):

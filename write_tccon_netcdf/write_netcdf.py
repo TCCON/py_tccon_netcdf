@@ -863,20 +863,6 @@ def add_obs_op_variables(private_ds, public_ds, public_slice, mode):
             ds=public_ds, gas=gas, col=col, ret_o2_col=ret_o2_col, o2_dmf=x2019_o2, units=unit, varname=varname
         )
         public_ds[varname].description = 'Column-average mole fraction calculated from the PRIOR profile of co2 using the variable mean O2 mole fraction appropriate for use when comparing other profiles to _x2019 variables ONLY.'
-
-
-
-def update_prior_xgas_units(public_ds):
-    for gas in cu.TCCON_PRIOR_XGAS_OVC_VARS:
-        prior_profile_var = f'prior_{gas}'
-        prior_xgas_var = f'prior_x{gas}'
-        if prior_profile_var in public_ds.variables.keys() and prior_xgas_var in public_ds.variables.keys():
-            desired_units = public_ds[prior_profile_var].units
-            conv_fac = cu.MOLE_FRACTION_CONVERSIONS[desired_units]
-            assert public_ds[prior_xgas_var].units == '1', 'Expected private prior Xgas variable to have units of "1"'
-            original_prior_xgas = public_ds[prior_xgas_var][:]
-            public_ds[prior_xgas_var][:] = conv_fac * original_prior_xgas
-            public_ds[prior_xgas_var].units = desired_units
     
 
 def _add_x2019_co2(ds, is_public):
@@ -1379,11 +1365,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
         if private_file_fmt_version < cu.FileFmtVer('2020.C'):
             # This is a pre-GGG2020.1 file, so use the old way of adding the observation operator.
             add_obs_op_variables(private_data, public_data, public_slice, mode=mode)
-        else:
-            # For GGG2020.1, the intergration operator and prior xgas variables should already be present and copied,
-            # so we just need to convert the prior xgas variables from parts to the same units as the a priori profiles
-            # were converted to above
-            update_prior_xgas_units(public_data)
+            # For GGG2020.1, the intergration operator and prior xgas variables should already be present and in the right units.
 
         # Add a summary variable about the GEOS files
         _create_geos_source_summary_var(public_data, private_data, public_slice)
