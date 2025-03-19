@@ -181,7 +181,9 @@ def create_observation_operator_variable(
 
     obs_op_atts = {
         'description': ('A vector that, when the dot product is taken with a wet mole fraction profile, applies the TCCON column-average integration. '
-                        'This does NOT include the averaging kernel, those must be applied in addition to this vector.'), 
+                        'This does NOT include the averaging kernel, those must be applied in addition to this vector. NOTE: this variable MUST NOT be interpolated. '
+                        'It contains a componenent that depends on the spacing of the vertical levels; therefore, interpolating to a different vertical grid will '
+                        'made it incorrect.'), 
         'units': '1', 
         'usage': 'https://tccon-wiki.caltech.edu/Main/AuxiliaryDataGGG2020'
     }
