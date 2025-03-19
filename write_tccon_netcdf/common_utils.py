@@ -255,8 +255,9 @@ def collect_xgas_vars(ds):
     # Experimenting with just collecting all variables starting with "x" got also the error, ADCF, ACDF g, ADCF p, and AICF variables.
     # Because "error", "aicf", and "adcf" are distinct enough, we can just filter those out, but "g" and "p" aren't that distinctive
     # as substrings, so we assume that those variables have the "g" or "p" in the same place as the "adcf" in the ADCF variables
-    # and use that to subtract out those variables from the list.
-    xgas_vars = set(v for v in ds.variables.keys() if v.startswith('x') and 'error' not in v and 'aicf' not in v)
+    # and use that to subtract out those variables from the list. We also exclude variables with "original" to make sure we don't get
+    # "xn2o_original" if we call this on a dataset that already applied a bias reduction to XN2O.
+    xgas_vars = set(v for v in ds.variables.keys() if v.startswith('x') and 'error' not in v and 'aicf' not in v and 'original' not in v)
     adcf_vars = set(v for v in xgas_vars if 'adcf' in v)
     g_vars = set(v.replace('adcf', 'g') for v in adcf_vars)
     p_vars = set(v.replace('adcf', 'p') for v in adcf_vars)
@@ -268,7 +269,7 @@ def collect_xgas_vars(ds):
 
 def collect_ovc_vars(ds, xgas_vars=None):
     def is_pri_ovc(v):
-        # Want to distinguish 'ch4_6076_ovc_ch4' vs 'ch4_6076_ovc_co2' - 
+        # Want to distinguish 'ch4_6076_ovc_ch4' vs 'ch4_6076_ovc_co2' -·
         # only want ones like the first one that give us the OVC for the primary gas
         # for that window. (First gas name is the primary window gas, second is the
         # gas the OVC is of.)
@@ -290,16 +291,30 @@ def collect_ovc_vars(ds, xgas_vars=None):
     # is the same.
     xgas_to_ovc = dict()
     for xgas_var in xgas_vars:
-        if xgas_var.endswith(('_si', '_insb', '_x2007', '_x2019')):
+        if xgas_var.endswith(('_si', '_insb')):
+            # For the secondary detector Xgases, their OVC variables are also suffixed
+            # with the detector suffix
             xgas, suffix = xgas_var.split('_')
             for ovc_var in ovc_by_xgas[xgas]:
                 if ovc_var.endswith(suffix):
                     xgas_to_ovc[xgas_var] = ovc_var
                     break
+        elif xgas_var.endswith(('_x2007', '_x2019')):
+            # For CO2, the OVCs are the same variables whichever WMO scale we are on,
+            # just grab the right co2/wco2/lco2 one (though they should be the same).
+            xgas = xgas_var.split('_')[0]
+            for ovc_var in ovc_by_xgas[xgas]:
+                if not ovc_var.endswith(('_si', '_insb')):
+                    xgas_to_ovc[xgas_var] = ovc_var
         else:
+            # All other gases must be for the primary detector, so make sure we get the
+            # OVC variable that does not have a suffix.
             for ovc_var in ovc_by_xgas[xgas_var]:
                 if not ovc_var.endswith(('_si', '_insb')):
                     xgas_to_ovc[xgas_var] = ovc_var
+                    
+        if xgas_var not in xgas_to_ovc:
+            raise KeyError(f'OVC variable not found for {xgas_var}')
 
     return xgas_to_ovc
 

@@ -1056,8 +1056,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
     Take a private netcdf file and write the public file using the public_variables.json file
     """
     logging.profile('Profiling output enabled')
-    # factor to convert the prior fields of the public archive into more intuitive units
-    factor = {'temperature':1.0,'pressure':1.0,'density':1.0,'gravity':1.0,'1h2o':1.0,'1hdo':1.0,'1co2':1e6,'1n2o':1e9,'1co':1e9,'1ch4':1e9,'1hf':1e12,'1o2':1.0}
+    priors_to_keep = {'temperature','pressure','density','gravity','1h2o','1hdo','1co2','1n2o','1co','1ch4','1hf','1o2'}
 
     # Using this regex ensures that we only replace "private" in the extension of the netCDF
     # file, not elsewhere in the path. It allows for .private.nc or .private.qc.nc extensions.
@@ -1327,7 +1326,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                     _add_aicf_scale_attr(name, public_data[public_name], private_data)
                 
             # prior variables
-            elif name in ['prior_{}'.format(var) for var in factor.keys()]: # for the a priori profile, only the ones listed in the "factor" dictionary make it to the public file
+            elif name in ['prior_{}'.format(var) for var in priors_to_keep]:
                 public_name = name.replace('_1','_')
                 scale_factor = MOLE_FRACTION_CONVERSIONS[UNITS_DICT[public_name]] # also need to scale them from straight DMF to ppm, ppb, etc.
                 if not expand_priors:
