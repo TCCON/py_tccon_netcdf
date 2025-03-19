@@ -71,8 +71,16 @@
 		"_modfile", 
 		"_vmrfile",
 		"xtco2_",
+        "prior_xtco2",
 		"xfco2_",
-		"xth2o_"],
+        "prior_xfco2",
+		"xth2o_",
+        "prior_xth2o",
+        "prior_xluft",
+        "prior_xzco2",
+        "prior_xo2",
+        "prior_xhcl"
+    ],
 	"exclude_regex": [
 		"_g$",
 		"_p$",

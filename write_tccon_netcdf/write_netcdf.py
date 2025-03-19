@@ -1177,7 +1177,12 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
 
             excluded_simple = np.array([elem in name for elem in public_variables['exclude']]).any()
             excluded_regex = np.array([re.search(elem, name) is not None for elem in public_variables.get('exclude_regex', [])]).any()
+            is_secondary_prior_xgas = re.match(r'prior_x[a-zA-Z0-9]+_(si|insb)', name) is not None
             excluded = excluded_simple or excluded_regex
+            if include_experimental:
+                excluded = excluded or not is_secondary_prior_xgas
+            else:
+                excluded = excluded or is_secondary_prior_xgas
 
             public = np.array([contain_check,isequalto_check,startswith_check,endswith_check,experimental_group_startswith_check,insb_group_check,si_group_check,remap_check]).any() and not excluded
 
