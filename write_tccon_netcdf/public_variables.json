@@ -79,9 +79,12 @@
         "prior_xluft",
         "prior_xzco2",
         "prior_xo2",
-        "prior_xhcl"
+        "prior_xhcl",
+        "prior_xco2_x2007",
+        "ak_xo2"
     ],
 	"exclude_regex": [
+        "prior_x[wl]co2.*",
 		"_g$",
 		"_p$",
 		"geos_[a-zA-Z0-9]+_version",
@@ -97,5 +100,7 @@
 		"xco",
 		"xh2o",
 		"xluft"],
-	"remap": {}
+	"remap": {
+        "prior_xco2_x2019": "prior_xco2"
+    }
 }

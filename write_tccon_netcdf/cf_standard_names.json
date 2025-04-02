@@ -91,18 +91,18 @@
 
         "ancillary_variables":  {
             "xluft": "xluft_error",
-            "xhf": "xhf_error",
-            "xh2o": "xh2o_error",
-            "xhdo": "xhdo_error",
-            "xco": "xco_error",
-            "xn2o": "xn2o_error",
-            "xch4": "xch4_error",
-            "xlco2_experimental": "xlco2_error_experimental",
-            "xwco2_experimental": "xwco2_error_experimental",
-            "xco2": "xco2_error",
-            "xlco2_experimental_x2019": "xlco2_error_experimental_x2019",
-            "xwco2_experimental_x2019": "xwco2_error_experimental_x2019",
-            "xco2_x2019": "xco2_error_x2019"
+            "xhf": "xhf_error prior_hf prior_xhf ak_xhf",
+            "xh2o": "xh2o_error prior_h2o prior_xh2o ak_xh2o",
+            "xhdo": "xhdo_error prior_hdo prior_xhdo ak_xhdo",
+            "xco": "xco_error prior_co prior_xco ak_xco",
+            "xn2o": "xn2o_error prior_n2o prior_xn2o ak_xn2o",
+            "xch4": "xch4_error prior_ch4 prior_xch4 ak_xch4",
+            "xlco2_experimental_x2007": "xlco2_error_experimental prior_co2 prior_xco2 ak_xlco2",
+            "xwco2_experimental_x2007": "xwco2_error_experimental prior_co2 prior_xco2 ak_xwco2",
+            "xco2_x2007": "xco2_error prior_co2 prior_xco2 ak_xco2",
+            "xlco2_experimental_x2019": "xlco2_error_experimental_x2019 prior_co2 prior_xco2 ak_xlco2",
+            "xwco2_experimental_x2019": "xwco2_error_experimental_x2019 prior_co2 prior_xco2 ak_xwco2",
+            "xco2_x2019": "xco2_error_x2019 prior_co2 prior_xco2 ak_xco2"
         }
     },
 

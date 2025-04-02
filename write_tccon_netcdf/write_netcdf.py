@@ -1180,7 +1180,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             is_secondary_prior_xgas = re.match(r'prior_x[a-zA-Z0-9]+_(si|insb)', name) is not None
             excluded = excluded_simple or excluded_regex
             if include_experimental:
-                excluded = excluded or not is_secondary_prior_xgas
+                excluded = excluded or (name.startswith('prior_x') and not is_secondary_prior_xgas)
             else:
                 excluded = excluded or is_secondary_prior_xgas
 
@@ -1333,7 +1333,10 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             # prior variables
             elif name in ['prior_{}'.format(var) for var in priors_to_keep]:
                 public_name = name.replace('_1','_')
-                scale_factor = MOLE_FRACTION_CONVERSIONS[UNITS_DICT[public_name]] # also need to scale them from straight DMF to ppm, ppb, etc.
+                try:
+                    scale_factor = MOLE_FRACTION_CONVERSIONS[UNITS_DICT[public_name]] # also need to scale them from straight DMF to ppm, ppb, etc.
+                except KeyError as e:
+                    raise KeyError(f'{e}, while getting mole fraction conversion for variable "{public_name}"') from None
                 if not expand_priors:
                     public_data.createVariable(public_name,variable.datatype,variable.dimensions)
                     public_data[public_name][:] = private_data[name][:] * scale_factor
@@ -1370,6 +1373,10 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             # This is a pre-GGG2020.1 file, so use the old way of adding the observation operator.
             add_obs_op_variables(private_data, public_data, public_slice, mode=mode)
             # For GGG2020.1, the intergration operator and prior xgas variables should already be present and in the right units.
+        # else:
+            # From GGG2020.1.A on, we want to include information for each of the Xgas variables so users know
+            # which prior variable, prior_xgas variable, and AK variable to use.
+            # _assign_xgas_comparison_variables(public_data)
 
         # Add a summary variable about the GEOS files
         _create_geos_source_summary_var(public_data, private_data, public_slice)
@@ -1398,6 +1405,21 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
         logging.info('Finished writing {} (renamed from {}) {:.2f} MB'.format(new_public_file,public_nc_file,os.path.getsize(new_public_file)/1e6))
     else:
         logging.info('Finished writing {} {:.2f} MB'.format(public_nc_file,os.path.getsize(public_nc_file)/1e6))
+
+
+def _assign_xgas_comparison_variables(public_ds):
+    # I tried assigning these to ancillary variables, but that was getting overwritten
+    # somewhere that wasn't clear. So we'll just give each its own attribute.
+    for varname, varobj in public_ds.variables.items():
+        if varname.startswith('x') and 'error' not in varname and 'original' not in varname:
+            xgas = varname.split('_')[0]  # handle the "experimental" ones
+            if xgas in {'xwco2', 'xlco2'}:
+                varobj.prior_profile_variable = 'prior_co2'
+                varobj.prior_xgas_variable = 'prior_xco2'
+            else:
+                varobj.prior_profile_variable = f'prior_{xgas[1:]}'
+                varobj.prior_xgas_variable = f'prior_{xgas}'
+            varobj.ak_variable = f'ak_{xgas}'
 
 
 def get_runlog_file(GGGPATH,tav_file,col_file):
@@ -1671,6 +1693,8 @@ def main():
     parser.add_argument('--no-expand-priors', action='store_false', dest='expand_priors', help='When writing public files, do NOT expand the priors to match the time dimension, leave them on the 3 hourly interval')
     parser.add_argument('--no-expand-aks', action='store_false', dest='expand_aks', help='When writing public files, do NOT expand the AKs to match the time dimension, leave them as lookup tables')
     parser.add_argument('--full-ak-resolution', action='store_true', help='Use the exact slant Xgas for each spectrum when expanding AKs, rather than quantized ones. Output files will be larger.')
+
+    parser.add_argument('--no-rename-by-dates', action='store_false', dest='rename_by_dates', help='For public files, do not rename the output file to match the range of data available.')
     args = parser.parse_args()
     logger, show_progress, HEAD_commit = cu.setup_logging(log_level=args.log_level, log_file=args.log_file, message=args.message, to_stdout=args.log_to_stdout)
     
@@ -1703,7 +1727,19 @@ def main():
             if not args.public:
                 sys.exit()
         logging.info('Writing public file from {}'.format(private_nc_file))
-        write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=not args.std_only,remove_if_no_experimental=args.remove_no_expt,flag0_only=not args.publish_all_flags,expand_priors=args.expand_priors,expand_aks=args.expand_aks,full_ak_resolution=args.full_ak_resolution,mode=args.mode)
+        write_public_nc(
+            private_nc_file,
+            code_dir,
+            nc_format,
+            include_experimental=not args.std_only,
+            remove_if_no_experimental=args.remove_no_expt,
+            flag0_only=not args.publish_all_flags,
+            expand_priors=args.expand_priors,
+            expand_aks=args.expand_aks,
+            full_ak_resolution=args.full_ak_resolution,
+            rename_by_dates=args.rename_by_dates,
+            mode=args.mode
+        )
         sys.exit()
 
     # input and output file names
