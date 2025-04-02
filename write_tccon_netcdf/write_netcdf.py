@@ -933,6 +933,7 @@ def _add_x2019_co2(ds, is_public):
 
 
 def _add_aicf_scale_attr(variable_name, pub_variable, priv_data):
+    logging.info(f'AICF scale attr: {variable_name}')
     scale_variable = 'aicf_{}_scale'.format(variable_name)
     if scale_variable not in priv_data.variables:
         logging.warning('Cannot add AICF scale to {}, as {} is not a variable in the private data'.format(variable_name, scale_variable))
@@ -1078,7 +1079,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
         public_attributes = private_attributes.copy()
         manual_flag_attr_list = [i for i in private_attributes if i.startswith('manual_flags')]
         release_flag_attr_list = [i for i in private_attributes if i.startswith('release_flags')]
-        pgrm_versions_attr_list = [i for i in private_attributes if i.endswith('_version')]
+        pgrm_versions_attr_list = [i for i in private_attributes if i.endswith('_version') and i != 'algorithm_version']
         for attr in ['flag_info','release_lag','GGGtip','number_of_spectral_windows']+manual_flag_attr_list+pgrm_versions_attr_list: # remove attributes that are only meant for private files
             if attr not in public_attributes:
                 continue
@@ -1179,9 +1180,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             excluded_regex = np.array([re.search(elem, name) is not None for elem in public_variables.get('exclude_regex', [])]).any()
             is_secondary_prior_xgas = re.match(r'prior_x[a-zA-Z0-9]+_(si|insb)', name) is not None
             excluded = excluded_simple or excluded_regex
-            if include_experimental:
-                excluded = excluded or (name.startswith('prior_x') and not is_secondary_prior_xgas)
-            else:
+            if not include_experimental:
                 excluded = excluded or is_secondary_prior_xgas
 
             public = np.array([contain_check,isequalto_check,startswith_check,endswith_check,experimental_group_startswith_check,insb_group_check,si_group_check,remap_check]).any() and not excluded
@@ -1373,13 +1372,16 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             # This is a pre-GGG2020.1 file, so use the old way of adding the observation operator.
             add_obs_op_variables(private_data, public_data, public_slice, mode=mode)
             # For GGG2020.1, the intergration operator and prior xgas variables should already be present and in the right units.
-        # else:
-            # From GGG2020.1.A on, we want to include information for each of the Xgas variables so users know
-            # which prior variable, prior_xgas variable, and AK variable to use.
-            # _assign_xgas_comparison_variables(public_data)
 
         # Add a summary variable about the GEOS files
         _create_geos_source_summary_var(public_data, private_data, public_slice)
+
+        # Clean up some of the attributes around N2O
+        if 'xn2o_error' in public_data.variables.keys() and hasattr(public_data['xn2o_error'], 'ancillary_variables'):
+            # This points to a potential temperature variable not retained in the public files.
+            del public_data['xn2o_error'].ancillary_variables
+        if 'xn2o_original' in public_data.variables.keys():
+            public_data['xn2o_original'].standard_name = 'column_average_dry_atmosphere_mole_fraction_of_nitrous_oxide'
 
         logging.info('  --> Done copying variables')
         ggg2020a_to_ggg2020c(public_data, is_public=True, mode=mode)
@@ -1405,21 +1407,6 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
         logging.info('Finished writing {} (renamed from {}) {:.2f} MB'.format(new_public_file,public_nc_file,os.path.getsize(new_public_file)/1e6))
     else:
         logging.info('Finished writing {} {:.2f} MB'.format(public_nc_file,os.path.getsize(public_nc_file)/1e6))
-
-
-def _assign_xgas_comparison_variables(public_ds):
-    # I tried assigning these to ancillary variables, but that was getting overwritten
-    # somewhere that wasn't clear. So we'll just give each its own attribute.
-    for varname, varobj in public_ds.variables.items():
-        if varname.startswith('x') and 'error' not in varname and 'original' not in varname:
-            xgas = varname.split('_')[0]  # handle the "experimental" ones
-            if xgas in {'xwco2', 'xlco2'}:
-                varobj.prior_profile_variable = 'prior_co2'
-                varobj.prior_xgas_variable = 'prior_xco2'
-            else:
-                varobj.prior_profile_variable = f'prior_{xgas[1:]}'
-                varobj.prior_xgas_variable = f'prior_{xgas}'
-            varobj.ak_variable = f'ak_{xgas}'
 
 
 def get_runlog_file(GGGPATH,tav_file,col_file):

@@ -20,7 +20,8 @@
 		"fvsi", 
 		"wspd", 
 		"wdir",
-		"integration_operator"
+		"integration_operator",
+        "o2_mean_mole_fraction"
 	],
 
 	"startswith": [
@@ -92,14 +93,17 @@
 		"geos_[a-zA-Z0-9]+_checksum"
 	],
 	"has_aicf_scale": [
-		"xco2",
-		"xwco2",
-		"xlco2",
+		"xco2_x2007",
+		"xwco2_x2007",
+		"xlco2_x2007",
+		"xco2_x2019",
+		"xwco2_x2019",
+		"xlco2_x2019",
 		"xch4",
 		"xn2o",
 		"xco",
-		"xh2o",
-		"xluft"],
+		"xh2o"
+    ],
 	"remap": {
         "prior_xco2_x2019": "prior_xco2"
     }
