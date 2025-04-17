@@ -312,7 +312,7 @@ def collect_ovc_vars(ds, xgas_vars=None):
             for ovc_var in ovc_by_xgas[xgas_var]:
                 if not ovc_var.endswith(('_si', '_insb')):
                     xgas_to_ovc[xgas_var] = ovc_var
-                    
+
         if xgas_var not in xgas_to_ovc:
             raise KeyError(f'OVC variable not found for {xgas_var}')
 
@@ -392,6 +392,100 @@ def get_file_format_version(ds) -> FileFmtVer:
     except AttributeError:
         logging.warning('file_format_version attribute not found, assuming 2020.A')
         return FileFmtVer('2020.A')
+
+
+def get_geos_versions(mod_file):
+    """Extract GEOS versions from the header of a .mod file, if present
+
+    Input:
+        - ``mod_file``: full path to a .mod file
+
+    Output:
+        - ``versions``: a dictionary with keys of the different GEOS file types
+          (e.g. "Met2d", "Chm3d") and values that given the GEOS version description
+          (e.g. "fpit (GEOS v5.12.v)").
+        - ``found_versions``: a boolean indicating if any versions were found in the header
+          (True) or if it had to assume the versions based on the date of the .mod file (False).
+          If it had to assume the versions, the version strings themselves will end in an "*".
+    """
+    versions = dict()
+    filenames = dict()
+    checksums = dict()
+    try:
+        with open(mod_file) as f:
+            nhead = int(f.readline().split()[0])
+            for _ in range(1,nhead):
+                line = f.readline()
+                if line.startswith('GEOS source'):
+                    _, key, vers, name, chksum = [x.strip() for x in line.split(':')]
+                    versions[key] = vers
+                    filenames[key] = name
+                    checksums[key] = chksum
+    except FileNotFoundError:
+        # If we can't find the files, then we can't actually assume that they
+        # have the default versions for their date - it's possible that the user
+        # ran with e.g. a file combining GEOS FP-IT met and GEOS IT CO but then
+        # deleted it.
+        logging.error(f'Could not find .mod file {mod_file}, will use fill values for GEOS file versions. Note that this is NOT ALLOWED for submitted TCCON data!')
+        versions = {k: 'UNKNOWN' for k in GEOS_VERSION_EXPECTED_KEYS}
+        filenames = {k: '' for k in GEOS_VERSION_EXPECTED_KEYS}
+        checksums = {k: '' for k in GEOS_VERSION_EXPECTED_KEYS}
+
+    found_versions = len(versions) > 0
+
+    if not found_versions:
+        # Fallback if no GEOS version information - must assume that this is
+        # an unpatched .mod file and go by the transition date.
+        versions, filenames, checksums = infer_geos_version_from_modfile_time(mod_file)
+    else:
+        missing_keys = tuple(k for k in GEOS_VERSION_EXPECTED_KEYS if k not in versions)
+        if missing_keys:
+            s = ', '.join(missing_keys)
+            logging.warning(f'.mod file {mod_file} is missing some GEOS version keys: {s}')
+            for k in missing_keys:
+                versions[k] = 'Unknown'
+                filenames[k] = ''
+                checksums[k] = ''
+    return versions, filenames, checksums, found_versions
+
+
+def get_slice(a,b,warn=True):
+    """
+    Inputs:
+        - a: array of unique hashables
+        - b: array of unique hashables (all its elements should also be included in a)
+        - warn: if True, prints a warning if hash_a[ids]!=hash_b 
+    Outputs:
+        - ids: array of indices that can be used to slice array a to get its elements that correspond to those in array b (such that a[ids] == b)
+    """
+
+    hash_a = hash_array(a)
+    hash_b = hash_array(b)
+
+    ids = list(np.where(np.isin(hash_a,hash_b))[0])
+
+    if warn and not np.array_equal(hash_a[ids],hash_b):
+        logging.warning('get_slice: it is unexpected that elements in the second array are not included in the first array')
+
+    return ids
+
+
+def hash_array(x):
+    """
+    Elementwise hash of x
+
+    Inputs:
+        - x: array of unique hashables
+    Outputs:
+        - hash_x: array of of hashed elements from x
+    """
+
+    hash_x = np.array([hash(i) for i in x])
+    if not np.unique(hash_x).size==hash_x.size:
+        logging.critical("hash_array: could not generate unique hashes for all elements")
+        sys.exit(1)
+
+    return hash_x
 
 
 def add_geos_version_variables(nc_data, gv_len, varname, is_classic):

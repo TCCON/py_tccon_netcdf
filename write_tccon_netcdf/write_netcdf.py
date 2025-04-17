@@ -26,6 +26,7 @@ from shutil import copyfile
 from signal import signal, SIGINT
 import gc
 
+from . import add_aks, add_priors
 from . import common_utils as cu
 from . import get_paths as gp
 from .file_format_updating import ggg2020a_to_ggg2020c, write_file_fmt_attrs
@@ -196,108 +197,6 @@ def gravity(gdlat,altit):
     return gravity
 
 
-def get_geos_versions(mod_file):
-    """Extract GEOS versions from the header of a .mod file, if present
-
-    Input:
-        - ``mod_file``: full path to a .mod file
-
-    Output:
-        - ``versions``: a dictionary with keys of the different GEOS file types
-          (e.g. "Met2d", "Chm3d") and values that given the GEOS version description
-          (e.g. "fpit (GEOS v5.12.v)").
-        - ``found_versions``: a boolean indicating if any versions were found in the header
-          (True) or if it had to assume the versions based on the date of the .mod file (False).
-          If it had to assume the versions, the version strings themselves will end in an "*".
-    """
-    versions = dict()
-    filenames = dict()
-    checksums = dict()
-    try:
-        with open(mod_file) as f:
-            nhead = int(f.readline().split()[0])
-            for _ in range(1,nhead):
-                line = f.readline()
-                if line.startswith('GEOS source'):
-                    _, key, vers, name, chksum = [x.strip() for x in line.split(':')]
-                    versions[key] = vers
-                    filenames[key] = name
-                    checksums[key] = chksum
-    except FileNotFoundError:
-        # If we can't find the files, then we can't actually assume that they
-        # have the default versions for their date - it's possible that the user
-        # ran with e.g. a file combining GEOS FP-IT met and GEOS IT CO but then
-        # deleted it.
-        logging.error(f'Could not find .mod file {mod_file}, will use fill values for GEOS file versions. Note that this is NOT ALLOWED for submitted TCCON data!')
-        versions = {k: 'UNKNOWN' for k in cu.GEOS_VERSION_EXPECTED_KEYS}
-        filenames = {k: '' for k in cu.GEOS_VERSION_EXPECTED_KEYS}
-        checksums = {k: '' for k in cu.GEOS_VERSION_EXPECTED_KEYS}
-
-    found_versions = len(versions) > 0
-    
-    if not found_versions:
-        # Fallback if no GEOS version information - must assume that this is
-        # an unpatched .mod file and go by the transition date.
-        versions, filenames, checksums = cu.infer_geos_version_from_modfile_time(mod_file)
-    else:
-        missing_keys = tuple(k for k in cu.GEOS_VERSION_EXPECTED_KEYS if k not in versions)
-        if missing_keys:
-            s = ', '.join(missing_keys)
-            logging.warning(f'.mod file {mod_file} is missing some GEOS version keys: {s}')
-            for k in missing_keys:
-                versions[k] = 'Unknown'
-                filenames[k] = ''
-                checksums[k] = ''
-    return versions, filenames, checksums, found_versions
-
-
-def get_geos_version_max_length(mav_data, version_key):
-    """Return the length required to store the longest GEOS version string in ``mav_data``.
-
-    Inputs:
-        - ``mav_data``: a dictionary of dictionaries, where each child dictionary contains the
-          key ``version_key`` which itself points to a dictionary containing the GEOS version strings
-          as values, i.e.::
-
-            mav_data = {
-                'pa20040721saaaaa.043': {
-                    'geos_versions': {'Met2d': 'fpit (GEOS v5.12.4)', 'Met3d': 'fpit (GEOS v5.12.4)', 'Chm3d': 'fpit (GEOS v5.12.4)'},
-                    ...
-                }
-            }
-
-        - ``version_key``: the key that points to the GEOS versions dictionary in each of the
-          first-level child dictionaries of ``mav_data``.
-
-    Outputs:
-        - ``length``: the length of the longest version string.
-    """
-    length = 0
-    for data_dict in mav_data.values():
-        for version in data_dict[version_key].values():
-            length = max(length, len(version))
-    return max(length, 1)
-
-
-def get_geos_versions_key_set(mav_data, version_key='geos_versions'):
-    """Return the set of keys describing GEOS versions.
-
-    Inputs:
-        - ``mav_data``: a dictionary of dictionaries returned by ``read_mav``, see same named
-          argument of :func:`get_geos_version_max_length` for details.
-        - ``version_key``: the key that points to the GEOS versions dictionary in each of the
-          first-level child dictionaries of ``mav_data``.
-
-    Outputs:
-        - ``length``: the length of the longest version string.
-    """
-    keys = set()
-    for data_dict in mav_data.values():
-        keys.update(data_dict[version_key].keys())
-    return sorted(keys)
-
-
-
 def get_eqlat(mod_file,levels):
     """
     Input:
@@ -419,7 +318,7 @@ def read_mav(path,GGGPATH,maxspec,show_progress):
     eflat, mid_trop_pt = get_eflat(os.path.join(GGGPATH,'vmrs','gnd',vmr_file))
     DATA[spectrum]['effective_latitude'] = eflat
     DATA[spectrum]['mid_tropospheric_potential_temperature'] = mid_trop_pt
-    DATA[spectrum]['geos_versions'], DATA[spectrum]['geos_filenames'], DATA[spectrum]['geos_checksums'], found_geos_vers = get_geos_versions(os.path.join(GGGPATH, 'models', 'gnd', mod_file))
+    DATA[spectrum]['geos_versions'], DATA[spectrum]['geos_filenames'], DATA[spectrum]['geos_checksums'], found_geos_vers = cu.get_geos_versions(os.path.join(GGGPATH, 'models', 'gnd', mod_file))
     if not found_geos_vers:
         assumed_geos_versions += 1
     nlines = d['altitude'].size - nlev # the number of lines in the .mav file starting from "Next spectrum" of the SECOND block
@@ -459,7 +358,7 @@ def read_mav(path,GGGPATH,maxspec,show_progress):
         eflat, mid_trop_pt = get_eflat(os.path.join(GGGPATH,'vmrs','gnd',vmr_file))
         DATA[spectrum]['effective_latitude'] = eflat
         DATA[spectrum]['mid_tropospheric_potential_temperature'] = mid_trop_pt
-        DATA[spectrum]['geos_versions'], DATA[spectrum]['geos_filenames'], DATA[spectrum]['geos_checksums'], found_geos_vers = get_geos_versions(os.path.join(GGGPATH, 'models', 'gnd', mod_file))
+        DATA[spectrum]['geos_versions'], DATA[spectrum]['geos_filenames'], DATA[spectrum]['geos_checksums'], found_geos_vers = cu.get_geos_versions(os.path.join(GGGPATH, 'models', 'gnd', mod_file))
         if not found_geos_vers:
             assumed_geos_versions += 1
 
@@ -950,79 +849,6 @@ def _add_aicf_scale_attr(variable_name, pub_variable, priv_data):
         pub_variable.wmo_or_analogous_scale = scale
 
 
-def _expand_aks(ds, xgas, n=500, full_ak_resolution=False, min_extrap=0):
-    try:
-        import xarray as xr
-    except ImportError:
-        raise ImportError('xarray is required to save per-spectrum AKs. Please install it in this environment.')
-    logging.debug('Expanding AKs for %s', xgas)
-    airmass = ds['o2_7885_am_o2'][:]
-    if re.match('x[wl]?co2', xgas) and xgas not in ds.variables.keys():
-        # The difference in Xgas value between the X2007 and X2019 scale should be minor on the scale
-        # of what the AKs care about, so to avoid adding three more AK variables, just use the X2019
-        # Xgas value to expand the AKs.
-        varname = f'{xgas}_x2019'
-        logging.info(f'Using {varname} to compute slant Xgas for {xgas} AKs')
-        slant_xgas_values = ds[varname][:] * airmass
-    else:
-        slant_xgas_values = ds[xgas][:] * airmass
-    slant_xgas_bins = ds['ak_slant_{}_bin'.format(xgas)][:]
-    if xgas == 'xch4' and ds['ak_slant_{}_bin'.format(xgas)].units == 'ppb':
-        # XCH4 bins are given in ppb, but XCH4 itself in ppm. Oops!
-        slant_xgas_bins = slant_xgas_bins * 1e-3
-    aks = ds['ak_{}'.format(xgas)][:]
-    extrap_flags = np.zeros(slant_xgas_values.shape, dtype=np.int8)
-    extrap_flags[slant_xgas_values < min_extrap] = -2
-    extrap_flags[(slant_xgas_values >= min_extrap) & (slant_xgas_values < np.min(slant_xgas_bins))] = -1
-    extrap_flags[slant_xgas_values > np.max(slant_xgas_bins)] = 2
-    if not full_ak_resolution:
-        slant_xgas_values = _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=n, min_extrap=min_extrap)
-    else:
-        slant_xgas_values = np.clip(slant_xgas_values, min_extrap, np.max(slant_xgas_bins))
-    
-    expanded_aks = np.full([slant_xgas_values.size, aks.shape[0]], np.nan, dtype=aks.dtype)
-    alt = ds['ak_altitude'][:]  # isn't really necessary, but need a coordinate along that dimension anyway
-    lookup_aks = xr.DataArray(aks, coords=[alt, slant_xgas_bins], dims=['alt', 'slant_bin'])
-    expanded_aks = lookup_aks.interp(slant_bin=slant_xgas_values, kwargs={'fill_value':'extrapolate'})
-    expanded_aks = expanded_aks.data.T
-
-    return expanded_aks, extrap_flags
-
-    
-def _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=500, min_extrap=0):
-    # Put the individual spectra's slant Xgas values on a smaller number
-    # of quantized values ranging between the minimum and maximum values, not allowing
-    # the values to go outside of the bins. I decided to base these off of the bins
-    # rather than the actual slant xgas values because doing the latter will cause the
-    # AKs to change when the public files are updated and there's a wider range of slant
-    # xgas variables.
-    def quantize(values, minval, maxval, nval):
-        si = (values - minval)/(maxval - minval) # normalize to 0 to 1
-        si = np.clip(si, 0, 1)
-        si = np.round(si * (nval - 1)) # round to values between 0 and (n-1)
-        si = si / (nval - 1) * (maxval - minval) + minval # restore original magnitude
-        return si
-        
-    smin = np.min(slant_xgas_bins)
-    smax = np.max(slant_xgas_bins)
-    
-    quant_slant = np.full_like(slant_xgas_values, np.nan)
-    
-    xx_in = (slant_xgas_values >= smin) & (slant_xgas_values <= smax)
-    xx_ex = (slant_xgas_values >= min_extrap) & (slant_xgas_values < smin)
-    xx_below = slant_xgas_values < min_extrap
-    xx_above = slant_xgas_values > smax
-    
-    # First handle values inside the range of the bins
-    quant_slant[xx_in] = quantize(slant_xgas_values[xx_in], smin, smax, n)
-    # Then the values extrapolated between the bottom bin and 0. Use 10x fewer
-    # quantized points that the main region, as this should be a significantly
-    # smaller range.
-    quant_slant[xx_ex] = quantize(slant_xgas_values[xx_ex], min_extrap, smin, n // 10)
-    # Finally set the min and max values
-    quant_slant[xx_below] = min_extrap
-    quant_slant[xx_above] = smax
-    return quant_slant
 
 
 def _create_geos_source_summary_var(public_ds, private_ds, public_slice):
@@ -1230,7 +1056,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                     new_dimensions = ('time',) + tuple([d for d in variable.dimensions if d != 'ak_slant_xgas_bin'])
                     public_data.createVariable(name,variable.datatype,new_dimensions,zlib=True,complevel=9)
                     this_xgas = name.split('_')[1]
-                    full_aks, ak_extrap_flags = _expand_aks(private_data, this_xgas, full_ak_resolution=full_ak_resolution)
+                    full_aks, ak_extrap_flags = add_aks.expand_aks(private_data, this_xgas, full_ak_resolution=full_ak_resolution)
                     public_data[name][:] = full_aks[public_slice]
 
                     ex_flag_varname = 'extrapolation_flags_{}'.format(name)
@@ -1257,7 +1083,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             elif nc_format=='NETCDF4' and public and experimental_group_startswith_check: # ingaas experimental variables
                 if expand_aks and name.startswith('ak_x'):
                     public_data['ingaas_experimental'].createVariable(name, variable.datatype, variable.dimensions, zlib=True, complevel=9)
-                    this_var_data = _expand_aks(private_data, name.split('_')[1], full_ak_resolution=full_ak_resolution)
+                    this_var_data = add_aks.expand_aks(private_data, name.split('_')[1], full_ak_resolution=full_ak_resolution)
                 else:
                     public_data['ingaas_experimental'].createVariable(name, variable.datatype, variable.dimensions)
                     this_var_data = private_data[name][:]
@@ -1271,7 +1097,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                 has_experimental = True
                 if expand_aks and name.startswith('ak_x'):
                     public_data['insb_experimental'].createVariable(name.replace('_insb',''), variable.datatype, variable.dimensions, zlib=True, complevel=9)
-                    this_var_data = _expand_aks(private_data, name.split('_')[1])
+                    this_var_data = add_aks.expand_aks(private_data, name.split('_')[1])
                 else:
                     public_data['insb_experimental'].createVariable(name.replace('_insb',''), variable.datatype, variable.dimensions)
                     this_var_data = private_data[name][:]
@@ -1287,7 +1113,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                 
                 if expand_aks and name.startswith('ak_x'):
                     public_data['si_experimental'].createVariable(public_name, variable.datatype, variable.dimensions, zlib=True, complevel=9)
-                    this_var_data = _expand_aks(private_data, name.split('_')[1])
+                    this_var_data = add_aks.expand_aks(private_data, name.split('_')[1])
                 else:
                     public_data['si_experimental'].createVariable(public_name, variable.datatype, variable.dimensions)
                     this_var_data = private_data[name][:]
@@ -1314,7 +1140,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
 
                 if expand_aks and name.startswith('ak_x'):
                     public_data.createVariable(public_name, variable.datatype, variable.dimensions, zlib=True, complevel=9)
-                    this_var_data = _expand_aks(private_data, name.split('_')[1])
+                    this_var_data = add_aks.expand_aks(private_data, name.split('_')[1])
                 else:
                     public_data.createVariable(public_name, variable.datatype, variable.dimensions)
                     this_var_data = private_data[name][:]
@@ -1591,46 +1417,6 @@ def _read_manual_flags_file(mflag_file):
     return flags_data
 
 
-
-def get_slice(a,b,warn=True):
-    """
-    Inputs:
-        - a: array of unique hashables
-        - b: array of unique hashables (all its elements should also be included in a)
-        - warn: if True, prints a warning if hash_a[ids]!=hash_b 
-    Outputs:
-        - ids: array of indices that can be used to slice array a to get its elements that correspond to those in array b (such that a[ids] == b)
-    """
-
-    hash_a = hash_array(a)
-    hash_b = hash_array(b)
-
-    ids = list(np.where(np.isin(hash_a,hash_b))[0])
-
-    if warn and not np.array_equal(hash_a[ids],hash_b):
-        logging.warning('get_slice: it is unexpected that elements in the second array are not included in the first array')
-
-    return ids
-
-
-def hash_array(x):
-    """
-    Elementwise hash of x
-
-    Inputs:
-        - x: array of unique hashables
-    Outputs:
-        - hash_x: array of of hashed elements from x
-    """
-
-    hash_x = np.array([hash(i) for i in x])
-    if not np.unique(hash_x).size==hash_x.size:
-        logging.critical("hash_array: could not generate unique hashes for all elements")
-        sys.exit(1)
-
-    return hash_x
-
-
 def main():
     signal(SIGINT,signal_handler)
     code_dir = os.path.dirname(__file__) # path to the tccon_netcdf repository
@@ -1677,8 +1463,8 @@ def main():
     parser.add_argument('--rflag',action='store_true',help='If given with a private.nc file as input, will create a separate private.qc.nc file with updated flags based on the --rflag-file')
     parser.add_argument('--rflag-file',help='Full path to the .json input file that sets release flags (has no effect without --rflag)')
 
-    parser.add_argument('--no-expand-priors', action='store_false', dest='expand_priors', help='When writing public files, do NOT expand the priors to match the time dimension, leave them on the 3 hourly interval')
-    parser.add_argument('--no-expand-aks', action='store_false', dest='expand_aks', help='When writing public files, do NOT expand the AKs to match the time dimension, leave them as lookup tables')
+    parser.add_argument('--no-expand-priors', action='store_false', dest='expand_priors', help='Do NOT expand the priors to match the time dimension, leave them on the 3 hourly interval')
+    parser.add_argument('--no-expand-aks', action='store_false', dest='expand_aks', help='Do NOT expand the AKs to match the time dimension, leave them as lookup tables')
     parser.add_argument('--full-ak-resolution', action='store_true', help='Use the exact slant Xgas for each spectrum when expanding AKs, rather than quantized ones. Output files will be larger.')
 
     parser.add_argument('--no-rename-by-dates', action='store_false', dest='rename_by_dates', help='For public files, do not rename the output file to match the range of data available.')
@@ -1790,8 +1576,8 @@ def main():
     runlog_ingaas_speclist = np.array([spec for spec in runlog_data['spectrum'] if spec[15]=='a'])
     runlog_ingaas2_speclist = np.array([spec for spec in runlog_data['spectrum'] if spec[15]=='d']) # second InGaAs detector of em27s
     # use hash() to convert the arrays of strings to arrays of integers for faster array comparisons
-    hash_runlog_ingaas_speclist = hash_array(runlog_ingaas_speclist) 
-    hash_runlog_ingaas2_speclist = hash_array(runlog_ingaas2_speclist)
+    hash_runlog_ingaas_speclist = cu.hash_array(runlog_ingaas_speclist) 
+    hash_runlog_ingaas2_speclist = cu.hash_array(runlog_ingaas2_speclist)
     runlog_si_speclist = np.array([spec for spec in runlog_data['spectrum'] if spec[15]=='b'])
     nsi = len(runlog_si_speclist)
     ninsb = len(runlog_insb_speclist)
@@ -1848,14 +1634,12 @@ def main():
     nhead = nhead-1
     tav_data = pd.read_csv(tav_file,delim_whitespace=True,skiprows=nhead)
     tav_data['file'] = tav_file
-    nwin = int((ncol-naux)/2)
     speclength = tav_data['spectrum'].map(len).max() # use the longest spectrum file name length for the specname dimension
     if nspec!=ningaas:
         logging.warning('{} ingaas spectra in runlog; {} spectra in .tav file'.format(ningaas,nspec))
 
     # read prior data
     prior_data, nlev, ncell = read_mav(mav_file,GGGPATH,tav_data['spectrum'].size,show_progress)
-    nprior = len(prior_data.keys())
 
     logging.info('Reading input files:')
     # header file: it contains general information and comments.
@@ -1927,23 +1711,23 @@ def main():
         aia_data[object_columns] = aia_data[object_columns].astype(np.float64)
     if ningaas: # check for consistency with the runlog spectra
         aia_ref_speclist = np.array([i.replace('c.','a.').replace('b.','a.').replace('d.','a.') for i in aia_data['spectrum']]) # this is the .aia spectrum list but with only ingaas names
-        if not np.array_equal(hash_array(aia_ref_speclist),hash_runlog_ingaas_speclist):
+        if not np.array_equal(cu.hash_array(aia_ref_speclist),hash_runlog_ingaas_speclist):
             logging.warning('The spectra in the .aia file are inconsistent with the runlog spectra:\n {}'.format(set(aia_ref_speclist).symmetric_difference(set(runlog_ingaas_speclist))))       
-        ingaas_runlog_slice = get_slice(runlog_data['spectrum'],aia_ref_speclist)
+        ingaas_runlog_slice = cu.get_slice(runlog_data['spectrum'],aia_ref_speclist)
         runlog_slice_dict = {'ingaas':ingaas_runlog_slice}
-        aia_slice_dict = {'ingaas':get_slice(aia_ref_speclist,runlog_data['spectrum'],warn=False)}
+        aia_slice_dict = {'ingaas': cu.get_slice(aia_ref_speclist,runlog_data['spectrum'],warn=False)}
         if ninsb:
             aia_ref_speclist_insb = np.array([i.replace('a.','c.') for i in aia_data['spectrum']]) # will be used to get .col file spectra indices along the time dimension
-            runlog_slice_dict['insb'] = get_slice(runlog_data['spectrum'],aia_ref_speclist_insb)
-            aia_slice_dict['insb'] = get_slice(aia_ref_speclist_insb,runlog_data['spectrum'],warn=False)
+            runlog_slice_dict['insb'] = cu.get_slice(runlog_data['spectrum'],aia_ref_speclist_insb)
+            aia_slice_dict['insb'] = cu.get_slice(aia_ref_speclist_insb,runlog_data['spectrum'],warn=False)
         if nsi:
             aia_ref_speclist_si = np.array([i.replace('a.','b.') for i in aia_data['spectrum']]) # will be used to get .col file spectra indices along the time dimension
-            runlog_slice_dict['si'] = get_slice(runlog_data['spectrum'],aia_ref_speclist_si)
-            aia_slice_dict['si'] = get_slice(aia_ref_speclist_si,runlog_data['spectrum'],warn=False)
+            runlog_slice_dict['si'] = cu.get_slice(runlog_data['spectrum'],aia_ref_speclist_si)
+            aia_slice_dict['si'] = cu.get_slice(aia_ref_speclist_si,runlog_data['spectrum'],warn=False)
         if ningaas2:
             aia_ref_speclist_ingaas2 = np.array([i.replace('a.','d.') for i in aia_data['spectrum']])
-            runlog_slice_dict['ingaas2'] = get_slice(runlog_data['spectrum'],aia_ref_speclist_ingaas2)
-            aia_slice_dict['ingaas2'] = get_slice(aia_ref_speclist_ingaas2,runlog_data['spectrum'],warn=False)
+            runlog_slice_dict['ingaas2'] = cu.get_slice(runlog_data['spectrum'],aia_ref_speclist_ingaas2)
+            aia_slice_dict['ingaas2'] = cu.get_slice(aia_ref_speclist_ingaas2,runlog_data['spectrum'],warn=False)
 
     # read airmass-dependent and -independent correction factors from the header of the .aia file
     aia_data['file'] = aia_file
@@ -2004,8 +1788,8 @@ def main():
 
     ## check all files have the same spectrum lists
     logging.info('Check spectrum array consistency ...')
-    hash_vav = hash_array(vav_spec_list)
-    check_spec = np.alltrue([np.array_equal(hash_array(data['spectrum']),hash_vav) for data in data_list])
+    hash_vav = cu.hash_array(vav_spec_list)
+    check_spec = np.alltrue([np.array_equal(cu.hash_array(data['spectrum']),hash_vav) for data in data_list])
     if not check_spec:
         logging.critical('Files have inconsistent spectrum lists !')
         for data in data_list:
@@ -2097,9 +1881,6 @@ def main():
         As far as I am aware this will only be an issue if people want to concatenate multiple netcdf files along the time dimension, they will have to turn the time dimension to an unlimited dimension first
         """
         nc_data.createDimension('time',nspec)
-        nc_data.createDimension('prior_time',nprior)
-        nc_data.createDimension('prior_altitude',nlev) # used for the prior profiles
-        nc_data.createDimension('cell_index',ncell)
 
         if classic:
             nc_data.createDimension('specname',speclength)
@@ -2116,222 +1897,28 @@ def main():
         }
         nc_data['time'].setncatts(att_dict)
 
-        nc_data.createVariable('prior_time',np.float64,('prior_time'))
-        att_dict = {
-            "standard_name": "prior_time",
-            "long_name": "prior time",
-            "description": 'UTC time for the prior profiles, corresponds to GEOS5 times every 3 hours from 0 to 21',
-            "units": 'seconds since 1970-01-01 00:00:00',
-            "calendar": 'gregorian',
-        }
-        nc_data['prior_time'].setncatts(att_dict)
 
-        nc_data.createVariable('cell_index',np.int16,('cell_index'))
-        att_dict = {
-            "standard_name": "cell_index",
-            "long_name": "cell_index",
-            "description": "variables with names including 'cell_' will be along dimensions (prior_time,cell_index)",
-        }
-        nc_data['cell_index'].setncatts(att_dict)
-        nc_data['cell_index'][:] = np.arange(ncell)
-
-        nc_data.createVariable('prior_altitude',np.float32,('prior_altitude')) # this one doesn't change between priors
-        att_dict = {
-            "standard_name": 'prior_altitude_profile',
-            "long_name": 'prior altitude profile',
-            "units": UNITS_DICT['prior_altitude'],
-            "description": "altitude levels for the prior profiles, these are the same for all the priors",
-        }
-        nc_data['prior_altitude'].setncatts(att_dict)
-        nc_data['prior_altitude'][0:nlev] = prior_data[list(prior_data.keys())[0]]['data']['altitude'].values
-
+        logging.info('Creating variables')
+        logging.info('\t- Averaging kernels')
         # averaging kernels
-        with netCDF4.Dataset(gp.ak_tables_nc_file(),'r') as ak_nc:
-            nlev_ak = ak_nc['z'].size
-            nbins_ak = ak_nc['slant_xgas_bin'].size
-
-            # dimensions
-            nc_data.createDimension('ak_altitude',nlev_ak) # make it separate from prior_altitude just in case we ever generate new files with different altitudes
-            nc_data.createDimension('ak_slant_xgas_bin',nbins_ak)
-
-            # coordinate variables
-            nc_data.createVariable('ak_altitude',np.float32,('ak_altitude'))
-            att_dict = {
-                "standard_name": "averaging_kernel_altitude_levels",
-                "long_name": "averaging kernel altitude levels",
-                "description": "Altitude levels for column averaging kernels",
-                "units": 'km',
-            }
-            nc_data['ak_altitude'].setncatts(att_dict)
-            nc_data['ak_altitude'][0:nlev_ak] = ak_nc['z'][:].data
-
-            nc_data.createVariable('ak_slant_xgas_bin',np.int16,('ak_slant_xgas_bin'))
-            att_dict = {
-                "standard_name": "averaging_kernel_slant_xgas_bin_index",
-                "long_name": "averaging kernel slant xgas bin index",
-                "description": "Index of the slant xgas bins for the column averaging kernels",
-                "units": '',
-            }
-            nc_data['ak_slant_xgas_bin'].setncatts(att_dict)
-            nc_data['ak_slant_xgas_bin'][0:nbins_ak] = np.arange(nbins_ak).astype(np.int16)
-
-            ## create variables
-            logging.info('Creating variables')
-            logging.info('\t- Averaging kernels')
-
-            nc_data.createVariable('ak_pressure',np.float32,('ak_altitude'))
-            att_dict = {
-                "standard_name": "averaging_kernel_pressure_levels",
-                "long_name": "averaging kernel pressure levels",
-                "description": "Median pressure for the column averaging kernels vertical grid",
-                "units": 'hPa',
-            }
-            nc_data['ak_pressure'].setncatts(att_dict)
-            nc_data['ak_pressure'][0:nlev_ak] = ak_nc['pressure'][:].data
-
-            for ak_bin_var in [i for i in ak_nc.variables if i.startswith('slant') and i!="slant_xgas_bin"]:
-                var = 'ak_{}'.format(ak_bin_var)
-                nc_data.createVariable(var,np.float32,('ak_slant_xgas_bin'))
-                att_dict = {
-                    "standard_name": var,
-                    "long_name": var.replace('_',' '),
-                    "description": ak_nc[ak_bin_var].description.lower()+" (slant_xgas=xgas*airmass)",
-                    "units": ak_nc[ak_bin_var].units,
-                }
-                nc_data[var].setncatts(att_dict)
-                if var == 'ak_slant_xch4_bin':
-                    # Need to convert the ppb in the netCDF file to ppm to be consistent with xch4
-                    nc_data[var][0:nbins_ak] = ak_nc[ak_bin_var][:].data.astype(np.float32) * 1e-3
-                    nc_data[var].units = 'ppm'
-                else:
-                    nc_data[var][0:nbins_ak] = ak_nc[ak_bin_var][:].data.astype(np.float32)
-
-            for ak_var in [i for i in ak_nc.variables if i.endswith('aks')]:
-                var = 'ak_{}'.format(ak_var.strip('_aks'))
-                nc_data.createVariable(var,np.float32,('ak_altitude','ak_slant_xgas_bin'))
-                att_dict = {
-                    "standard_name": "{}_column_averaging_kernel".format(ak_var.strip('_aks')),
-                    "long_name": "{} column averaging kernel".format(ak_var.strip('_aks')),
-                    "description": ak_nc[ak_var].description.lower()+'. ',
-                    "units": '',
-                }
-                if 'lco2' in var:
-                    att_dict['description'] = att_dict['description']+SPECIAL_DESCRIPTION_DICT['lco2']
-                elif 'wco2' in var:
-                    att_dict['description'] = att_dict['description']+SPECIAL_DESCRIPTION_DICT['wco2']
-                nc_data[var].setncatts(att_dict)
-                nc_data[var][:] = ak_nc[ak_var][:].data.astype(np.float32)
+        if args.expand_aks:
+            add_aks.add_expanded_aks_to_ds(nc_data)
+        else:
+            add_aks.add_table_aks_to_ds(nc_data)
  
         # priors and cell variables
         logging.info('\t- Prior and cell variables')
-        nc_data.createVariable('prior_index',np.int16,('time',))
-        att_dict = {
-            "standard_name": 'prior_index',
-            "long_name": 'prior index',
-            "units": '',
-            "description": 'Index of the prior profile associated with each measurement, it can be used to sample the prior_ and cell_ variables along the prior_time dimension',
-        }
-        nc_data['prior_index'].setncatts(att_dict)
-
-        prior_var_list = [ i for i in list(prior_data[list(prior_data.keys())[0]]['data'].keys()) if i not in {'altitude', 'geos_versions', 'geos_filenames', 'geos_checksums'}]
-        cell_var_list = []
-        UNITS_DICT.update({'prior_{}'.format(var):'' for var in prior_var_list if 'prior_{}'.format(var) not in UNITS_DICT})
-        for var in prior_var_list:
-            prior_var = 'prior_{}'.format(var)
-            nc_data.createVariable(prior_var,np.float32,('prior_time','prior_altitude'))
-            att_dict = {}
-            att_dict["standard_name"] = '{}_profile'.format(prior_var)
-            att_dict["long_name"] = att_dict["standard_name"].replace('_',' ')
-            if var in ['temperature','density','pressure','gravity','equivalent_latitude']:
-                att_dict["description"] = att_dict["long_name"]
-            else:
-                att_dict["description"] = 'a priori concentration profile of {}, in parts'.format(var)
-            att_dict["units"] = UNITS_DICT[prior_var]
-            nc_data[prior_var].setncatts(att_dict)
-
-            if var in ['gravity', 'equivalent_latitude']:
-                continue
-            cell_var = 'cell_{}'.format(var)
-            cell_var_list += [cell_var]
-            nc_data.createVariable(cell_var,np.float32,('prior_time','cell_index'))
-            att_dict = {}
-            att_dict["standard_name"] = cell_var
-            att_dict["long_name"] = att_dict["standard_name"].replace('_',' ')
-            if var in ['temperature','density','pressure','equivalent_latitude']:
-                att_dict["description"] = '{} in gas cell'.format(var)
-            else:
-                att_dict["description"] = 'concentration of {} in gas cell, in parts'.format(var)
-            att_dict["units"] = UNITS_DICT[prior_var]
-            nc_data[cell_var].setncatts(att_dict)
-
-        prior_var_list += ['tropopause_altitude']
-        nc_data.createVariable('prior_tropopause_altitude',np.float32,('prior_time'))
-        att_dict = {
-            "standard_name": 'prior_tropopause_altitude',
-            "long_name": 'prior tropopause altitude',
-            "description": 'altitude at which the gradient in the prior temperature profile becomes > -2 degrees per km',
-            "units": UNITS_DICT[prior_var],
-        }
-        nc_data['prior_tropopause_altitude'].setncatts(att_dict)
-
-        geos_version_keys = get_geos_versions_key_set(prior_data)
-
-        prior_var_list += ['modfile','vmrfile'] + [cu.geos_version_varname(k) for k in geos_version_keys]
-        if classic:
-            prior_modfile_var = nc_data.createVariable('prior_modfile','S1',('prior_time','a32'))
-            prior_modfile_var._Encoding = 'ascii'
-            prior_vmrfile_var = nc_data.createVariable('prior_vmrfile','S1',('prior_time','a32'))
-            prior_vmrfile_var._Encoding = 'ascii'
-
-            for (vkey, vfxn) in cu.geos_version_keys_and_fxns():
-                gv_max_len = get_geos_version_max_length(prior_data, vkey)
-                for gkey in geos_version_keys:
-                    gv_varname = vfxn(gkey)
-                    cu.add_geos_version_variables(nc_data, gv_max_len, gv_varname, is_classic=True)
+        if args.expand_priors:
+            pass
         else:
-            prior_modfile_var = nc_data.createVariable('prior_modfile',str,('prior_time',))
-            prior_vmrfile_var = nc_data.createVariable('prior_vmrfile',str,('prior_time',))
-            for (vkey, vfxn) in cu.geos_version_keys_and_fxns():
-                gv_max_len = get_geos_version_max_length(prior_data, vkey)
-                for gkey in geos_version_keys:
-                    gv_varname = vfxn(gkey)
-                    cu.add_geos_version_variables(nc_data, gv_max_len, gv_varname, is_classic=False)
-        
-        att_dict = {
-            "standard_name":'prior_modfile',
-            "long_name":'prior modfile',
-            "description":'Model file corresponding to a given apriori',
-        }
-        nc_data['prior_modfile'].setncatts(att_dict)
+            add_priors.add_unexpanded_priors(
+                nc_data=nc_data, prior_data=prior_data, speclist=aia_data['spectrum'].values, runlog_all_speclist=runlog_all_speclist,
+                nlev=nlev, ncell=ncell, classic=classic
+            )
+        logging.info('Finished writing prior data')
+        del prior_data
+        gc.collect()
 
-        att_dict = {
-            "standard_name":'prior_vmrfile',
-            "long_name":'prior vmrfile',
-            "description":'VMR file corresponding to a given apriori',
-        }
-        nc_data['prior_vmrfile'].setncatts(att_dict)
-
-        prior_var_list += ['effective_latitude','mid_tropospheric_potential_temperature']
-        nc_data.createVariable('prior_effective_latitude',np.float32,('prior_time',))
-        att_dict = {
-            "standard_name": 'prior_effective_latitude',
-            "long_name": 'prior effective latitude',
-            "description": "latitude at which the mid-tropospheric potential temperature agrees with that from the corresponding 2-week period in a GEOS-FPIT climatology",
-            "units": UNITS_DICT['prior_effective_latitude'],
-        }
-        nc_data['prior_effective_latitude'].setncatts(att_dict)
-
-        nc_data.createVariable('prior_mid_tropospheric_potential_temperature',np.float32,('prior_time',))
-        att_dict = {
-            "standard_name": 'prior_mid_tropospheric_potential_temperature',
-            "long_name": 'prior mid-tropospheric potential temperature',
-            "description": "average potential temperature between 700-500 hPa",
-            "units": UNITS_DICT['prior_mid_tropospheric_potential_temperature'],
-        }
-        nc_data['prior_mid_tropospheric_potential_temperature'].setncatts(att_dict)
-
-        cu.add_geos_version_var_attrs(nc_data, geos_version_keys)
-        
         # checksums
         logging.info('\t- Checksums')
         for var in CHECKSUM_VAR_LIST:
@@ -2647,7 +2234,7 @@ def main():
                             'precision':'f9.4',},
                     }
 
-        _, aia_spec_inds, common_spec = np.intersect1d(hash_array(aia_data['spectrum']),hash_array(lse_data['spectrum']),return_indices=True)
+        _, aia_spec_inds, common_spec = np.intersect1d(cu.hash_array(aia_data['spectrum']),cu.hash_array(lse_data['spectrum']),return_indices=True)
         # np.intersect1d sorts the returned indices by the hash value, meaning that by default they will not be in the 
         # correct order to match the spectra. To fix this, get the indices needed to sort the .aia spectra, then use
         # those to sort the LSE data. Will check that this means the .lse spectra match the .aia spectra.
@@ -2757,58 +2344,6 @@ def main():
             for j in range(nc_data['time'].size):
                 nc_data[varname][j] = aicf_data['scale'][i]
         del aicf_data,adcf_data
-        gc.collect()
-
-        ## write data
-
-        # prior data
-        logging.info('Computing prior index ...')
-        prior_spec_list = list(prior_data.keys())
-        spec_list = nc_data['spectrum'][:]
-        if nprior == 1:
-            # if there is just one block in the .mav file, set it as the prior index for all spectra
-            nc_data['prior_index'][:] = 0
-        else:
-            prior_runlog_inds = get_slice(runlog_all_speclist, prior_spec_list)
-            aia_runlog_inds = get_slice(runlog_all_speclist, spec_list)
-            nspec = len(spec_list)
-            for spec_id, spectrum in enumerate(spec_list):
-                # The .mav blocks should always be in runlog order. Set the prior index to point to
-                # the last .mav block with a spectrum that comes before the .aia spectrum in the runlog.
-                prior_index = np.flatnonzero(prior_runlog_inds <= aia_runlog_inds[spec_id])[-1]
-                nc_data['prior_index'][spec_id] = prior_index
-
-        
-        # write prior and cell data
-        logging.info('Writing prior data ...')
-        special_prior_vars = ['tropopause_altitude','modfile','vmrfile','mid_tropospheric_potential_temperature','effective_latitude']
-        special_prior_vars += [cu.geos_version_varname(k) for k in geos_version_keys]
-        special_prior_vars += [cu.geos_file_varname(k) for k in geos_version_keys]
-        special_prior_vars += [cu.geos_checksum_varname(k) for k in geos_version_keys]
-        for prior_spec_id, prior_spectrum in enumerate(prior_spec_list):
-            #for var in ['temperature','pressure','density','gravity','1h2o','1hdo','1co2','1n2o','1co','1ch4','1hf','1o2']:
-            for var in prior_var_list:
-                if var not in special_prior_vars:
-                    prior_var = 'prior_{}'.format(var)
-                    nc_data[prior_var][prior_spec_id,0:nlev] = prior_data[prior_spectrum]['data'][var].values
-
-                    if var not in ['gravity','equivalent_latitude']:
-                        cell_var = 'cell_{}'.format(var)
-                        nc_data[cell_var][prior_spec_id,0:ncell] = prior_data[prior_spectrum]['cell_data'][var].values
-
-            nc_data['prior_time'][prior_spec_id] = prior_data[prior_spectrum]['time']
-            nc_data['prior_tropopause_altitude'][prior_spec_id] = prior_data[prior_spectrum]['tropopause_altitude']
-            nc_data['prior_modfile'][prior_spec_id] = prior_data[prior_spectrum]['mod_file']
-            nc_data['prior_vmrfile'][prior_spec_id] = prior_data[prior_spectrum]['vmr_file']
-            nc_data['prior_effective_latitude'][prior_spec_id] = prior_data[prior_spectrum]['effective_latitude']
-            nc_data['prior_mid_tropospheric_potential_temperature'][prior_spec_id] = prior_data[prior_spectrum]['mid_tropospheric_potential_temperature']
-            for k in geos_version_keys:
-                nc_data[cu.geos_version_varname(k)][prior_spec_id] = prior_data[prior_spectrum]['geos_versions'][k]
-                nc_data[cu.geos_file_varname(k)][prior_spec_id] = prior_data[prior_spectrum]['geos_filenames'][k]
-                nc_data[cu.geos_checksum_varname(k)][prior_spec_id] = prior_data[prior_spectrum]['geos_checksums'][k]
-
-        logging.info('Finished writing prior data')
-        del prior_data
         gc.collect()
 
         # update data with new scale factors and determine flags
@@ -3016,13 +2551,13 @@ def main():
 
             # JLL 2020-05-19: need to check that the shapes are equal first, or get a very confusing error
             col_ref_speclist = np.array([i.replace('c.','a.').replace('b.','a.').replace('d.','a.') for i in col_data['spectrum']]) # this is the .col spectrum list but with only ingaas names
-            hash_col = hash_array(col_ref_speclist)
+            hash_col = cu.hash_array(col_ref_speclist)
             if ingaas and not (np.array_equal(hash_col,hash_runlog_ingaas_speclist) or np.array_equal(hash_col,hash_runlog_ingaas2_speclist)):
                 logging.warning('\nMismatch between .col file spectra and .grl spectra; col_file=%s',col_file)
                 continue # contine or exit here ? Might not need to exit if we can add in the results from the faulty col file afterwards
 
             if ingaas and (col_data.shape[0] != vav_shape):
-                inds = get_slice(vav_spec_list,col_data['spectrum'].apply(lambda x: x.replace('d.','a.')))
+                inds = cu.get_slice(vav_spec_list,col_data['spectrum'].apply(lambda x: x.replace('d.','a.')))
                 dif = col_data['spectrum'].size - len(inds)
                 logging.warning('\nThere are {} more spectra in {} than in {}, recommend checking this col/vav file'.format(dif,col_file, vav_file))
 
