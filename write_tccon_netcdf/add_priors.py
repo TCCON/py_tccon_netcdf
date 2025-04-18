@@ -6,21 +6,45 @@ from . import common_utils as cu
 
 def add_unexpanded_priors(nc_data, prior_data, speclist, runlog_all_speclist, nlev: int, ncell: int, classic: bool):
     _add_coords(nc_data=nc_data, prior_data=prior_data, nlev=nlev, ncell=ncell, priors_expanded=False)
-    prior_var_list, geos_version_keys = _create_unexpanded_priors_vars(nc_data, prior_data, nlev, ncell, classic)
+    prior_var_list, geos_version_keys, _ = _create_priors_vars(nc_data, prior_data, nlev, ncell, classic, expand_priors=False)
     logging.info('Writing prior data ...')
     _fill_unexpanded_prior_vars(
         nc_data=nc_data, speclist=speclist, runlog_all_speclist=runlog_all_speclist, prior_data=prior_data, prior_var_list=prior_var_list,
         geos_version_keys=geos_version_keys, nlev=nlev, ncell=ncell
     )
 
-def _create_unexpanded_priors_vars(nc_data, prior_data, nlev: int, ncell: int, classic: bool):
+
+def add_expanded_priors(nc_data, prior_data, speclist, runlog_all_speclist, nlev: int, ncell: int, classic: bool):
+    _add_coords(nc_data=nc_data, prior_data=prior_data, nlev=nlev, ncell=ncell, priors_expanded=True)
+    prior_var_list, geos_version_keys, unexpanded_size_arrays = _create_priors_vars(
+        nc_data=nc_data, prior_data=prior_data, nlev=nlev, ncell=ncell, classic=classic, expand_priors=True
+    )
+    logging.info('Writing prior data ...')
+    # To avoid _too_ much code duplication, we pass in our dictionary of arrays to pretend to be the netcdf
+    # data. This function then writes to it as if it were writing to the netCDF file, and we can then use the
+    # prior index in that same dictionary to reindex the data into expanded priors.
+    unexpanded_size_arrays['prior_index'] = np.full(len(speclist), -999)
+    _fill_unexpanded_prior_vars(
+        nc_data=unexpanded_size_arrays, speclist=speclist, runlog_all_speclist=runlog_all_speclist, prior_data=prior_data, prior_var_list=prior_var_list,
+        geos_version_keys=geos_version_keys, nlev=nlev, ncell=ncell
+    )
+    prior_index = unexpanded_size_arrays.pop('prior_index')
+    for varname, unexpanded_arr in unexpanded_size_arrays.items():
+        nc_data[varname][:] = unexpanded_arr[prior_index]
+
+
+def _create_priors_vars(nc_data, prior_data, nlev: int, ncell: int, classic: bool, expand_priors: bool):
+    time_var = 'time' if expand_priors else 'prior_time'
+    # We need this if expanding arrays to have a place to collect the unexpanded priors
+    prior_var_arrays = dict() if expand_priors else None
+    nprior = len(prior_data)
 
     prior_var_list = [ i for i in list(prior_data[list(prior_data.keys())[0]]['data'].keys()) if i not in {'altitude', 'geos_versions', 'geos_filenames', 'geos_checksums'}]
     cell_var_list = []
     UNITS_DICT.update({'prior_{}'.format(var):'' for var in prior_var_list if 'prior_{}'.format(var) not in UNITS_DICT})
     for var in prior_var_list:
         prior_var = 'prior_{}'.format(var)
-        nc_data.createVariable(prior_var,np.float32,('prior_time','prior_altitude'))
+        nc_data.createVariable(prior_var, np.float32, (time_var,'prior_altitude'), zlib=True, complevel=9)
         att_dict = {}
         att_dict["standard_name"] = '{}_profile'.format(prior_var)
         att_dict["long_name"] = att_dict["standard_name"].replace('_',' ')
@@ -30,12 +54,14 @@ def _create_unexpanded_priors_vars(nc_data, prior_data, nlev: int, ncell: int, c
             att_dict["description"] = 'a priori concentration profile of {}, in parts'.format(var)
         att_dict["units"] = UNITS_DICT[prior_var]
         nc_data[prior_var].setncatts(att_dict)
+        if expand_priors:
+            prior_var_arrays[prior_var] = np.full([nprior, nlev], np.nan, dtype=np.float32)
 
         if var in ['gravity', 'equivalent_latitude']:
             continue
         cell_var = 'cell_{}'.format(var)
         cell_var_list += [cell_var]
-        nc_data.createVariable(cell_var,np.float32,('prior_time','cell_index'))
+        nc_data.createVariable(cell_var, np.float32, (time_var,'cell_index'), zlib=True, complevel=9)
         att_dict = {}
         att_dict["standard_name"] = cell_var
         att_dict["long_name"] = att_dict["standard_name"].replace('_',' ')
@@ -45,9 +71,11 @@ def _create_unexpanded_priors_vars(nc_data, prior_data, nlev: int, ncell: int, c
             att_dict["description"] = 'concentration of {} in gas cell, in parts'.format(var)
         att_dict["units"] = UNITS_DICT[prior_var]
         nc_data[cell_var].setncatts(att_dict)
+        if expand_priors:
+            prior_var_arrays[cell_var] = np.full([nprior, ncell], np.nan, dtype=np.float32)
 
     prior_var_list += ['tropopause_altitude']
-    nc_data.createVariable('prior_tropopause_altitude',np.float32,('prior_time'))
+    nc_data.createVariable('prior_tropopause_altitude', np.float32, (time_var,), zlib=True, complevel=9)
     att_dict = {
         "standard_name": 'prior_tropopause_altitude',
         "long_name": 'prior tropopause altitude',
@@ -55,29 +83,43 @@ def _create_unexpanded_priors_vars(nc_data, prior_data, nlev: int, ncell: int, c
         "units": UNITS_DICT[prior_var],
     }
     nc_data['prior_tropopause_altitude'].setncatts(att_dict)
+    if expand_priors:
+        prior_var_arrays['prior_tropopause_altitude'] = np.full([nprior], np.nan, dtype=np.float32)
 
     geos_version_keys = _get_geos_versions_key_set(prior_data)
 
     prior_var_list += ['modfile','vmrfile'] + [cu.geos_version_varname(k) for k in geos_version_keys]
     if classic:
-        prior_modfile_var = nc_data.createVariable('prior_modfile','S1',('prior_time','a32'))
+        prior_modfile_var = nc_data.createVariable('prior_modfile', 'S1', (time_var,'a32'), zlib=True, complevel=9)
         prior_modfile_var._Encoding = 'ascii'
-        prior_vmrfile_var = nc_data.createVariable('prior_vmrfile','S1',('prior_time','a32'))
+        if expand_priors:
+            prior_var_arrays['prior_modfile'] = np.full([nprior], None)
+        prior_vmrfile_var = nc_data.createVariable('prior_vmrfile','S1',(time_var,'a32'), zlib=True, complevel=9)
         prior_vmrfile_var._Encoding = 'ascii'
+        if expand_priors:
+            prior_var_arrays['prior_vmrfile'] = np.full([nprior], None)
 
         for (vkey, vfxn) in cu.geos_version_keys_and_fxns():
             gv_max_len = _get_geos_version_max_length(prior_data, vkey)
             for gkey in geos_version_keys:
                 gv_varname = vfxn(gkey)
                 cu.add_geos_version_variables(nc_data, gv_max_len, gv_varname, is_classic=True)
+                if expand_priors:
+                    prior_var_arrays[gv_varname] = np.full([nprior], None)
     else:
-        prior_modfile_var = nc_data.createVariable('prior_modfile',str,('prior_time',))
-        prior_vmrfile_var = nc_data.createVariable('prior_vmrfile',str,('prior_time',))
+        prior_modfile_var = nc_data.createVariable('prior_modfile', str, (time_var,), zlib=True, complevel=9)
+        if expand_priors:
+            prior_var_arrays['prior_modfile'] = np.full([nprior], None)
+        prior_vmrfile_var = nc_data.createVariable('prior_vmrfile', str, (time_var,), zlib=True, complevel=9)
+        if expand_priors:
+            prior_var_arrays['prior_vmrfile'] = np.full([nprior], None)
         for (vkey, vfxn) in cu.geos_version_keys_and_fxns():
             gv_max_len = _get_geos_version_max_length(prior_data, vkey)
             for gkey in geos_version_keys:
                 gv_varname = vfxn(gkey)
                 cu.add_geos_version_variables(nc_data, gv_max_len, gv_varname, is_classic=False)
+                if expand_priors:
+                    prior_var_arrays[gv_varname] = np.full([nprior], None)
 
     att_dict = {
         "standard_name":'prior_modfile',
@@ -94,7 +136,7 @@ def _create_unexpanded_priors_vars(nc_data, prior_data, nlev: int, ncell: int, c
     nc_data['prior_vmrfile'].setncatts(att_dict)
 
     prior_var_list += ['effective_latitude','mid_tropospheric_potential_temperature']
-    nc_data.createVariable('prior_effective_latitude',np.float32,('prior_time',))
+    nc_data.createVariable('prior_effective_latitude', np.float32, (time_var,), zlib=True, complevel=9)
     att_dict = {
         "standard_name": 'prior_effective_latitude',
         "long_name": 'prior effective latitude',
@@ -102,8 +144,10 @@ def _create_unexpanded_priors_vars(nc_data, prior_data, nlev: int, ncell: int, c
         "units": UNITS_DICT['prior_effective_latitude'],
     }
     nc_data['prior_effective_latitude'].setncatts(att_dict)
+    if expand_priors:
+        prior_var_arrays['prior_effective_latitude'] = np.full([nprior], np.nan, dtype=np.float32)
 
-    nc_data.createVariable('prior_mid_tropospheric_potential_temperature',np.float32,('prior_time',))
+    nc_data.createVariable('prior_mid_tropospheric_potential_temperature', np.float32, (time_var,), zlib=True, complevel=9)
     att_dict = {
         "standard_name": 'prior_mid_tropospheric_potential_temperature',
         "long_name": 'prior mid-tropospheric potential temperature',
@@ -111,10 +155,12 @@ def _create_unexpanded_priors_vars(nc_data, prior_data, nlev: int, ncell: int, c
         "units": UNITS_DICT['prior_mid_tropospheric_potential_temperature'],
     }
     nc_data['prior_mid_tropospheric_potential_temperature'].setncatts(att_dict)
+    if expand_priors:
+        prior_var_arrays['prior_mid_tropospheric_potential_temperature'] = np.full([nprior], np.nan, dtype=np.float32)
 
     cu.add_geos_version_var_attrs(nc_data, geos_version_keys)
 
-    return prior_var_list, geos_version_keys
+    return prior_var_list, geos_version_keys, prior_var_arrays
 
 
 
@@ -173,12 +219,10 @@ def _add_coords(nc_data, prior_data, nlev: int, ncell: int, priors_expanded: boo
 def _fill_unexpanded_prior_vars(nc_data, speclist, runlog_all_speclist, prior_data, prior_var_list, geos_version_keys, nlev, ncell):
     prior_spec_list = list(prior_data.keys())
     prior_index = _compute_prior_index_by_order(speclist=speclist, runlog_all_speclist=runlog_all_speclist, prior_spec_list=prior_spec_list)
+    # TODO: check if prior_index is valid and recalculate if not. Or just calculate by time difference to start.
     nc_data['prior_index'][:] = prior_index
 
-    special_prior_vars = ['tropopause_altitude','modfile','vmrfile','mid_tropospheric_potential_temperature','effective_latitude']
-    special_prior_vars += [cu.geos_version_varname(k) for k in geos_version_keys]
-    special_prior_vars += [cu.geos_file_varname(k) for k in geos_version_keys]
-    special_prior_vars += [cu.geos_checksum_varname(k) for k in geos_version_keys]
+    special_prior_vars, special_vars_map = _special_prior_vars_map(geos_version_keys)
     for prior_spec_id, prior_spectrum in enumerate(prior_spec_list):
         #for var in ['temperature','pressure','density','gravity','1h2o','1hdo','1co2','1n2o','1co','1ch4','1hf','1o2']:
         for var in prior_var_list:
@@ -190,16 +234,27 @@ def _fill_unexpanded_prior_vars(nc_data, speclist, runlog_all_speclist, prior_da
                     cell_var = 'cell_{}'.format(var)
                     nc_data[cell_var][prior_spec_id,0:ncell] = prior_data[prior_spectrum]['cell_data'][var].values
 
-        nc_data['prior_time'][prior_spec_id] = prior_data[prior_spectrum]['time']
-        nc_data['prior_tropopause_altitude'][prior_spec_id] = prior_data[prior_spectrum]['tropopause_altitude']
-        nc_data['prior_modfile'][prior_spec_id] = prior_data[prior_spectrum]['mod_file']
-        nc_data['prior_vmrfile'][prior_spec_id] = prior_data[prior_spectrum]['vmr_file']
-        nc_data['prior_effective_latitude'][prior_spec_id] = prior_data[prior_spectrum]['effective_latitude']
-        nc_data['prior_mid_tropospheric_potential_temperature'][prior_spec_id] = prior_data[prior_spectrum]['mid_tropospheric_potential_temperature']
-        for k in geos_version_keys:
-            nc_data[cu.geos_version_varname(k)][prior_spec_id] = prior_data[prior_spectrum]['geos_versions'][k]
-            nc_data[cu.geos_file_varname(k)][prior_spec_id] = prior_data[prior_spectrum]['geos_filenames'][k]
-            nc_data[cu.geos_checksum_varname(k)][prior_spec_id] = prior_data[prior_spectrum]['geos_checksums'][k]
+
+        for nc_var, dict_index in special_vars_map.items():
+            nc_data[nc_var][prior_spec_id] = dict_index.get(prior_data[prior_spectrum])
+
+
+def _special_prior_vars_map(geos_version_keys):
+    # Grr - modfile and vmrfile must not have underscores in the special variable list,
+    # because they don't have underscores in the output variable name. But they _do_ in
+    # the prior_data dict, so they have to get special treatment.
+    spv = ['time', 'tropopause_altitude', 'modfile', 'vmrfile', 'effective_latitude', 'mid_tropospheric_potential_temperature']
+    spv_map = {f'prior_{v}': cu.DictMultiIndex(v) for v in spv if v not in {'modfile', 'vmrfile'}}
+    spv_map['prior_modfile'] = cu.DictMultiIndex('mod_file')
+    spv_map['prior_vmrfile'] = cu.DictMultiIndex('vmr_file')
+    for k in geos_version_keys:
+        spv.append(cu.geos_version_varname(k))
+        spv_map[cu.geos_version_varname(k)] = cu.DictMultiIndex('geos_versions', k)
+        spv.append(cu.geos_file_varname(k))
+        spv_map[cu.geos_file_varname(k)] = cu.DictMultiIndex('geos_filenames', k)
+        spv.append(cu.geos_checksum_varname(k))
+        spv_map[cu.geos_checksum_varname(k)] = cu.DictMultiIndex('geos_checksums', k)
+    return spv, spv_map
 
 
 def _compute_prior_index_by_order(speclist, prior_spec_list, runlog_all_speclist):

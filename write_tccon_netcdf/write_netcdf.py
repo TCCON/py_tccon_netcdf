@@ -1909,7 +1909,10 @@ def main():
         # priors and cell variables
         logging.info('\t- Prior and cell variables')
         if args.expand_priors:
-            pass
+            add_priors.add_expanded_priors(
+                nc_data=nc_data, prior_data=prior_data, speclist=aia_data['spectrum'].values, runlog_all_speclist=runlog_all_speclist,
+                nlev=nlev, ncell=ncell, classic=classic
+            )
         else:
             add_priors.add_unexpanded_priors(
                 nc_data=nc_data, prior_data=prior_data, speclist=aia_data['spectrum'].values, runlog_all_speclist=runlog_all_speclist,

@@ -662,3 +662,13 @@ def _effective_vertical_path(z, zmin, d):
     vpath[klev] += dz * (1-xo) * (1+xo+xl*(1+2*xo)/3 + (xl**2)*(1+3*xo)/12 - (xl**3)*(1+4*xo)/60)/2
 
     return vpath
+
+
+class DictMultiIndex:
+    def __init__(self, *keys):
+        self.keys = keys
+
+    def get(self, d):
+        for k in self.keys:
+            d = d[k]
+        return d
