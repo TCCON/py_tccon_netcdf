@@ -488,15 +488,15 @@ def hash_array(x):
     return hash_x
 
 
-def add_geos_version_variables(nc_data, gv_len, varname, is_classic):
+def add_geos_version_variables(nc_data, gv_len, varname, is_classic, time_dim='prior_time'):
     if is_classic:
         gv_dim = f'a{gv_len}'
         if gv_dim not in nc_data.dimensions.keys():
             nc_data.createDimension(gv_dim, gv_len)
-        geos_version_var = nc_data.createVariable(varname, 'S1', ('prior_time', gv_dim))
+        geos_version_var = nc_data.createVariable(varname, 'S1', (time_dim, gv_dim))
         geos_version_var._Encoding = 'ascii'
     else:
-        geos_version_var = nc_data.createVariable(varname, str, ('prior_time',))
+        geos_version_var = nc_data.createVariable(varname, str, (time_dim,))
     return geos_version_var
 
 
@@ -558,8 +558,11 @@ def geos_checksum_varname(key):
     return f'geos_{key.lower()}_checksum'
 
 
-def add_effective_path(ds, is_public):
-    if 'effective_path_length' in ds.variables.keys():
+def add_effective_path(ds, is_public, zmin=None, prior_alts=None):
+    if isinstance(ds, dict) and 'effective_path_length' in ds.keys():
+        logging.info('Effective path length already present, not recomputing')
+        return 
+    elif not isinstance(ds, dict) and 'effective_path_length' in ds.variables.keys():
         logging.info('Effective path length already present, not recomputing')
         return 
     elif is_public:
@@ -567,9 +570,11 @@ def add_effective_path(ds, is_public):
         return
 
     prior_nair = ds['prior_density'][:]
-    prior_alts = ds['prior_altitude'][:]
+    if prior_alts is None:
+        prior_alts = ds['prior_altitude'][:]
     prior_index = ds['prior_index'][:]
-    zmin = ds['zmin'][:]
+    if zmin is None:
+        zmin = zmin or ds['zmin'][:]
     zmin_quant = np.round(zmin, 5)
 
     df = pd.DataFrame({'zmin': zmin_quant, 'prior_index': prior_index})
@@ -586,15 +591,23 @@ def add_effective_path(ds, is_public):
         p = 1e5 * _effective_vertical_path(prior_alts, zm, prior_nair[pidx])
         eff_path[subdf.index] = p
 
+    if isinstance(ds, dict):
+        ds['effective_path_length'] = eff_path
+    else:
+        var = add_effective_path_variable(ds)
+        var[:] = eff_path
+    logging.info('Effective vertical path calculation complete')
+
+
+def add_effective_path_variable(ds):
     var = ds.createVariable('effective_path_length', 'f4', dimensions=('time', 'prior_altitude'),zlib=True,complevel=9)
-    var[:] = eff_path
     # Don't think there's a good standard name for this variable!
     var.setncatts({
         'long_name': 'effective path length',
         'description': 'path length used by GGG when integrating column densities',
         'units': 'cm'
     })
-    logging.info('Effective vertical path calculation complete')
+    return var
 
 
 def _effective_vertical_path(z, zmin, d):

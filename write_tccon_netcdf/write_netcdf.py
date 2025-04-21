@@ -1899,28 +1899,7 @@ def main():
 
 
         logging.info('Creating variables')
-        logging.info('\t- Averaging kernels')
-        # averaging kernels
-        if args.expand_aks:
-            add_aks.add_expanded_aks_to_ds(nc_data)
-        else:
-            add_aks.add_table_aks_to_ds(nc_data)
  
-        # priors and cell variables
-        logging.info('\t- Prior and cell variables')
-        if args.expand_priors:
-            add_priors.add_expanded_priors(
-                nc_data=nc_data, prior_data=prior_data, speclist=aia_data['spectrum'].values, runlog_all_speclist=runlog_all_speclist,
-                nlev=nlev, ncell=ncell, classic=classic
-            )
-        else:
-            add_priors.add_unexpanded_priors(
-                nc_data=nc_data, prior_data=prior_data, speclist=aia_data['spectrum'].values, runlog_all_speclist=runlog_all_speclist,
-                nlev=nlev, ncell=ncell, classic=classic
-            )
-        logging.info('Finished writing prior data')
-        del prior_data
-        gc.collect()
 
         # checksums
         logging.info('\t- Checksums')
@@ -2544,8 +2523,6 @@ def main():
                     checksum_var = var+'_checksum'
                     for i in range(aia_data['spectrum'].size):
                         nc_data[checksum_var][i] = checksum_dict[checksum_var]
-                del aia_data
-                gc.collect()
             # end of if col_file == col_file_list[0]:
 
             if col_data.shape[0] != cbf_data.shape[0]: # do this first since it's faster than the check on spectra
@@ -2635,6 +2612,30 @@ def main():
         # end of for col_id,col_file in enumerate(col_file_list)
         del col_data, cbf_data
         gc.collect()
+
+        # priors and cell variables
+        logging.info('\t- Prior and cell variables')
+        if args.expand_priors:
+            add_priors.add_expanded_priors(
+                nc_data=nc_data, prior_data=prior_data, speclist=aia_data['spectrum'].values, runlog_all_speclist=runlog_all_speclist,
+                nlev=nlev, ncell=ncell, classic=classic
+            )
+        else:
+            add_priors.add_unexpanded_priors(
+                nc_data=nc_data, prior_data=prior_data, speclist=aia_data['spectrum'].values, runlog_all_speclist=runlog_all_speclist,
+                nlev=nlev, ncell=ncell, classic=classic
+            )
+        logging.info('Finished writing prior data')
+        del prior_data
+        gc.collect()
+
+        # Averaging kernels now have to be added after the .col files since we need the O2 airmass variable.
+        logging.info('\t- Averaging kernels')
+        # averaging kernels
+        if args.expand_aks:
+            add_aks.add_expanded_aks_to_ds(nc_data)
+        else:
+            add_aks.add_table_aks_to_ds(nc_data)
 
         # read the data from missing_data.json and update data with fill values to the netCDF4 default fill value
         """

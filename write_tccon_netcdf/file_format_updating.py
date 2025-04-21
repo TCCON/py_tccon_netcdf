@@ -95,7 +95,7 @@ def add_geos_versions_by_date(ds):
             gv_values = checksums
         else:
             raise NotImplementedError(f'GEOS information key {vkey}')
-        
+
         for gkey in geos_version_keys:
             gv_varname = vfxn(gkey)
             if gv_varname not in ds.variables.keys():
@@ -185,7 +185,7 @@ def _fix_unspecified_units(ds):
             logging.debug('Setting {} units to "1"'.format(varname))
             if variable.units == '':
                 variable.units = '1'
-        
+
     # Special cases, units that weren't included in the original release but shouldn't just be "1"
     other_units = {
         'sia': 'AU'
@@ -257,7 +257,28 @@ def _insert_missing_aks(nc_data, xgas, is_public):
     ak_varname = f'ak_{xgas}'
 
     with Dataset(gp.ak_tables_nc_file()) as ak_nc:
-        if slant_xgas_varname not in nc_data.variables:
+        if ak_varname not in nc_data.variables:
+            logging.info(f'Adding {xgas} AK')
+            table_ak_var = f'{xgas}_aks'
+            nc_data.createVariable(ak_varname,np.float32,('ak_altitude','ak_slant_xgas_bin'))
+            att_dict = {
+                "standard_name": "{}_column_averaging_kernel".format(table_ak_var.strip('_aks')),
+                "long_name": "{} column averaging kernel".format(table_ak_var.strip('_aks')),
+                "description": ak_nc[table_ak_var].description.lower()+'. ',
+                "units": '',
+            }
+            if xgas.lower() == 'xlco2':
+                att_dict['description'] = att_dict['description']+SPECIAL_DESCRIPTION_DICT['lco2']
+            elif xgas.lower() == 'xwco2':
+                att_dict['description'] = att_dict['description']+SPECIAL_DESCRIPTION_DICT['wco2']
+            nc_data[ak_varname].setncatts(att_dict)
+            nc_data[ak_varname][:] = ak_nc[table_ak_var][:].data.astype(np.float32)
+            needs_slant_xgas_bins = True
+        else:
+            needs_slant_xgas_bins = nc_data[ak_varname].dimensions[0] != 'time'
+
+
+        if needs_slant_xgas_bins and slant_xgas_varname not in nc_data.variables:
             logging.info(f'Adding {xgas} slant bins for AKs')
 
             ak_bin_var = f'slant_{xgas}_bin'
@@ -277,22 +298,6 @@ def _insert_missing_aks(nc_data, xgas, is_public):
             else:
                 nc_data[slant_xgas_varname][:] = ak_nc[ak_bin_var][:].data.astype(np.float32)
 
-        if ak_varname not in nc_data.variables:
-            logging.info(f'Adding {xgas} AK')
-            table_ak_var = f'{xgas}_aks'
-            nc_data.createVariable(ak_varname,np.float32,('ak_altitude','ak_slant_xgas_bin'))
-            att_dict = {
-                "standard_name": "{}_column_averaging_kernel".format(table_ak_var.strip('_aks')),
-                "long_name": "{} column averaging kernel".format(table_ak_var.strip('_aks')),
-                "description": ak_nc[table_ak_var].description.lower()+'. ',
-                "units": '',
-            }
-            if xgas.lower() == 'xlco2':
-                att_dict['description'] = att_dict['description']+SPECIAL_DESCRIPTION_DICT['lco2']
-            elif xgas.lower() == 'xwco2':
-                att_dict['description'] = att_dict['description']+SPECIAL_DESCRIPTION_DICT['wco2']
-            nc_data[ak_varname].setncatts(att_dict)
-            nc_data[ak_varname][:] = ak_nc[table_ak_var][:].data.astype(np.float32)
 
 
 
