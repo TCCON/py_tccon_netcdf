@@ -160,6 +160,7 @@ def update_o2_and_aicfs(ds, mode):
             if aicf_varname not in ds.variables.keys():
                 raise RuntimeError(f'{xgas_varname} has an entry in the new AICFs dictionary, but no AICF variable - this should not happen')
 
+            logging.info(f'Updating {xgas_varname} with new AICF and O2 DMFs')
             new_aicf, new_aicf_error = aicfs[xgas_varname]
 
             # First the Xgas values, ensure that the standard and long name attributes match the variable name
@@ -183,6 +184,7 @@ def update_o2_and_aicfs(ds, mode):
             if aicf_varname in ds.variables.keys():
                 raise RuntimeError(f'{xgas_varname} does not have an entry in the new AICFs dictionary, but DOES have an AICF variable ({aicf_varname}) - this implies that the AICFs dictionary is incomplete.')
 
+            logging.info(f'Updating {xgas_varname} with new O2 DMFs only')
             # The x2019 netCDF variables (which need the unscaled_values and unscaled_error_values variables)
             # should by definition have AICF values - otherwise they are not tied to an in situ scale.
             if create_x2019:
@@ -197,6 +199,7 @@ def update_o2_and_aicfs(ds, mode):
 
         if create_x2019:
             xgas = xgas_varname.split('_')[0]
+            logging.info(f'Creating X2019 version of {xgas}')
             add_x2019_xco2(ds, xgas, unscaled_values, unscaled_error_values, aicfs)
 
     # Confirm that all of the expected x2019 gases were added
@@ -208,6 +211,7 @@ def update_o2_and_aicfs(ds, mode):
             raise RuntimeError(f'Some x2019 gases were not added {", ".join(missed_xgases)}')
 
     # Create a new variable that stores the O2 DMF
+    logging.info('Creating the O2 mean DMF variable')
     o2_var = ds.createVariable(DEFAULT_O2_DMF_VARNAME, 'f4', dimensions=('time',))
     o2_var[:] = new_o2_dmfs
     o2_var.description = 'Global mean O2 dry mole fraction used to calculate the Xgas column averages; Xgas = column_gas / column_2 * o2_dmf'

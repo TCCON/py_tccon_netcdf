@@ -161,6 +161,7 @@ def create_observation_operator_variable(
     varname
         The name to give the intergration operator variable.
     """
+    logging.info('Creating observation operator variable')
     if isinstance(eff_path, str):
         assert ds[eff_path].units == 'cm'
         eff_path = ds[eff_path][:]
@@ -208,6 +209,7 @@ def create_tccon_prior_xgas_variables(ds, o2_dmf: Union[str, np.ndarray] = DEFAU
         if ovc_var not in ds.variables.keys():
             logging.warning(f'{ovc_var} missing from the private file, unexpected for TCCON products')
             continue
+        logging.info(f'Creating prior Xgas for {xgas_var} from {ovc_var}')
         desired_units = ds[xgas_var].units
         conv_factor = MOLE_FRACTION_CONVERSIONS[desired_units]
         col = ds[ovc_var][:]
@@ -312,7 +314,7 @@ def collect_ovc_vars(ds, xgas_vars=None):
             for ovc_var in ovc_by_xgas[xgas_var]:
                 if not ovc_var.endswith(('_si', '_insb')):
                     xgas_to_ovc[xgas_var] = ovc_var
-                    
+
         if xgas_var not in xgas_to_ovc:
             raise KeyError(f'OVC variable not found for {xgas_var}')
 
@@ -394,8 +396,8 @@ def get_file_format_version(ds) -> FileFmtVer:
         return FileFmtVer('2020.A')
 
 
-def add_geos_version_variables(nc_data, gv_len, varname, is_classic):
-    if is_classic:
+def add_geos_version_variables(nc_data, gv_len, varname, is_classic, allow_string_type=False):
+    if is_classic or not allow_string_type:
         gv_dim = f'a{gv_len}'
         if gv_dim not in nc_data.dimensions.keys():
             nc_data.createDimension(gv_dim, gv_len)

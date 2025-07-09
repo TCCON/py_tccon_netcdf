@@ -64,13 +64,22 @@ def _copy_variable(ncin: netCDF4.Dataset, ncout: netCDF4.Dataset, varname: str, 
             raise NotImplementedError('Error copying variable "{}": {} dimension is not first'.format(v.name, dimname))
 
     def copy_var_data(v_in, v_out, inds):
+        if v_in.dtype == str:
+            # String variables must be copied in a loop as far as I know
+            if v_in.ndim != 1:
+                raise NotImplementedError('Copying string variables with >1 dimension not implemented')
+            data = v_in[:]
+            for i_out, i_in in enumerate(inds):
+                v_out[i_out] = data[i_in]
+            return
+
         if v_in.dtype.kind == 'U':
             # This should be very similar to copying string arrays, but I'm not entirely sure how unicode types
             # get encoded in netCDF, so we'll leave that until we have an example
             raise NotImplementedError('Copying unicode variables not implemented')
 
         if v_in.dtype.kind == 'S':
-            # String variables present a bit of a challenge - they get read from the netCDF file as 1D arrays,
+            # Character variables present a bit of a challenge - they get read from the netCDF file as 1D arrays,
             # but need written as 2D (regular index + string length). So we need to convert them from 1D string
             # arrays to 2D char arrays.
             if v_in.ndim != 2:
@@ -78,8 +87,10 @@ def _copy_variable(ncin: netCDF4.Dataset, ncout: netCDF4.Dataset, varname: str, 
             dtype = 'S{}'.format(v_in.shape[1])
             char_array = netCDF4.stringtochar(np.array(v_in[inds], dtype))
             v_out[:] = char_array
-        else:
-            v_out[:] = v_in[inds]
+            return
+
+        # Default for numeric data
+        v_out[:] = v_in[inds]
 
     var_in = ncin.variables[varname]
     if 'time' in var_in.dimensions and 'prior_time' in var_in.dimensions:
