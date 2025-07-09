@@ -2586,6 +2586,7 @@ def main():
                 "units": qc_data['unit'][qc_id].replace('(','').replace(')','').strip(),
                 "vmin": qc_data['vmin'][qc_id],
                 "vmax": qc_data['vmax'][qc_id],
+                "oof_scaling": qc_data['scale'][qc_id],
                 "precision": qc_data['format'][qc_id],
             }
             nc_data[xvarname].setncatts(att_dict)
