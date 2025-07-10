@@ -56,7 +56,12 @@ def driver(netcdf_file: os.PathLike, mode: str = 'TCCON', tgt_ver: cu.FileFmtVer
 
 
 def ggg2020a_to_ggg2020c(ds, is_public, mode):
-    # inserting missing AKs should come first so they get the missing attributes added
+    # fix the prior index if necessary first so that any later calculations that
+    # depend on it are done correctly
+    if not is_public:
+        check_and_fix_prior_index(ds)
+
+    # inserting missing AKs should come early so they get the missing attributes added
     # and incorrect units fixed just like the other AK variables.
     _insert_missing_aks(ds, 'xhdo', is_public)
     _fix_unspecified_units(ds)
@@ -74,6 +79,15 @@ def ggg2020a_to_ggg2020c(ds, is_public, mode):
     # undo the GGG2020 X2019 variable O2 mole fraction.
     write_file_fmt_attrs(ds, FILE_FMT_V2020pC)
     cu.add_effective_path(ds, is_public)
+
+
+def check_and_fix_prior_index(ds):
+    if not cu.check_prior_index(ds):
+        logging.warning('The existing prior indices are incorrect based on the time/prior_time differences; they will be recalculated')
+        cu.correct_prior_index(ds)
+    else:
+        logging.info('The existing prior indices appear correct, not recalculating')
+
 
 
 def add_geos_versions_by_date(ds):
@@ -95,7 +109,7 @@ def add_geos_versions_by_date(ds):
             gv_values = checksums
         else:
             raise NotImplementedError(f'GEOS information key {vkey}')
-        
+
         for gkey in geos_version_keys:
             gv_varname = vfxn(gkey)
             if gv_varname not in ds.variables.keys():
@@ -185,7 +199,7 @@ def _fix_unspecified_units(ds):
             logging.debug('Setting {} units to "1"'.format(varname))
             if variable.units == '':
                 variable.units = '1'
-        
+
     # Special cases, units that weren't included in the original release but shouldn't just be "1"
     other_units = {
         'sia': 'AU'
