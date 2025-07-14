@@ -28,7 +28,8 @@ import gc
 
 from . import common_utils as cu
 from . import get_paths as gp
-from .file_format_updating import ggg2020a_to_ggg2020c, write_file_fmt_attrs
+from . import daily_error
+from .file_format_updating import ggg2020a_to_ggg2020c, write_file_fmt_attrs, is_file_current_version, vCurrent
 from .constants import (
     CHECKSUM_VAR_LIST,
     FILE_FMT_V2020pC,
@@ -1684,7 +1685,15 @@ def main():
     parser.add_argument('--no-rename-by-dates', action='store_false', dest='rename_by_dates', help='For public files, do not rename the output file to match the range of data available.')
     args = parser.parse_args()
     logger, show_progress, HEAD_commit = cu.setup_logging(log_level=args.log_level, log_file=args.log_file, message=args.message, to_stdout=args.log_to_stdout)
-    
+
+    try:
+        main_inner(args=args, logger=logger, show_progress=show_progress, HEAD_commit=HEAD_commit, code_dir=code_dir, GGGPATH=GGGPATH)
+    except Exception:
+        logger.exception('FAILURE: THE NETCDF FILE IS INCOMPLETE. The following error occurred:')
+        raise
+   
+
+def main_inner(args, logger, show_progress, HEAD_commit, code_dir, GGGPATH):
     if not args.rflag and args.rflag_file is not None:
         logging.warning('Specifying --rflag-file without using --rflag has no effect')
     args.rflag_file = gp.release_flags_json(args.rflag_file)
@@ -1709,8 +1718,9 @@ def main():
             # file. Since public file production occurs on tccondata.org, we don't want to
             # rely on a GGG installation.
             private_nc_file = set_release_flags(private_nc_file,args.rflag_file,qc_file=qc_file)
-            with netCDF4.Dataset(private_nc_file, 'a') as privds:
-                ggg2020a_to_ggg2020c(privds, is_public=False, mode=args.mode)
+            if not is_file_current_version(private_nc_file):
+                logging.warning(f'{private_nc_file} is not the current file format version ({vCurrent}). Please investigate if this is not expected!')
+
             if not args.public:
                 sys.exit()
         logging.info('Writing public file from {}'.format(private_nc_file))
@@ -2630,6 +2640,9 @@ def main():
                         nc_var.description += SPECIAL_DESCRIPTION_DICT[key]
         del tav_data, vav_data, ada_data
         gc.collect()
+
+        # daily error data
+        daily_error.write_daily_esf_data(nc_data, esf_data)
 
         # lse data
         logging.info('\t- .lse')

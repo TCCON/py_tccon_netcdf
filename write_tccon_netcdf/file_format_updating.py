@@ -9,6 +9,7 @@ import re
 
 from . import common_utils as cu
 from . import get_paths as gp
+from . import daily_error
 from .make_ggg2020_1 import driver as ggg2020c_to_ggg2020p1a
 from .constants import FILE_FMT_V2020pC, FILE_FMT_V2020p1pA, LOG_LEVEL_CHOICES, SPECIAL_DESCRIPTION_DICT, NETWORK_MODES
 
@@ -17,6 +18,7 @@ v2020A = cu.FileFmtVer('2020.A')
 v2020B = cu.FileFmtVer('2020.B')
 v2020C = cu.FileFmtVer(FILE_FMT_V2020pC)
 v2020p1A = cu.FileFmtVer(FILE_FMT_V2020p1pA)
+vCurrent = v2020p1A
 
 def main():
     p = ArgumentParser(description='Update a TCCON netCDF file format version')
@@ -55,6 +57,17 @@ def driver(netcdf_file: os.PathLike, mode: str = 'TCCON', tgt_ver: cu.FileFmtVer
         ggg2020c_to_ggg2020p1a(netcdf_file, mode=mode, in_place=True)
 
 
+def is_file_current_version(netcdf_file: os.PathLike):
+    with Dataset(netcdf_file) as ds:
+        try:
+            file_fmt_str = ds.file_format_version
+        except AttributeError:
+            return False
+        else:
+            file_fmt_ver = cu.FileFmtVer(file_fmt_str)
+            return file_fmt_ver == vCurrent
+
+
 def ggg2020a_to_ggg2020c(ds, is_public, mode):
     # fix the prior index if necessary first so that any later calculations that
     # depend on it are done correctly
@@ -74,6 +87,9 @@ def ggg2020a_to_ggg2020c(ds, is_public, mode):
         # The public file should not include the detailed GEOS file information;
         # so don't try to re-add these variables when working with public files.
         add_geos_versions_by_date(ds)
+
+        # The public file also should not include the daily error data
+        _insert_daily_error_variables(ds)
     # Starting with GGG2020.1, x2019 variables will be handled by the separate program to
     # convert GGG2020 files to GGG2020.1 - this just makes things easier than trying to
     # undo the GGG2020 X2019 variable O2 mole fraction.
@@ -308,6 +324,15 @@ def _insert_missing_aks(nc_data, xgas, is_public):
             nc_data[ak_varname].setncatts(att_dict)
             nc_data[ak_varname][:] = ak_nc[table_ak_var][:].data.astype(np.float32)
 
+
+def _insert_daily_error_variables(nc_data):
+    if 'daily_error_date' in nc_data.dimensions.keys():
+        logging.info('Daily error dimension present, assuming the daily error variables have already been written')
+        return
+
+    logging.info('Adding daily error variables with fill values')
+    dummy_esf_df = daily_error.make_dummy_esf_df(nc_data)
+    daily_error.write_daily_esf_data(nc_data, dummy_esf_df)
 
 
 def write_file_fmt_attrs(ds, file_fmt_version):
