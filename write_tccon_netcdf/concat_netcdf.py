@@ -33,6 +33,8 @@ _DEFAULT_TEST_VARS = ('time', 'xluft', 'xco2', 'xch4',
                       'prior_time', 'prior_1co2', 'prior_effective_latitude',
                       'ak_xco2', 'ak_xch4', 'ak_slant_xco2_bin', 'ak_slant_xch4_bin')
 
+_TIME_DIMS = ('prior_time', 'time', 'daily_error_date')
+
 def test_main(orig_files, concat_file, test_variables=_DEFAULT_TEST_VARS, verbose=True):
     ecode = 0
     with ExitStack() as stack:
@@ -69,9 +71,9 @@ def test_main(orig_files, concat_file, test_variables=_DEFAULT_TEST_VARS, verbos
         print('{} FAILS'.format(concat_file))
 
     return ecode
-                
 
-                
+
+
 def compare_variables(concat_ds, orig_ds, inds, varname, verbose=True):
     if varname not in orig_ds.variables.keys():
         # This variable wasn't in this original file, so the concatenated dataset should be all
@@ -193,6 +195,36 @@ def get_first_variable(ncin_list, varname):
 
 
 
+def calc_char_dim_lengths(ncin_list):
+    var_dims = dict()
+    for ncin in ncin_list:
+        for varname, var in ncin.variables.items():
+            if has_char_dim(var):
+                curr_max = var_dims.setdefault(varname, 0)
+                var_dims[varname] = max(curr_max, char_dim_len(ncin, var))
+    return var_dims
+
+
+def is_char_dim(dimname):
+    return re.match(r'a\d+$', dimname) is not None
+
+
+def has_char_dim(ncvar):
+    for dimname in ncvar.dimensions:
+        if is_char_dim(dimname):
+            return True
+
+    return False
+
+
+def char_dim_len(ncin, ncvar):
+    for dimname in ncvar.dimensions:
+        if is_char_dim(dimname):
+            return ncin.dimensions[dimname].size
+
+    raise ValueError('No character dimension found')
+
+
 def main():
     parser = argparse.ArgumentParser(description="Concatenate netCDF files that are in the given directory")
     parser.add_argument('path',help='full path to a folder containing netCDF files')
@@ -260,18 +292,18 @@ def main():
         else:
             extension = list(extension)[0]
 
-        # verify that dimensions other than time, prior_time, and specname have the same length across all files,
-        # and that all files have the same dimensions. 
-        first_file_dim_lengths = {name: len(dim) for name, dim in ncin_list[0].dimensions.items()}
+        # verify that dimensions other than time, prior_time, daily_error_date, specname and other character dimensions
+        # have the same length across all files, and that all files have the same dimensions (excluding character dims).
+        first_file_dim_lengths = {name: len(dim) for name, dim in ncin_list[0].dimensions.items() if not is_char_dim(name)}
         for ncin in ncin_list[1:]:
-            other_file_dim_lengths = {name: len(dim) for name, dim in ncin.dimensions.items()}
+            other_file_dim_lengths = {name: len(dim) for name, dim in ncin.dimensions.items() if not is_char_dim(name)}
             if first_file_dim_lengths.keys() != other_file_dim_lengths.keys():
                 print('ERROR: {} and {} have different dimensions!'.format(ncin_list[0].filepath(), ncin.filepath()), file=sys.stderr)
                 print_collection_diffs(ncin_list[0].filepath(), first_file_dim_lengths.keys(), ncin.filepath(), other_file_dim_lengths.keys(), stream=sys.stderr)
                 sys.exit(1)
 
             common_dims = set(first_file_dim_lengths.keys()).intersection(other_file_dim_lengths.keys())
-            unequal_dims = [d for d in common_dims if d not in ('time', 'prior_time', 'specname') and first_file_dim_lengths[d] != other_file_dim_lengths[d]]
+            unequal_dims = [d for d in common_dims if d not in _TIME_DIMS + ('specname',) and first_file_dim_lengths[d] != other_file_dim_lengths[d]]
             if len(unequal_dims) > 0:
                 print('ERROR: {} and {} have {} common non-time dimensions with different lengths'.format(ncin_list[0].filepath(), ncin.filepath(), len(unequal_dims)), file=sys.stderr)
                 print_differing_values(ncin_list[0].filepath(), first_file_dim_lengths, ncin.filepath(), other_file_dim_lengths, common_vals=unequal_dims)
@@ -305,8 +337,10 @@ def main():
 
         nspec = np.sum([ncin['time'].size for ncin in ncin_list]) # total size of the output time variable
         nprior = np.sum([ncin['prior_time'].size for ncin in ncin_list]) # total size of the output prior_time variable
+        ndaily = np.sum([ncin['daily_error_date'].size for ncin in ncin_list])
         print('Output time dimension size:',nspec)
         print('Output prior_time dimension size:',nprior)
+        print('Output daily_error_date dimension size:', ndaily)
 
         # Figure out the union of variables across all input files, keeping variable order as much as possible.
         # This is necessary if concatenating files containing different detectors, i.e. one is InGaAs+Si and one
@@ -336,15 +370,22 @@ def main():
         # and dimensions other than time, prior_time, and specname have the same length, so we can copy
         # from the first file safely. 
         speclength = np.max([ncin.dimensions['specname'].size for ncin in ncin_list])
+        char_dim_lens_by_var = calc_char_dim_lengths(ncin_list)
         for name, dimension in ncin_list[0].dimensions.items():
             if name == 'time':
                 ncout.createDimension(name, nspec)
             elif name == 'prior_time':
                 ncout.createDimension(name, nprior)
+            elif name == 'daily_error_date':
+                ncout.createDimension(name, ndaily)
             elif name == 'specname':
                 ncout.createDimension(name, speclength)
-            else:
+            elif not is_char_dim(name):
                 ncout.createDimension(name, (len(dimension) if not dimension.isunlimited() else None))
+
+        # For the character lengths, make one dimension per unique maximum length
+        for n in sorted(set(char_dim_lens_by_var.values())):
+            ncout.createDimension(f'a{n}', n)
 
         varcount = 0
         nvar = len(all_variables)
@@ -358,8 +399,8 @@ def main():
 
             # Set the values of non-time coordinate variables. Should only need to do
             # this from one file; if other 
-            is_nontime_dim = (name not in ['prior_time','time']) and (name in list(ncout.dimensions))
-            has_no_time_dim = all(d not in variable.dimensions for d in ['prior_time','time'])
+            is_nontime_dim = (name not in _TIME_DIMS) and (name in list(ncout.dimensions))
+            has_no_time_dim = all(d not in variable.dimensions for d in _TIME_DIMS)
             if is_nontime_dim or has_no_time_dim:
                 # First verify that the value is the same across all file
                 for ncin in ncin_list[1:]:
@@ -380,14 +421,16 @@ def main():
             # - both give then the ascii encoding _and_ handle if their second dimension
             # varies from file to file - we'd want to use the largest dimension for the
             # concatenated file.
-            if 'a32' in variable.dimensions or 'specname' in variable.dimensions:
+            if has_char_dim(variable) or 'specname' in variable.dimensions:
                 ncout[name]._Encoding = 'ascii'
 
             spec_count = 0
             prior_count = 0
+            daily_error_count = 0
             for ncin in ncin_list:
                 time_size = ncin['time'].size
                 prior_time_size = ncin['prior_time'].size
+                daily_error_size = ncin['daily_error_date'].size
 
                 if name not in ncin.variables.keys():
                     # If concatenating files containing different detectors (e.g. InGaAs+Si or InGaAs+InSb),
@@ -395,21 +438,26 @@ def main():
                     # that case, but don't skip the whole rest of the loop, because we need to advance spec_count
                     # and prior_count
                     pass
-                elif 'prior_time' in ncin[name].dimensions and 'a32' not in ncin[name].dimensions:
+                elif 'prior_time' in ncin[name].dimensions and not has_char_dim(ncin[name]):
                     ncout[name][prior_count:prior_count+prior_time_size] = ncin[name][:]
-                elif 'prior_time' in ncin[name].dimensions and 'a32' in ncin[name].dimensions:
-                    ncout[name][prior_count:prior_count+prior_time_size] = netCDF4.stringtochar(np.array(ncin[name][:],'S32'))
+                elif 'prior_time' in ncin[name].dimensions and has_char_dim(ncin[name]):
+                    n = char_dim_lens_by_var[name]
+                    ncout[name][prior_count:prior_count+prior_time_size] = netCDF4.stringtochar(np.array(ncin[name][:],f'S{n}'))
                 elif name == 'prior_index': # special case, need to add prior_count to it to properly sample along the concatenated prior_time dimension
                     ncout[name][spec_count:spec_count+time_size] = ncin[name][:] + prior_count
-                elif 'time' in ncin[name].dimensions and 'a32' not in ncin[name].dimensions and 'specname' not in ncin[name].dimensions:
+                elif 'time' in ncin[name].dimensions and not has_char_dim(ncin[name]) and 'specname' not in ncin[name].dimensions:
                     ncout[name][spec_count:spec_count+time_size] = ncin[name][:]
-                elif 'time' in ncin[name].dimensions and 'a32' in ncin[name].dimensions:
-                    ncout[name][spec_count:spec_count+time_size] = netCDF4.stringtochar(np.array(ncin[name][:],'S32'))
+                elif 'time' in ncin[name].dimensions and has_char_dim(ncin[name]):
+                    n = char_dim_lens_by_var[name]
+                    ncout[name][spec_count:spec_count+time_size] = netCDF4.stringtochar(np.array(ncin[name][:],f'S{n}'))
                 elif 'time' in ncin[name].dimensions and 'specname' in ncin[name].dimensions:
-                    ncout[name][spec_count:spec_count+time_size] = netCDF4.stringtochar(np.array(ncin[name][:],'S{}'.format(speclength)))
-                
+                    ncout[name][spec_count:spec_count+time_size] = netCDF4.stringtochar(np.array(ncin[name][:],f'S{speclength}'))
+                elif 'daily_error_date' in ncin[name].dimensions:
+                    ncout[name][daily_error_count:daily_error_count+daily_error_size] = ncin[name][:]
+
                 spec_count += time_size
                 prior_count += prior_time_size
+                daily_error_count += daily_error_size
             # end of for ncin
         # end of for name,variable
     # end of with statement

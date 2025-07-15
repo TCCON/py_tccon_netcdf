@@ -82,7 +82,7 @@ def write_daily_esf_data(ds: Dataset, esf_df: pd.DataFrame) -> None:
     var[:] = esf_df.n.fillna(default_fillvals['u4']).to_numpy().astype(int)
 
     for colname, colvals in esf_df.items():
-        if colname in {'year', 'doy', 'n'}:
+        if colname in {'year', 'day', 'n'}:
             # Special case, already handled
             continue
 
