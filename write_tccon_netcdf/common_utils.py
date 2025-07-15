@@ -25,7 +25,7 @@ from .constants import (
     MOLE_FRACTION_CONVERSIONS,
 )
 
-from typing import Union
+from typing import Union, Sequence
 
 
 def raise_and_log(err):
@@ -629,3 +629,16 @@ def correct_prior_index(ds: netCDF4.Dataset, assign: bool = True) -> np.ndarray:
     if assign:
         ds['prior_index'][:] = new_indices
     return new_indices
+
+
+def grammatical_join(elements: Sequence[str], conjunction: str = 'and'):
+    n = len(elements)
+    if n == 0:
+        return ''
+    if n == 1:
+        return elements[0]
+    if n == 2:
+        return f'{elements[0]} {conjunction} {elements[1]}'
+
+    comma_list = ', '.join(elements[:-1])
+    return f'{comma_list}, {conjunction} {elements[-1]}'
