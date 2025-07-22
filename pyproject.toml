@@ -11,7 +11,7 @@ authors = [
 maintainers = [
 	{ name = "Joshua Laughner", email = "josh.laughner@jpl.nasa.gov" }
 ]
-description = "Write officient TCCON netCDF output file"
+description = "Write official TCCON netCDF output file"
 readme = "README.md"
 classifiers=[
 	"Operating System :: OS Independent",
