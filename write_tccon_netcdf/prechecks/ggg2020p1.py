@@ -42,6 +42,10 @@ def main():
                                          '(b) a map of netCDF files to labels for them to check against for duplicate times.')
     jsonp.set_defaults(ex_files_fxn=_get_files_json)
 
+    jsonclip = subp.add_parser('json-cl', help='Like "json", but passes the JSON as the command line argument')
+    jsonclip.add_argument('json_str', help='A JSON string with the same contents as the file for the "json" subcommand.')
+    jsonclip.set_defaults(ex_files_fxn=_get_files_json_str)
+
     p.epilog = (
         'If you do not specify any of the "files", "globs", or "json", then there will be no check for duplicate times. '
         'The exit codes are as follows: a 0 indicates that the file passed all checks (and the report has no information), '
@@ -81,6 +85,7 @@ def main():
 def _get_files_list(args):
     return args['files']
 
+
 def _get_files_glob(args):
     n = len(args['labels_and_globs'])
     if n % 2 != 0:
@@ -94,9 +99,15 @@ def _get_files_glob(args):
             files[f] = label
     return files
 
+
 def _get_files_json(args):
     with open(args['json_file']) as f:
         return json.load(f)
+
+
+def _get_files_json_str(args):
+    return json.loads(args['json_str'])
+
 
 def _get_no_files(args):
     return []

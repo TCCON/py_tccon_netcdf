@@ -152,7 +152,7 @@ def run_checks(target_file: os.PathLike, checks: Sequence[TcconPrecheck], summar
     summary_writer.write(max_severity.max_severity_message(target_basename))
     summary_writer.write('\n\nBelow is a summary of the issued identified. The meaning of the severity levels is as follows:\n')
     for severity in PrecheckSeverity:
-        summary_writer.write(f'- {severity.value}: {severity.meaning}\n')
+        summary_writer.write(f'- {severity.value.upper()}: {severity.meaning}\n')
     summary_writer.write('\n')
 
     for index, issue in enumerate(results, start=1):
