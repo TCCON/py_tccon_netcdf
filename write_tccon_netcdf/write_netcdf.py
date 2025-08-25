@@ -2023,8 +2023,8 @@ def main_inner(args, logger, show_progress, HEAD_commit, code_dir, GGGPATH):
         sys.exit(1)
 
     specdates = np.array([datetime(int(round(aia_data['year'][i]-aia_data['day'][i]/366.0)),1,1)+timedelta(days=aia_data['day'][i]-1) for i in range(nspec)])
-    start_date = datetime.strftime(specdates[0],'%Y%m%d')
-    end_date = datetime.strftime(specdates[-1],'%Y%m%d')
+    start_date = datetime.strftime(np.min(specdates),'%Y%m%d')
+    end_date = datetime.strftime(np.max(specdates),'%Y%m%d')
 
     private_nc_file = '{}{}_{}.private.nc'.format(siteID,start_date,end_date) # the final output file
 
