@@ -19,7 +19,7 @@ classifiers=[
 	"Programming Language :: Python :: 3.10",
 ]
 dependencies = [
-    "ginput>=1.3.1,<2.0.0",
+    "ginput>=1.4.4,<2.0.0",
 	"netcdf4>=1.5.0,<2.0.0",
 	"numpy>=1.16.0,<2.0.0",
 	"pandas>=0.23.0",
