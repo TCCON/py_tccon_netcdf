@@ -10,7 +10,7 @@ from ginput.priors.tccon_priors import O2MeanMoleFractionRecord
 from . import nc_ops, common_utils
 from . import bias_corrections as bc
 from .common_utils import set_private_name_attrs, collect_xgas_vars
-from .constants import FILE_FMT_V2020p1pA, DEFAULT_O2_DMF_VARNAME
+from .constants import FILE_FMT_V2020p1pA, DEFAULT_O2_DMF_VARNAME, DEFAULT_O2_RET_COL_VARNAME, EM27_O2_RET_COL_VARNAME
 
 # First value is the AICF, second is its error
 GGG2020p1_TCCON_AICFS = {
@@ -28,13 +28,15 @@ GGG2020p1_TCCON_AICFS = {
 }
 
 GGG2020p1_EM27_AICFS = {
-    'xco2_x2007': (None, None),
     'xco2_x2019': (1.0062, 0.0003),
     'xch4': (0.9984, 0.0003),
-    'xco': (1.0000, 0.032)
+    'xco': (1.0000, 0.032),  # keep the XCO AICF at 1 since we don't scale CO any more
+    'xluft': (1.0000, 0.0000),  # ditto for Xluft
+    'xh2o': (1.0, 0.0),  # EM27s never compared to radiosondes, so we actually shouldn't scale this at all
+    'xn2o_original': (1.0, 0.0),  # similar for N2O, except we rename it to "xn2o_original" to be consistent with GGG2020.1 nomenclature
 }
 
-VAR_RENAMES = {
+TCCON_VAR_RENAMES = {
     'xco2': 'xco2_x2007',
     'xco2_error': 'xco2_error_x2007',
     'xco2_aicf': 'xco2_aicf_x2007',
@@ -54,6 +56,32 @@ VAR_RENAMES = {
     'aicf_xlco2_scale': 'aicf_xlco2_x2007_scale',
 }
 
+EM27_VAR_RENAMES = {
+    'xco2': 'xco2_x2019',
+    'xco2_error': 'xco2_error_x2019',
+    'xco2_aicf': 'xco2_aicf_x2019',
+    'xco2_aicf_error': 'xco2_aicf_error_x2019',
+    'aicf_xco2_scale': 'aicf_xco2_x2019_scale',
+
+    'xwco2': 'xwco2_x2019',
+    'xwco2_error': 'xwco2_error_x2019',
+    'xwco2_aicf': 'xwco2_aicf_x2019',
+    'xwco2_aicf_error': 'xwco2_aicf_error_x2019',
+    'aicf_xwco2_scale': 'aicf_xwco2_x2019_scale',
+
+    'xlco2': 'xlco2_x2019',
+    'xlco2_error': 'xlco2_error_x2019',
+    'xlco2_aicf': 'xlco2_aicf_x2019',
+    'xlco2_aicf_error': 'xlco2_aicf_error_x2019',
+    'aicf_xlco2_scale': 'aicf_xlco2_x2019_scale',
+
+    'xn2o': 'xn2o_original',
+    'xn2o_error': 'xn2o_original_error',
+    'xn2o_aicf': 'xn2o_original_aicf',
+    'xn2o_aicf_error': 'xn2o_original_aicf_error',
+    'aicf_xn2o_scale': 'aicf_xn2o_original_scale'
+}
+
 VARS_TO_REMOVE = {
     'xco2_x2019',
     'xco2_error_x2019',
@@ -66,22 +94,6 @@ VARS_TO_REMOVE = {
 
 OLD_O2_DMF = 0.2095
 
-def main():
-    p = ArgumentParser(description='Create a GGG2020.1 netCDF file from a GGG2020 file with the 2020.C format file.')
-    p.add_argument('input_file', help='The GGG2020.C format netCDF file to start from.')
-    p.add_argument('mode', choices=('TCCON', 'em27'), help='Which type of data is being processed (determines AICFs)')
-    p.add_argument('--pdb', action='store_true', help='Launch Python debugger')
-
-    out_grp = p.add_mutually_exclusive_group(required=True)
-    out_grp.add_argument('--in-place', action='store_true', help='Modify INPUT_FILE in place. Note that one of this or --output-file are required')
-    out_grp.add_argument('-o', '--output-file', help='Output the GGG2020.1 file to this path instead of modifying it in place.')
-
-    clargs = vars(p.parse_args())
-    if clargs.pop('pdb'):
-        import pdb
-        pdb.set_trace()
-    driver(**clargs)
-
 
 def driver(input_file, mode, output_file=None, in_place=False):
     if not os.path.exists(input_file):
@@ -90,56 +102,80 @@ def driver(input_file, mode, output_file=None, in_place=False):
     if in_place:
         output_file = f'{input_file}.tmp'
 
+    mode = mode.lower()
+    if mode == 'tccon':
+        var_renames=TCCON_VAR_RENAMES
+        do_xn2o_bc = True
+    elif mode == 'em27':
+        var_renames=EM27_VAR_RENAMES
+        do_xn2o_bc = False
+    else:
+        raise NotImplementedError(f'mode = {mode}')
+
+
     nc_ops.copy_netcdf(
         input_nc_file=input_file,
         output_file=output_file,
         clobber=True,
-        var_renames=VAR_RENAMES,
+        var_renames=var_renames,
         exclude_vars=VARS_TO_REMOVE
     )
 
     with ncdf.Dataset(output_file, 'a') as ds:
         update_o2_and_aicfs(ds, mode)
-        bias_correct_xn2o(ds)
+        if do_xn2o_bc:
+            bias_correct_xn2o(ds)
+        elif 'xn2o_original' in ds.variables.keys():
+            _add_orig_xn2o_note(ds['xn2o_original'])
 
     if in_place:
         os.rename(output_file, input_file)
 
 
 def update_o2_and_aicfs(ds, mode):
+    mode = mode.lower()
     new_o2_dmfs = _get_new_o2_dmfs(ds)
     # For every gas and its error, it was calculated as X = V * fO2 / AICF, so we
-    # need to multiple by new_fO2 / old_fO2 and old_AICF / new_AICF
-    if mode.lower() == 'tccon':
+    # need to multiply by new_fO2 / old_fO2 and old_AICF / new_AICF
+    if mode == 'tccon':
         aicfs = GGG2020p1_TCCON_AICFS
-    elif mode.lower() == 'em27':
+        o2_column_var = DEFAULT_O2_RET_COL_VARNAME
+    elif mode == 'em27':
         aicfs = GGG2020p1_EM27_AICFS
+        o2_column_var = EM27_O2_RET_COL_VARNAME
     else:
         raise NotImplementedError(f'mode = {mode}')
 
     # We have to check here whether the x2019 variables were removed correctly
     # because inside the next for loop they'll be added back in as each CO2 variable
-    # comes up.
-    for xgas_varname in aicfs.keys():
-        if xgas_varname.endswith('x2019') and xgas_varname in ds.variables.keys():
-            raise RuntimeError('x2019 variables must not be present in the file')
+    # comes up - but only for TCCON. The EM27s won't include x2007 data, so we can
+    # just rescale 
+    if mode != 'em27':
+        for xgas_varname in aicfs.keys():
+            if xgas_varname.endswith('x2019') and xgas_varname in ds.variables.keys():
+                raise RuntimeError('x2019 variables must not be present in the file')
 
     xgas_vars = collect_xgas_vars(ds)
+    if mode == 'em27' and 'xn2o_original' in ds.variables.keys():
+        # For the EM27s, we want to reset the XN2O to an AICF of 1 and apply the new O2
+        # mole fractions, but since we don't have a temperature dependence, we have to
+        # move the "xn2o" variable to "xn2o_original" before we get to this loop, or we
+        # have to copy the file a second time to get rid of "xn2o".
+        xgas_vars.append('xn2o_original')
+
     for xgas_varname in xgas_vars:
         var_is_missing = xgas_varname not in ds.variables.keys()
-        if xgas_varname.endswith('x2019'):
-            # These will be handled by their respective x2007 variables.
-            continue
-        elif var_is_missing:
+        if var_is_missing:
             logging.warning(f'{xgas_varname} missing - if this is not an EM27 file, something may have gone wrong during post processing')
             continue
 
         if xgas_varname.startswith(('xco2_', 'xwco2_', 'xlco2_')) and not xgas_varname.endswith(('_insb', '_si')):
+            # This block will trigger when we've renamed the XCO2 variables during the copy step
             gas, scale = xgas_varname.split('_', 1)
             aicf_varname = f'{gas}_aicf_{scale}'
             aicf_error_varname = f'{gas}_aicf_error_{scale}'
             error_varname = f'{gas}_error_{scale}'
-            create_x2019 = True
+            create_x2019 = scale.lower() != 'x2019'
         elif xgas_varname.endswith(('_insb', '_si')):
             gas, suffix = xgas_varname.split('_', 1)
             aicf_varname = None
@@ -220,8 +256,8 @@ def update_o2_and_aicfs(ds, mode):
 
     # We might as well create the observation operator and prior Xgas variables here,
     # that way they're available in both the private and public files.
-    common_utils.create_observation_operator_variable(ds)
-    common_utils.create_tccon_prior_xgas_variables(ds)
+    common_utils.create_observation_operator_variable(ds, ret_o2_col=o2_column_var)
+    common_utils.create_tccon_prior_xgas_variables(ds, ret_o2_col=o2_column_var)
 
     # Update the file format version and add an algorithm version 
     ds.file_format_version = FILE_FMT_V2020p1pA
@@ -283,7 +319,7 @@ def bias_correct_xn2o(ds):
 
     var_xn2o_orig = ds.createVariable('xn2o_original', ds['xn2o'].dtype, dimensions=ds['xn2o'].dimensions)
     var_xn2o_orig.setncatts(ds['xn2o'].__dict__)
-    var_xn2o_orig.note = 'This variable contains the XN2O values BEFORE the temperature bias correction is applied but AFTER the new O2 mole fractions were applied'
+    _add_orig_xn2o_note(var_xn2o_orig)
     var_xn2o_orig[:] = ds['xn2o'][:]
 
     var_xn2o_new = ds['xn2o']
@@ -304,5 +340,5 @@ def bias_correct_xn2o(ds):
     var_pt700[:] = pt700
 
 
-if __name__ == '__main__':
-    main()
+def _add_orig_xn2o_note(var_xn2o_orig):
+    var_xn2o_orig.note = 'This variable contains the XN2O values BEFORE the temperature bias correction is applied but AFTER the new O2 mole fractions were applied'

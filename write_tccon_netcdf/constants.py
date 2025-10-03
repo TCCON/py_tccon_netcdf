@@ -169,6 +169,7 @@ DEFAULT_EFF_PATH_VARNAME = 'effective_path_length'
 DEFAULT_O2_DMF_VARNAME = 'o2_mean_mole_fraction'
 DEFAULT_NAIR_VARNAME = 'prior_density'
 DEFAULT_O2_RET_COL_VARNAME = 'vsw_o2_7885'
+EM27_O2_RET_COL_VARNAME = 'column_o2'
 DEFAULT_INT_OP_VARNAME = 'integration_operator'
 TCCON_PRIOR_XGAS_OVC_VARS = {
     "co2": "co2_6220_ovc_co2",
