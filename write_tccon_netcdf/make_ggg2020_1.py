@@ -63,23 +63,16 @@ EM27_VAR_RENAMES = {
     'xco2_aicf_error': 'xco2_aicf_error_x2019',
     'aicf_xco2_scale': 'aicf_xco2_x2019_scale',
 
-    'xwco2': 'xwco2_x2019',
-    'xwco2_error': 'xwco2_error_x2019',
-    'xwco2_aicf': 'xwco2_aicf_x2019',
-    'xwco2_aicf_error': 'xwco2_aicf_error_x2019',
-    'aicf_xwco2_scale': 'aicf_xwco2_x2019_scale',
-
-    'xlco2': 'xlco2_x2019',
-    'xlco2_error': 'xlco2_error_x2019',
-    'xlco2_aicf': 'xlco2_aicf_x2019',
-    'xlco2_aicf_error': 'xlco2_aicf_error_x2019',
-    'aicf_xlco2_scale': 'aicf_xlco2_x2019_scale',
-
     'xn2o': 'xn2o_original',
     'xn2o_error': 'xn2o_original_error',
     'xn2o_aicf': 'xn2o_original_aicf',
     'xn2o_aicf_error': 'xn2o_original_aicf_error',
     'aicf_xn2o_scale': 'aicf_xn2o_original_scale'
+}
+
+EM27_AICF_SCALE_OVERRIDES = {
+    'xwco2': '',
+    'xlco2': ''
 }
 
 VARS_TO_REMOVE = {
@@ -140,9 +133,11 @@ def update_o2_and_aicfs(ds, mode):
     if mode == 'tccon':
         aicfs = GGG2020p1_TCCON_AICFS
         o2_column_var = DEFAULT_O2_RET_COL_VARNAME
+        aicf_scale_overrides = dict()
     elif mode == 'em27':
         aicfs = GGG2020p1_EM27_AICFS
         o2_column_var = EM27_O2_RET_COL_VARNAME
+        aicf_scale_overrides = EM27_AICF_SCALE_OVERRIDES
     else:
         raise NotImplementedError(f'mode = {mode}')
 
@@ -170,7 +165,8 @@ def update_o2_and_aicfs(ds, mode):
             continue
 
         if xgas_varname.startswith(('xco2_', 'xwco2_', 'xlco2_')) and not xgas_varname.endswith(('_insb', '_si')):
-            # This block will trigger when we've renamed the XCO2 variables during the copy step
+            # This block will trigger when we've renamed the XCO2 variables during the copy step to include
+            # an "_x20YY" suffix. Otherwise, the x?co2 variables should default to the `else` clause.
             gas, scale = xgas_varname.split('_', 1)
             aicf_varname = f'{gas}_aicf_{scale}'
             aicf_error_varname = f'{gas}_aicf_error_{scale}'
@@ -232,6 +228,9 @@ def update_o2_and_aicfs(ds, mode):
             new_error_values = ds[error_varname][:] / OLD_O2_DMF * new_o2_dmfs
             ds[error_varname][:] = new_error_values
             set_private_name_attrs(ds[xgas_varname])
+
+        if xgas_varname in aicf_scale_overrides:
+            override_aicf_scale(ds, f'aicf_{xgas_varname}_scale', aicf_scale_overrides[xgas_varname]) 
 
         if create_x2019:
             xgas = xgas_varname.split('_')[0]
@@ -309,6 +308,20 @@ def _add_x2019_variable(ds, x2007_varname, new_values, is_text=False):
     x2019_var.setncatts(ds[x2007_varname].__dict__)
     set_private_name_attrs(x2019_var)
 
+
+def override_aicf_scale(ds, aicf_scale_varname, aicf_scale):
+    if aicf_scale_varname not in ds.variables.keys():
+        if 'a32' not in ds.dimensions.keys():
+            ds.createDimension('a32', 32)
+        logging.debug(f'Creating new variable, {aicf_scale_varname}')
+        ds.createVariable(aicf_scale_varname, 'S1', ('time', 'a32'))
+        ds[aicf_scale_varname]._Encoding = 'ascii'
+
+    logging.debug(f'Updating {aicf_scale_varname} values to "{aicf_scale}"')
+    values = np.full(ds.dimensions['time'].size, aicf_scale).astype('S')
+    # Unsure why the stringtochar call is needed here but not in _add_x2019_variable.
+    # Character values are a pain.
+    ds[aicf_scale_varname][:] = ncdf.stringtochar(values)
 
 def bias_correct_xn2o(ds):
     logging.info('Applying PT700 bias correction to XN2O')
