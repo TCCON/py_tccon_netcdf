@@ -11,7 +11,7 @@ from . import common_utils as cu
 from . import get_paths as gp
 from . import daily_error
 from .make_ggg2020_1 import driver as ggg2020c_to_ggg2020p1a
-from .constants import FILE_FMT_V2020pC, FILE_FMT_V2020p1pA, LOG_LEVEL_CHOICES, SPECIAL_DESCRIPTION_DICT, NETWORK_MODES
+from .constants import AUX_DATA_URL, FILE_FMT_V2020pC, FILE_FMT_V2020p1pA, LOG_LEVEL_CHOICES, SPECIAL_DESCRIPTION_DICT, NETWORK_MODES
 
 # define these once so we don't have to parse the string every time
 v2020A = cu.FileFmtVer('2020.A')
@@ -74,6 +74,9 @@ def ggg2020a_to_ggg2020c(ds, is_public, mode):
     if not is_public:
         check_and_fix_prior_index(ds)
 
+    # Ensure that all files have the correct URL for auxiliary data - it was
+    # out of date on older files, and the EM27s were missing it entirely.
+    ds.auxiliary_data_description = AUX_DATA_URL
     # inserting missing AKs should come early so they get the missing attributes added
     # and incorrect units fixed just like the other AK variables.
     _insert_missing_aks(ds, 'xhdo', is_public)

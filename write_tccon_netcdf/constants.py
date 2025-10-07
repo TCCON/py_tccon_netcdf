@@ -4,6 +4,8 @@ import os
 
 from . import __version__
 
+AUX_DATA_URL = "https://tccon-wiki.caltech.edu/Main/AuxiliaryDataGGG2020"
+
 STD_O2_MOLE_FRAC = 0.2095
 FILE_FMT_V2020pC = '2020.C'
 FILE_FMT_V2020p1pA = '2020.1.A'
