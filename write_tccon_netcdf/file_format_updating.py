@@ -11,7 +11,7 @@ from . import common_utils as cu
 from . import get_paths as gp
 from . import daily_error
 from .make_ggg2020_1 import driver as ggg2020c_to_ggg2020p1a
-from .constants import AUX_DATA_URL, FILE_FMT_V2020pC, FILE_FMT_V2020p1pA, LOG_LEVEL_CHOICES, SPECIAL_DESCRIPTION_DICT, NETWORK_MODES
+from .constants import AUX_DATA_URL, FILE_FMT_V2020pC, FILE_FMT_V2020p1pA, GGG2020_REFERENCE, LOG_LEVEL_CHOICES, SPECIAL_DESCRIPTION_DICT, NETWORK_MODES, TCCON_DATA_POLICY_URL
 
 # define these once so we don't have to parse the string every time
 v2020A = cu.FileFmtVer('2020.A')
@@ -74,9 +74,7 @@ def ggg2020a_to_ggg2020c(ds, is_public, mode):
     if not is_public:
         check_and_fix_prior_index(ds)
 
-    # Ensure that all files have the correct URL for auxiliary data - it was
-    # out of date on older files, and the EM27s were missing it entirely.
-    ds.auxiliary_data_description = AUX_DATA_URL
+    _update_links(ds)
     # inserting missing AKs should come early so they get the missing attributes added
     # and incorrect units fixed just like the other AK variables.
     _insert_missing_aks(ds, 'xhdo', is_public)
@@ -273,6 +271,19 @@ def _add_flag_usage(ds):
     if 'flag' in ds.variables.keys():
         ds['flag'].comment = "flag == 0 data is good quality, flag > 0 data does not meet TCCON quality standards. If you intend to use flag > 0 data, we STRONGLY encourage you to reach out to the person listed in the contact global attribute. Use of flag > 0 data without consulting the contact person is at your own risk."
 
+
+
+def _update_links(ds):
+    # Ensure that all files have the correct URL for auxiliary data - it was
+    # out of date on older files, and the EM27s were missing it entirely.
+    ds.auxiliary_data_description = AUX_DATA_URL
+    # Add in the retrieval reference if it is missing
+    ds.retrieval_reference = GGG2020_REFERENCE
+
+    # Only update the data use policy if the attribute is present - EM27s
+    # don't necessarily follow the TCCON data use policy.
+    if hasattr(ds, 'data_use_policy'):
+        ds.data_use_policy = TCCON_DATA_POLICY_URL
 
 
 def _insert_missing_aks(nc_data, xgas, is_public):

@@ -34,6 +34,7 @@ from .constants import (
     AUX_DATA_URL,
     CHECKSUM_VAR_LIST,
     FILE_FMT_V2020pC,
+    GGG2020_REFERENCE,
     LOG_LEVEL_CHOICES,
     LONG_NAME_DICT,
     MANUAL_FLAGS_DICT,
@@ -43,6 +44,7 @@ from .constants import (
     SPECIAL_DESCRIPTION_DICT,
     STANDARD_NAME_DICT,
     STD_O2_MOLE_FRAC,
+    TCCON_DATA_POLICY_URL,
     UNITS_DICT,
 )
 
@@ -2067,9 +2069,10 @@ def main_inner(args, logger, show_progress, HEAD_commit, code_dir, GGGPATH):
         
         if args.mode == 'TCCON':
             nc_data.title = "Atmospheric trace gas column-average dry-air mole fractions retrieved from solar absorption spectra measured by ground based Fourier Transform Infrared Spectrometers that are part of the Total Carbon Column Observing Network (TCCON)"
-            nc_data.data_use_policy = "https://tccon-wiki.caltech.edu/Network_Policy/Data_Use_Policy"
+            nc_data.data_use_policy = TCCON_DATA_POLICY_URL
             nc_data.more_information = "https://tccon-wiki.caltech.edu"
             nc_data.tccon_reference = "Wunch, D., G. C. Toon, J.-F. L. Blavier, R. A. Washenfelder, J. Notholt, B. J. Connor, D. W. T. Griffith, V. Sherlock, and P. O. Wennberg (2011), The total carbon column observing network, Philosophical Transactions of the Royal Society - Series A: Mathematical, Physical and Engineering Sciences, 369(1943), 2087-2112, doi:10.1098/rsta.2010.0240. Available from: http://dx.doi.org/10.1098/rsta.2010.0240"
+            nc_data.retrieval_reference = GGG2020_REFERENCE
         elif args.mode == 'em27':
             pass # should be updated with general em27 info
 

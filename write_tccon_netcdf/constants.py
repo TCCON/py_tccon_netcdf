@@ -4,7 +4,17 @@ import os
 
 from . import __version__
 
-AUX_DATA_URL = "https://tccon-wiki.caltech.edu/Main/AuxiliaryDataGGG2020"
+AUX_DATA_URL = 'https://tccon-wiki.caltech.edu/Main/AuxiliaryDataGGG2020'
+TCCON_DATA_POLICY_URL = 'https://tccon-wiki.caltech.edu/Main/DataUsePolicy'
+GGG2020_REFERENCE = (
+    'Laughner, J. L., G. C. Toon, J. Mendonca, C. Petri, S. Roche, D. Wunch, J.-F. Blavier, D. W. T. Griffith, '
+    'P. Heikkinen, R. F. Keeling, M. Kiel, R. Kivi, C. M. Roehl, B. B. Stephens, B. C. Baier, H. Chen, Y. Choi, '
+    'N. M. Deutscher, J. P. DiGangi, J. Gross, B. Herkommer, P. Jeseck, T. Laemmel, X. Lan, E. McGee, K. McKain, '
+    'J. Miller, I. Morino, J. Notholt, H. Ohyama, D. F. Pollard, M. Rettinger, H. Riris, C. Rousogenous, M. K. Sha, '
+    'K. Shiomi, K. Strong, R. Sussmann, Y. Té, V. A. Velazco, S. C. Wofsy, M. Zhou, and P. O. Wennberg. '
+    '"The Total Carbon Column Observing Network\'s GGG2020 Data Version." Earth Sys. Sci. Data, 16, 2197--2260, '
+    'doi: 10.5194/essd-16-2197-2024, 2024'
+)
 
 STD_O2_MOLE_FRAC = 0.2095
 FILE_FMT_V2020pC = '2020.C'
