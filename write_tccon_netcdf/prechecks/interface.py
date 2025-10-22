@@ -96,6 +96,22 @@ class PrecheckResult:
         self.detailed_lines = detailed_lines
 
 
+class TcconSanityCheck(ABC):
+    @abstractmethod
+    def check_file(self, target_file: os.PathLike) -> Optional[PrecheckResult]:
+        """Run this check on the given netCDF file and return a summary and detailed report.
+
+        Compared to :class:`TcconPrecheck`, this takes a path to the file, rather than a handle
+        to the open file. These tests should run before the more detailed prechecks and should
+        focus on verifying that the file is readable.
+
+        Usually, this function should return ``None`` or an ERROR severity level result. 
+        WARNING and INFO severity levels do not make much sense here, as these checks
+        are meant to catch issues that prevent the regular prechecks from running at all,
+        which is an error by definition.
+        """
+        pass
+
 class TcconPrecheck(ABC):
     @abstractmethod
     def check_file(self, netcdf_handle: Dataset) -> Optional[PrecheckResult]:
@@ -108,7 +124,7 @@ class TcconPrecheck(ABC):
 
 
 
-def run_checks(target_file: os.PathLike, checks: Sequence[TcconPrecheck], summary_writer: IO, details_writer: IO) -> Optional[PrecheckSeverity]:
+def run_checks(target_file: os.PathLike, sanity_checks: Sequence[TcconSanityCheck], prechecks: Sequence[TcconPrecheck], summary_writer: IO, details_writer: IO) -> Optional[PrecheckSeverity]:
     """Run a series of pre-QA/QC checks on a target file and report the results.
 
     Parameters
@@ -116,7 +132,12 @@ def run_checks(target_file: os.PathLike, checks: Sequence[TcconPrecheck], summar
     target_file
         Path to the netCDF file to check.
 
-    checks
+    sanity_checks
+        The set of first round checks for a sane file to apply. If any of these
+        return anything other than None, the function will stop before running
+        the regular prechecks.
+
+    prechecks
         The set of prechecks to apply.
 
     summary_writer
@@ -133,30 +154,62 @@ def run_checks(target_file: os.PathLike, checks: Sequence[TcconPrecheck], summar
         The highest severity of all the check results, which can be used to determine whether
         a file can proceed to QA/QC. If no checks failed, this will be ``None``.
     """
+    target_basename = Path(target_file).name
+    sanity_results = []
+    for check in sanity_checks:
+        res = check.check_file(target_file)
+        if res is not None:
+            sanity_results.append(res)
+
+    if len(sanity_results) > 0:
+        summary_writer.write(
+            f'There are one or more CRITICAL issues with {target_basename}. '
+            'The regular prechecks cannot be completed until these are addressed.'
+        )
+        _write_results(
+            summary_writer=summary_writer,
+            details_writer=details_writer,
+            results=sanity_results,
+            target_basename=target_basename
+        )
+        max_severity = max(r.severity for r in sanity_results)
+        return max_severity
+
+
     results = []
     with Dataset(target_file) as ds:
-        for check in checks:
+        for check in prechecks:
             res = check.check_file(ds)
             if res is not None:
                 results.append(res)
 
-    target_basename = Path(target_file).name
     if len(results) == 0:
         summary_writer.write(f'{target_basename} passed all pre-QA/QC checks')
         return None
+    else:
+        max_severity = max(r.severity for r in results)
+        summary_writer.write(max_severity.max_severity_message(target_basename))
+        summary_writer.write('\n\nThe meaning of the severity levels is as follows:\n')
+        for severity in PrecheckSeverity:
+            summary_writer.write(f'- {severity.value.upper()}: {severity.meaning}\n')
+        summary_writer.write('\n')
+        _write_results(
+            summary_writer=summary_writer,
+            details_writer=details_writer,
+            results=results,
+            target_basename=target_basename
+        )
+        return max_severity
 
-    max_severity = max(r.severity for r in results)
+
+def _write_results(summary_writer: IO, details_writer: IO, results: Sequence[PrecheckResult], target_basename: str):
     # sort the results so that the most critical issues are first
     results = sorted(results, key=lambda r: r.severity.display_order)
 
-    summary_writer.write(max_severity.max_severity_message(target_basename))
-    summary_writer.write('\n\nBelow is a summary of the issued identified. The meaning of the severity levels is as follows:\n')
-    for severity in PrecheckSeverity:
-        summary_writer.write(f'- {severity.value.upper()}: {severity.meaning}\n')
-    summary_writer.write('\n')
+    summary_writer.write('\n\nBelow is a summary of the issued identified.\n\n')
 
     for index, issue in enumerate(results, start=1):
-        summary_writer.write(f'Issue {index} ({issue.severity.value}): {issue.summary_line}\n')
+        summary_writer.write(f'Issue {index} ({issue.severity.value.upper()}): {issue.summary_line}\n')
         if issue.possible_fix is not None:
             summary_writer.write(f' --> Possible fix: {issue.possible_fix}\n')
         summary_writer.write('\n')
@@ -168,5 +221,3 @@ def run_checks(target_file: os.PathLike, checks: Sequence[TcconPrecheck], summar
             for line in issue.detailed_lines:
                 details_writer.write(f'{line}\n')
             details_writer.write('\n')
-
-    return max_severity

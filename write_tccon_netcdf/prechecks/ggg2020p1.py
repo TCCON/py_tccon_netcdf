@@ -124,7 +124,11 @@ def _open_writer(path: str, stack: ExitStack) -> IO:
 
 
 def driver(target_file: os.PathLike, existing_files: Union[Sequence[os.PathLike], Dict[os.PathLike, str]], summary_writer: IO, details_writer: IO) -> Optional[PrecheckSeverity]:
-    checks = [
+    sanity_checks = [
+        defs.ReadableFileCheck()
+    ]
+
+    prechecks = [
         defs.FileFormatCheck(v2020C),
         defs.DupTimeCheck(existing_files),
         defs.UnitScalingCheck(),
@@ -133,7 +137,13 @@ def driver(target_file: os.PathLike, existing_files: Union[Sequence[os.PathLike]
         defs.ChronologicalOrderCheck()
     ]
 
-    return run_checks(target_file, checks, summary_writer=summary_writer, details_writer=details_writer)
+    return run_checks(
+        target_file=target_file,
+        sanity_checks=sanity_checks,
+        prechecks=prechecks,
+        summary_writer=summary_writer,
+        details_writer=details_writer
+    )
 
 
 if __name__ == '__main__':

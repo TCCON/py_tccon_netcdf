@@ -7,10 +7,44 @@ import os
 import pandas as pd
 from pathlib import Path
 
-from .interface import PrecheckResult, PrecheckSeverity, TcconPrecheck
-from ..common_utils import FileFmtVer, grammatical_join, check_prior_index, correct_prior_index
+from .interface import PrecheckResult, PrecheckSeverity, TcconPrecheck, TcconSanityCheck
+from ..common_utils import FileFmtVer, grammatical_join, check_prior_index, correct_prior_index, md5sum_file
 
 from typing import Optional, Union, Sequence, Dict
+
+
+class ReadableFileCheck(TcconSanityCheck):
+    def check_file(self, target_file: os.PathLike) -> Optional[PrecheckResult]:
+        try:
+            ds = Dataset(target_file)
+        except Exception:
+            result = self._make_result(target_file)
+        else:
+            ds.close()
+            result = None
+
+        return result
+
+    @staticmethod
+    def _make_result(target_file: os.PathLike) -> PrecheckResult:
+        basename = os.path.basename(target_file)
+        md5sum = md5sum_file(target_file)
+        summary = f'The file {basename} cannot be read and is most likely corrupted'
+        fix = (
+            "First, confirm that you can read this file on your computer with ncdump, Panoply, or Python's netCDF4 package. "
+            f"Also compare its MD5 checksum to the following: {md5sum}. If you can read the file on your computer and the "
+            "checksum differs, it was likely corrupted during the upload to Caltech. Reupload the file and let the Caltech "
+            "team know you have reuploaded it. However, if you cannot read your local copy, then write_netcdf likely crashed "
+            "while you were running post-processing. Check your write_netcdf.log file for errors, make the necessary fixes, "
+            "and rerun the write_netcdf line in post_processing.sh. Then check the new .nc file on your computer and, if you "
+            "can read it, upload the new file to Caltech (and let the Caltech team know)."
+        )
+        return PrecheckResult(
+            severity=PrecheckSeverity.ERROR,
+            summary_line=summary,
+            possible_fix=fix
+        )
+
 
 
 class FileFormatCheck(TcconPrecheck):
@@ -229,7 +263,7 @@ class PriorMismatchCheck(TcconPrecheck):
             )
             return PrecheckResult(
                 severity=PrecheckSeverity.ERROR,
-                summary_line=f'At least one prior time is more than {self.max_dt_hr} away from its corresponding spectrum ZPD time',
+                summary_line=f'At least one prior time is more than {self.max_dt_hr} hours away from its corresponding spectrum ZPD time',
                 possible_fix=fix,
                 detailed_lines=report
             )
@@ -271,10 +305,15 @@ class FileNameDateCheck(TcconPrecheck):
         if np.any(ii_out):
             logging.info(f'{netcdf_handle.filepath()} has at least one time outside the dates in its filename')
             summary, report = self._summarize_and_report(ii_out, data_times)
+            fix = (
+                'Confirm that you are using the GGG2020.1 version of the GGG code, as that should use the min and max times to '
+                'compute the file name, rather than the first and last times. If that does not help, also ensure that the first '
+                'and last spectra in your runlog are the earliest and latest spectra, respectively.'
+            )
             return PrecheckResult(
                 severity=PrecheckSeverity.ERROR,
                 summary_line=summary,
-                possible_fix='Ensure that the first and last spectra in your runlog are the earliest and latest spectra, respectively.',
+                possible_fix=fix,
                 detailed_lines=report
             )
         else:

@@ -1,5 +1,6 @@
 from argparse import ArgumentParser
 from datetime import datetime
+import hashlib
 import logging
 import netCDF4
 import numpy as np
@@ -642,3 +643,11 @@ def grammatical_join(elements: Sequence[str], conjunction: str = 'and'):
 
     comma_list = ', '.join(elements[:-1])
     return f'{comma_list}, {conjunction} {elements[-1]}'
+
+
+def md5sum_file(file_path: os.PathLike) -> str:
+    hash_md5 = hashlib.md5()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)      
+    return hash_md5.hexdigest()

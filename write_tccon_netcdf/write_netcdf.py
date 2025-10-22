@@ -99,12 +99,8 @@ def md5(file_name):
 
     file_name: full path to the file
     """
-    hash_md5 = hashlib.md5()
     if 'telluric_linelists.md5' not in file_name:
-        with open(file_name, "rb") as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                hash_md5.update(chunk)      
-        md5sum = hash_md5.hexdigest()
+        md5sum = cu.md5sum_file(file_name)
     else:
         with open(file_name,'r') as f:
             content = f.readlines()
