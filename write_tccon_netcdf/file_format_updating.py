@@ -162,19 +162,6 @@ def _fix_public_cf_attributes(ds, is_public):
 
 
 def _fix_incorrect_attributes(ds):
-    # It's annoyingly easy to have the wrong gas name in the description. Find all the Xgas variables whose
-    # description matches that pattern of "o2_dmf * column_X / column_o2 ... " and ensure that the correct 
-    # gas is in the description.
-    for varname, var in ds.variables.items():
-        if varname.startswith('x') and hasattr(var, 'description') and re.search(r'column_[a-z0-9]+/column_o2', var.description):
-            # The gas name should be everything up to the first underscore (e.g., for _insb gases)
-            # without the leading "x"
-            old_description = var.description
-            gas_name = varname.split('_')[0][1:]
-            correct_description = re.sub(r'column_[a-z0-9]+/column_o2', f'column_{gas_name}/column_o2', old_description)
-            if old_description != correct_description:
-                var.description = correct_description
-                logging.info(f'Corrected description of "{varname}" variable: "{old_description}" -> "{correct_description}"')
 
     # The tropopause altitude gets the wrong units in private files created using the version of 
     # write_netcdf distributed with GGG2020. Fix that here
@@ -188,12 +175,41 @@ def _fix_incorrect_attributes(ds):
         if not hasattr(ds[varname], 'usage'):
             ds[varname].usage = 'Please see https://tccon-wiki.caltech.edu/Main/GGG2020DataChanges for instructions on how to use the AK variables.'
 
-    # The column densities and their errors should be in molecules per cm2, not per m2
-    # This was fixed in file format version GGG2020.C, but we need this for updating the
-    # already-uploaded files.
+    # Last, there's a few things it's easiest to scan all the variables for
+    n_prior_notes_updated = 0
     for varname, var in ds.variables.items():
+        # The column densities and their errors should be in molecules per cm2, not per m2
+        # This was fixed in file format version GGG2020.C, but we need this for updating the
+        # already-uploaded files.
         if varname.startswith('column') and var.units == 'molecules.m-2':
             var.units = 'molecules.cm-2'
+
+        # It's annoyingly easy to have the wrong gas name in the description. Find all the Xgas variables whose
+        # description matches that pattern of "o2_dmf * column_X / column_o2 ... " and ensure that the correct 
+        # gas is in the description.
+        if varname.startswith('x') and hasattr(var, 'description') and re.search(r'column_[a-z0-9]+/column_o2', var.description):
+            # The gas name should be everything up to the first underscore (e.g., for _insb gases)
+            # without the leading "x"
+            old_description = var.description
+            gas_name = varname.split('_')[0][1:]
+            correct_description = re.sub(r'column_[a-z0-9]+/column_o2', f'column_{gas_name}/column_o2', old_description)
+            if old_description != correct_description:
+                var.description = correct_description
+                logging.info(f'Corrected description of "{varname}" variable: "{old_description}" -> "{correct_description}"')
+
+        # Not so much wrong as there's an easier way: the prior profile's describe how to dry
+        # them, but use a more complicated equation than needed. 
+        if varname.startswith('prior_') and hasattr(var, 'note'):
+            old_note = var.note
+            if old_note == 'Prior VMRs are given in wet mole fractions. To convert to dry mole fractions, you must calculate H2O_dry = H2O_wet/(1 - H2O_wet) and then gas_dry = gas_wet * (1 + H2O_dry), where H2O_wet is the prior_1h2o variable.':
+                # Replace the two equations with one
+                var.note = 'Prior VMRs are given in wet mole fractions. To convert to dry mole fractions, you must calculate gas_dry = gas_wet / (1 - H2O_wet), where H2O_wet is the prior_1h2o variable.'
+                logging.debug(f'Updated note on {varname} to use simpler drying equation')
+                n_prior_notes_updated += 1
+
+    if n_prior_notes_updated > 0:
+        logging.info(f'Updated notes on {n_prior_notes_updated} prior variable(s) to use the simpler drying equation.')
+
 
 def _fix_inconsistent_units(ds):
     # The slant XCH4 bins were originally given in ppb, while the XCH4 values were in ppm.
