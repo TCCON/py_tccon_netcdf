@@ -39,7 +39,7 @@ def raise_and_log(err):
 
 def get_version_string():
     pgrm = os.path.basename(sys.argv[0])
-    return f'{pgrm} (Version {__version__}; 2024-12-19; SR,JL)'
+    return f'{pgrm} (Version {__version__}; 2025-10-22; SR,JL)'
 
 
 def setup_logging(log_level, log_file, message='', to_stdout=False):
