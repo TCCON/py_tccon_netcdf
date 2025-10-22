@@ -162,12 +162,19 @@ def _fix_public_cf_attributes(ds, is_public):
 
 
 def _fix_incorrect_attributes(ds):
-    # The default pa_qc.dat file with GGG2020 has the description for XCO2 refer to
-    # column_*w*co2. If that slips through, fix it. If we're calling this on a GGG2020.1.A
-    # file, xco2 will have been renamed to xco2_x2007, but it will also have been fixed already.
-    if 'xco2' in ds.variables.keys() and ds['xco2'].description == '0.2095*column_wco2/column_o2':
-        ds['xco2'].description = '0.2095*column_co2/column_o2'
-        logging.info('Corrected description of "xco2" variable')
+    # It's annoyingly easy to have the wrong gas name in the description. Find all the Xgas variables whose
+    # description matches that pattern of "o2_dmf * column_X / column_o2 ... " and ensure that the correct 
+    # gas is in the description.
+    for varname, var in ds.variables.items():
+        if varname.startswith('x') and hasattr(var, 'description') and re.search(r'column_[a-z0-9]+/column_o2', var.description):
+            # The gas name should be everything up to the first underscore (e.g., for _insb gases)
+            # without the leading "x"
+            old_description = var.description
+            gas_name = varname.split('_')[0][1:]
+            correct_description = re.sub(r'column_[a-z0-9]+/column_o2', f'column_{gas_name}/column_o2', old_description)
+            if old_description != correct_description:
+                var.description = correct_description
+                logging.info(f'Corrected description of "{varname}" variable: "{old_description}" -> "{correct_description}"')
 
     # The tropopause altitude gets the wrong units in private files created using the version of 
     # write_netcdf distributed with GGG2020. Fix that here

@@ -1879,7 +1879,7 @@ def main_inner(args, logger, show_progress, HEAD_commit, code_dir, GGGPATH):
     # qc file: it contains information on some variables as well as their flag limits
     logging.info('\t- {}'.format(qc_file))
     nhead, ncol = file_info(qc_file)
-    qc_data = pd.read_fwf(qc_file,widths=[15,3,8,7,10,9,10,45],skiprows=nhead+1,names='Variable Output Scale Format Unit Vmin Vmax Description'.split())
+    qc_data = pd.read_fwf(qc_file,widths=[15,3,8,7,10,9,10,100],skiprows=nhead+1,names='Variable Output Scale Format Unit Vmin Vmax Description'.split())
     for key in ['Variable','Format','Unit']:
         qc_data[key] = [i.replace('"','') for i in qc_data[key]]
     len_list = len(list(qc_data['Variable']))
