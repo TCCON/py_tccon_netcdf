@@ -30,7 +30,7 @@ def driver(dest, pyproject_file='./pyproject.toml', env_prefix=None):
         script = bin_dir / script_name
         if script.exists():
             shutil.copy2(str(script), str(dest))
-            print(f'{script} -> {dest/script_name}')
+            print(f'{script} -> {dest}')
         else:
             print(f'Warning: {script} not found')
 
