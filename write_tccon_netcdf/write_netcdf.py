@@ -493,29 +493,26 @@ def read_mav(path,GGGPATH,maxspec,show_progress):
     return DATA, nlev, ncell
 
 
-def read_col(col_file,speclength):
+def read_col(col_file):
     """
     Read a .col file into a dataframe
 
     :param col_file: full path to the .col file
 
-    :param speclength: maximum length of the spectrum file names
-
     :return: dataframe with the .col file data
     """
-
     nhead,ncol = file_info(col_file)
     with open(col_file,'r') as infile:
         content = [infile.readline() for i in range(nhead+1)]
-    ggg_line = content[nhead-1]
     gfit_version, gsetup_version = [i.strip().split()[2] for i in content[1:3]]
-    ngas = len(ggg_line.split(':')[-1].split())
-    widths = [speclength+1,3,6,6,5,6,6,7,7,8]+[7,11,10,8]*ngas # the fixed widths for each variable so we can read with pandas.read_fwf, because sometimes there is no whitespace between numbers
+    
     headers = content[nhead].split()
-    col_data = pd.read_fwf(col_file,widths=widths,names=headers,skiprows=nhead+1)
+    colspecs = cu.parse_fortran_format(content[nhead-2], rtype='colspecs')
+    colspecs = colspecs[:len(headers)]
+    
+    col_data = pd.read_fwf(col_file,colspecs=colspecs,names=headers,skiprows=nhead+1)
     col_data.rename(str.lower,axis='columns',inplace=True)
     col_data.rename(index=str,columns={'rms/cl':'rmsocl'},inplace=True)
-
     return col_data, gfit_version, gsetup_version
 
 
@@ -937,7 +934,7 @@ def _add_x2019_co2(ds, is_public):
     else:
         logging.info(f'Adding O2 mole fraction values ({o2_varname})')
         o2_var = ds.createVariable(o2_varname, 'f4', dimensions=('time',))
-        o2_var.description = f'O2 mole fraction used when calculating the x*_x2019 variables ONLY. Any Xgas variables without the _x2019 suffix use {std_o2_mole_frac} in their Xgas calculation.'
+        o2_var.description = f'O2 mole fraction used when calculating the x*_x2019 variables ONLY. Any Xgas variables without the _x2019 suffix use {STD_O2_MOLE_FRAC} in their Xgas calculation.'
         o2_var.units = '1'
         o2_var.standard_name = 'dry_atmospheric_mole_fraction_of_oxygen'
         o2_var[:] = fo2.astype('float32')
@@ -2951,13 +2948,13 @@ def main_inner(args, logger, show_progress, HEAD_commit, code_dir, GGGPATH):
         insb_col_file_list = [i for i in col_file_list if int(''.join([j for j in i.split('.')[0].split('_')[1] if j.isdigit()]))<4000]
         si_col_file_list = [i for i in col_file_list if int(''.join([j for j in i.split('.')[0].split('_')[1] if j.isdigit()]))>10000]
         if insb_col_file_list:
-            col_data, gfit_version, gsetup_version = read_col(insb_col_file_list[0],speclength)
+            col_data, gfit_version, gsetup_version = read_col(insb_col_file_list[0])
             insb_slice = list(np.where(np.isin(aia_ref_speclist_insb,col_data['spectrum']))[0]) # indices of the InSb spectra along the time dimension
             if np.array_equal(insb_slice,aia_data.index.values):
                 # if the insb slice is the full indices, set it to empty list such that write_values writes the whole array at once instead of looping over indices
                 insb_slice = []
         if si_col_file_list:
-            col_data, gfit_version, gsetup_version = read_col(si_col_file_list[0],speclength)
+            col_data, gfit_version, gsetup_version = read_col(si_col_file_list[0])
             si_slice = list(np.where(np.isin(aia_ref_speclist_si,col_data['spectrum']))[0]) # indices of the Si spectra along the time dimension
             if np.array_equal(si_slice,aia_data.index.values):
                 # if the si slice is the full indices, set it to empty list such that write_values writes the whole array at once instead of looping over indices
@@ -3001,7 +2998,7 @@ def main_inner(args, logger, show_progress, HEAD_commit, code_dir, GGGPATH):
                 inds = []
 
             # read col_file headers
-            col_data, gfit_version, gsetup_version = read_col(col_file,speclength)
+            col_data, gfit_version, gsetup_version = read_col(col_file)
 
             if col_file == col_file_list[0]:
                 nhead,ncol = file_info(col_file)

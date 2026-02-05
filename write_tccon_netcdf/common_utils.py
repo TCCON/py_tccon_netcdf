@@ -1,4 +1,3 @@
-from argparse import ArgumentParser
 from datetime import datetime
 import hashlib
 import logging
@@ -7,6 +6,7 @@ import numpy as np
 import os
 import pandas as pd
 import re
+import string
 import subprocess
 import sys
 
@@ -124,10 +124,10 @@ def get_ggg_path():
     """
     try:
         GGGPATH = os.environ['GGGPATH']
-    except:
+    except KeyError:
         try:
             GGGPATH = os.environ['gggpath']
-        except:
+        except KeyError:
             raise EnvironmentError('You need to set a GGGPATH (or gggpath) environment variable')
     return GGGPATH
 
@@ -630,6 +630,175 @@ def correct_prior_index(ds: netCDF4.Dataset, assign: bool = True) -> np.ndarray:
     if assign:
         ds['prior_index'][:] = new_indices
     return new_indices
+
+
+def parse_fortran_format(fmt_str, rtype='fmtstr', bare_fmt=False):
+    # Fortran uses "i" for integers, Python uses "d"
+    # Fortran uses "a" for strings, Python uses "s"
+    # "pe" comes up as a way to change the power of 10 that an
+    #   exponential is, Python has no equivalent.
+    fmttype_subs = {'pe': 'e', 'pf': 'f', 'i': 'd', 'a': 's'}
+
+    fmt_str = fmt_str.strip()
+    if not fmt_str.startswith('(') or not fmt_str.endswith(')'):
+        raise ValueError('The first and last non-whitespace characters of the format string must be open and close '
+                         'parentheses, respectively.')
+    fmt_parts = split_outside_group(fmt_str[1:-1], '(', ')', ',')
+    colspecs = []
+    types = []
+    format_str = ''
+
+    idx = 0
+    for part in fmt_parts:
+        if '(' in part:
+            match = re.match(r'(\d*)(\(.+\))', part)
+            repeats = 1 if len(match.group(1)) == 0 else int(match.group(1))
+            subfmt = match.group(2)
+            subfmt, subspecs, subtypes = parse_fortran_format(subfmt, rtype='all')
+
+            for i in range(repeats):
+                for start, stop in subspecs:
+                    colspecs.append((idx+start, idx+stop))
+                types += subtypes
+                format_str += subfmt
+                idx += stop
+        elif re.match(r'\d+x', part):
+            # In Fortran, specifiers like "1x" mean that n spaces do not contain information and are just spacers
+            nspaces = int(re.match(r'\d+', part, re.IGNORECASE).group())
+            format_str += nspaces * ' '
+            idx += nspaces
+        else:
+            match = re.match(r'(\d*)([a-z]+)(\d+)(\.\d+)?', part, re.IGNORECASE)
+
+            repeats, fmttype, width, prec = match.groups()
+            if fmttype[0] == 'p':
+                # In format specifiers like "1pe11.4", the leading 1 is not a repeat,
+                # but instead used to specify the place shift
+                repeats = ''
+            # Substitute in the python-compatible format type
+            fmttype = fmttype_subs.get(fmttype, fmttype)
+            prec = '' if prec is None else prec
+
+            pyfmt = '{w}{p}{t}'.format(w=width, p=prec, t=fmttype)
+            if not bare_fmt:
+                pyfmt = '{:' + pyfmt + '}'
+            repeats = 1 if len(repeats) == 0 else int(repeats)
+            width = int(width)
+
+            for i in range(repeats):
+                colspecs.append((idx, idx+width))
+                types.append(pyfmt)
+                format_str += pyfmt
+                idx += width
+
+    if rtype == 'all':
+        return format_str, colspecs, types
+    elif rtype == 'fmtstr':
+        return format_str
+    elif rtype == 'colspecs':
+        return colspecs
+    elif rtype == 'types':
+        return types
+    else:
+        raise NotImplementedError('rtype == {}'.format(rtype))
+
+
+def split_outside_group(s, grp_start, grp_stop=None, splitchar=string.whitespace, merge=None):
+    """Split a string on a character or set of characters that occur outside specified delimiters
+
+    This function deals with the problem of, e.g. splitting a string into parts where individual parts may contain the
+    split character, but should not split because it is inside a "group". For example, given::
+
+        "John Doe"  50  6.0
+
+    we may want to split on spaces to parse this line of the table, but "John Doe" should not be split because it is
+    grouped by quotation marks. This function handles that.
+
+    Parameters
+    ----------
+    s : str
+        The string to split
+
+    grp_start : str
+        The character that opens a group. It will be considered escaped (and not counted) if preceded by a backslash.
+
+    grp_stop : str
+        The character that closes a group. If not specified, is taken to be the same as `open`. Also escaped by
+        backslashes.
+
+    splitchar : str
+        A string specifying a character or characters to split on. The default is to split on whitespace.
+
+    merge : bool
+        How to treat consecutive instances of `splitchar`. If this is `True`, then consecutive splitting characters
+        are treated as one. If `False`, then each one is treated separately, meaning that 0-length strings will end
+        up in the output list. By default, this will be `True` if `splitchar` is any combination of whitespace 
+        characters and `False` otherwise.
+
+    Returns
+    -------
+    list
+        The list of substrings after being split
+    """
+    out = []
+    grp_cnt = 0
+    start = 0
+    grp_stop = grp_start if grp_stop is None else grp_stop
+    same_char = grp_start == grp_stop
+    if merge is None:
+        merge = all([c in string.whitespace for c in splitchar])
+
+    if len(grp_start) != 1:
+        raise ValueError('open must be a single character')
+    elif len(grp_stop) != 1:
+        raise ValueError('close must be a single character')
+
+    def count_change(c):
+        if same_char:
+            # Cannot have nested groups with the same character opening and closing a group. So if we're in a group,
+            # we leave it, and vice versa.
+            return 1 if grp_cnt == 0 else -1
+        elif c == grp_start:
+            return 1
+        elif c == grp_stop:
+            return -1
+
+    def is_escaped(idx):
+        if idx == 0:
+            return False
+        elif s[idx-1] == '\\':
+            return True
+        else:
+            return False
+
+    for i, c in enumerate(s):
+        if i < start:
+            # i will be < start if start was advanced to merge consecutive split characters
+            continue
+        elif c in splitchar and grp_cnt == 0:
+            out.append(s[start:i])
+            start = i+1
+            while merge and s[start] in splitchar:
+                # advance start to the next non-split character
+                start += 1
+        elif c in (grp_start, grp_stop) and not is_escaped(i):
+            grp_cnt += count_change(c)
+
+        if grp_cnt < 0:
+            raise ValueError('Given string has an unmatched {} at position {}'.format(grp_stop, i))
+
+    # Group count should be 0. If not, then there were more open characters than closing characters
+    if grp_cnt > 0:
+        raise ValueError('Given string had an unmatched {}'.format(grp_start))
+
+    # Handle the last piece. Check that we haven't just added something, i.e. that the split character isn't the last
+    # one in the string. If it is, then we should add an empty element
+    if start == len(s) + 1:
+        out.append('')
+    else:
+        out.append(s[start:])
+
+    return out
 
 
 def grammatical_join(elements: Sequence[str], conjunction: str = 'and'):
