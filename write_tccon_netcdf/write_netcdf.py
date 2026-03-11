@@ -1239,8 +1239,14 @@ def _expand_aks(ds, xgas, n=500, full_ak_resolution=False, min_extrap=0):
     expanded_aks = np.full([slant_xgas_values.size, aks.shape[0]], np.nan, dtype=aks.dtype)
     alt = ds['ak_altitude'][:]  # isn't really necessary, but need a coordinate along that dimension anyway
     lookup_aks = xr.DataArray(aks, coords=[alt, slant_xgas_bins], dims=['alt', 'slant_bin'])
-    expanded_aks = lookup_aks.interp(slant_bin=slant_xgas_values, kwargs={'fill_value':'extrapolate'})
-    expanded_aks = expanded_aks.data.T
+    # only interpolate to finite values to avoid errors because of invalid Xgas or airmass data.
+    is_finite = np.isfinite(slant_xgas_values)
+    expanded_aks_tmp = lookup_aks.interp(slant_bin=slant_xgas_values[is_finite], kwargs={'fill_value':'extrapolate'})
+
+    nobs = np.size(slant_xgas_values)
+    nlev = np.size(alt)
+    expanded_aks = np.full([nobs, nlev], netCDF4.default_fillvals['f4'], dtype=np.float32)
+    expanded_aks[is_finite] = expanded_aks_tmp.data.T
 
     return expanded_aks, extrap_flags
 
