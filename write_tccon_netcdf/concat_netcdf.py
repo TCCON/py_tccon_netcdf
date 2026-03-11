@@ -231,6 +231,8 @@ def main():
     parser.add_argument('--out',default='',help='full path to the directory where the output file will be saved, default to same as the "path" argument')
     parser.add_argument('--prefix',default='',help='if given, only use files starting with the given prefix')
     parser.add_argument('--simple-progress',action='store_true',help='Print percentage complete every 250 variables copied instead of the fancy progress bar. (Useful for logging to a file.)')
+    parser.add_argument('--use-first-values', help="A comma-separated list of variables for which to take the first file's values without checking for equality. "
+                                                   'Has no effect if the variable is concatenated, only matters if the variable must be equal across files.')
     parser.add_argument('--test',help='Run tests on a concatenated file, comparing against the files matched by PATH and --prefix.')
     parser.add_argument('--test-verbose',action='store_true',help='Print more information from the testing')
     args = parser.parse_args()
@@ -277,6 +279,8 @@ def main():
     if N_sites!=1:
         sys.exit('There are files from {} sites. All netCDF files to concatenate should be from the same site'.format(N_sites))
     site_abbrv = nc_list[0][:2]
+
+    use_first_values = set() if args.use_first_values is None else set(args.use_first_values.split(','))
 
     with ExitStack() as stack:
         ncin_list = [stack.enter_context(netCDF4.Dataset(os.path.join(args.path,nc_file),'r')) for nc_file in nc_list]
@@ -401,17 +405,22 @@ def main():
             # this from one file; if other 
             is_nontime_dim = (name not in _TIME_DIMS) and (name in list(ncout.dimensions))
             has_no_time_dim = all(d not in variable.dimensions for d in _TIME_DIMS)
+            is_use_first_var = name in use_first_values
             if is_nontime_dim or has_no_time_dim:
                 # First verify that the value is the same across all file
                 for ncin in ncin_list[1:]:
                     if name in ncin.variables.keys() and not np.ma.allclose(variable[:], ncin[name][:]):
-                        if is_nontime_dim:
+                        if is_use_first_var:
+                            print('WARNING: Variable "{}" has different values across files, but as requested, the values from the first file will be used'.format(name), file=sys.stderr)
+                        elif is_nontime_dim:
                             print('ERROR: Dimension coordinate variable "{}" has different values across files'.format(name), file=sys.stderr)
                         elif has_no_time_dim:
                             print('ERROR: Variable without temporal dimension "{}" has different values across files'.format(name), file=sys.stderr)
                         else:
                             print('ERROR: Variable "{}" has different values across files'.format(name), file=sys.stderr)
-                        sys.exit(1)
+
+                        if not is_use_first_var:
+                            sys.exit(1)
 
                 ncout[name][:] = variable[:]
                 continue
