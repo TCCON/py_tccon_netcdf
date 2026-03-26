@@ -79,6 +79,12 @@ class PrecheckSeverity(Enum):
     def proceed_automatically(self) -> bool:
         return self <= PrecheckSeverity.INFO
 
+def is_min_severity(severity: PrecheckSeverity, min_severity: Optional[PrecheckSeverity]) -> bool:
+    if min_severity is None:
+        return True
+    else:
+        return severity >= min_severity
+
 
 class PrecheckResult:
     """A class summarizing a failure of a pre-QA/QC consistency check. Fields:
@@ -124,7 +130,8 @@ class TcconPrecheck(ABC):
 
 
 
-def run_checks(target_file: os.PathLike, sanity_checks: Sequence[TcconSanityCheck], prechecks: Sequence[TcconPrecheck], summary_writer: IO, details_writer: IO) -> Optional[PrecheckSeverity]:
+def run_checks(target_file: os.PathLike, sanity_checks: Sequence[TcconSanityCheck], prechecks: Sequence[TcconPrecheck],
+               min_report_severity: Optional[PrecheckSeverity], summary_writer: IO, details_writer: IO) -> Optional[PrecheckSeverity]:
     """Run a series of pre-QA/QC checks on a target file and report the results.
 
     Parameters
@@ -139,6 +146,9 @@ def run_checks(target_file: os.PathLike, sanity_checks: Sequence[TcconSanityChec
 
     prechecks
         The set of prechecks to apply.
+
+    min_report_severity
+        If given, only results with this severity or greater are reported.
 
     summary_writer
         A type to which the summary results of the checks and possible fixes will be written -
@@ -158,7 +168,7 @@ def run_checks(target_file: os.PathLike, sanity_checks: Sequence[TcconSanityChec
     sanity_results = []
     for check in sanity_checks:
         res = check.check_file(target_file)
-        if res is not None:
+        if res is not None and is_min_severity(res.severity, min_report_severity):
             sanity_results.append(res)
 
     if len(sanity_results) > 0:

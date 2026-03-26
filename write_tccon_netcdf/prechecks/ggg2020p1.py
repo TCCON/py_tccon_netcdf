@@ -20,8 +20,10 @@ def main():
     p.add_argument('-s', '--summary', default='STDOUT',
                    help='Where to write the summary. A value of "-" or "STDOUT" writes to standard out, "STDERR" to standard error, '
                         'and any other value is assumed to be a path to a file to write. Default is %(default)s.')
-    p.add_argument('-d', '--details', default='precheck_details.txt',
-                   help='Where to write the details. Accepts the same values as --summary. Default is %(default)s.')
+    p.add_argument('-d', '--details', default=None,
+                   help='Where to write the details. Accepts the same values as --summary. If not given, details will not be written.')
+    p.add_argument('-m', '--min-report-severity', default=None, type=PrecheckSeverity, choices=[v.value for v in PrecheckSeverity.__members__.values()],
+                   help='If given, only results with at least this severity will be reported.')
     p.add_argument('--log-level', default='WARNING', type=lambda x: x.upper(), choices=LOG_LEVEL_CHOICES,
                    help="Log level for the screen (no log file will be written). Default is %(default)s",)
     p.add_argument('--pdb', action='store_true', help='Launch the python debugger')
@@ -49,9 +51,9 @@ def main():
     p.epilog = (
         'If you do not specify any of the "files", "globs", or "json", then there will be no check for duplicate times. '
         'The exit codes are as follows: a 0 indicates that the file passed all checks (and the report has no information), '
-        'a 2 indicates that the file can be moved to QA/QC, but there is information in the report, and '
+        'a 3 indicates that the file can be moved to QA/QC, but there is information in the report, and '
         'a 4 indicates that the file has issues that must be addressed before moving to QA/QC. '
-        'A 1 indicates a Python error.'
+        'A 1 indicates a Python error, a 2 indicates a CLI error.'
     )
 
     clargs = vars(p.parse_args())
@@ -70,6 +72,7 @@ def main():
         severity = driver(
             target_file=clargs['target_file'],
             existing_files=existing_files,
+            min_report_severity=clargs['min_report_severity'],
             summary_writer=summary_writer,
             details_writer=details_writer
         )
@@ -77,7 +80,7 @@ def main():
     if severity is None:
         sys.exit(0)
     elif severity.proceed_automatically:
-        sys.exit(2)
+        sys.exit(3)
     else:
         sys.exit(4)
 
@@ -113,7 +116,9 @@ def _get_no_files(args):
     return []
 
 
-def _open_writer(path: str, stack: ExitStack) -> IO:
+def _open_writer(path: Optional[str], stack: ExitStack) -> IO:
+    if path is None:
+        return stack.enter_context(open(os.devnull, 'w'))
     if path in {'-', 'STDOUT'}:
         return sys.stdout
     if path == 'STDERR':
@@ -123,7 +128,8 @@ def _open_writer(path: str, stack: ExitStack) -> IO:
 
 
 
-def driver(target_file: os.PathLike, existing_files: Union[Sequence[os.PathLike], Dict[os.PathLike, str]], summary_writer: IO, details_writer: IO) -> Optional[PrecheckSeverity]:
+def driver(target_file: os.PathLike, existing_files: Union[Sequence[os.PathLike], Dict[os.PathLike, str]],
+           min_report_severity: Optional[PrecheckSeverity], summary_writer: IO, details_writer: IO) -> Optional[PrecheckSeverity]:
     sanity_checks = [
         defs.ReadableFileCheck()
     ]
@@ -141,6 +147,7 @@ def driver(target_file: os.PathLike, existing_files: Union[Sequence[os.PathLike]
         target_file=target_file,
         sanity_checks=sanity_checks,
         prechecks=prechecks,
+        min_report_severity=min_report_severity,
         summary_writer=summary_writer,
         details_writer=details_writer
     )

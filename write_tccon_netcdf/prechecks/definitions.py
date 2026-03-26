@@ -136,17 +136,21 @@ class DupTimeCheck(TcconPrecheck):
 
         for filepath, filedesc in self.existing_files.items():
             logging.info(f'Checking {netcdf_handle.filepath()} against {filepath} for duplicate times.')
-            with Dataset(filepath) as ds:
-                old_file_timestamps = ds['time'][:]
+            try:
+                with Dataset(filepath) as ds:
+                    old_file_timestamps = ds['time'][:]
 
-                # This check should be faster than the broadcasted difference we'd have to do to actually compute if
-                # any two spectra are close in time to each other
-                if new_file_stop < np.ma.min(old_file_timestamps) or new_file_start > np.ma.max(old_file_timestamps):
-                    continue
+                    # This check should be faster than the broadcasted difference we'd have to do to actually compute if
+                    # any two spectra are close in time to each other
+                    if new_file_stop < np.ma.min(old_file_timestamps) or new_file_start > np.ma.max(old_file_timestamps):
+                        continue
 
-                dup_times = self._report_dup_times(new_file_timestamps, old_file_timestamps)
-                if np.size(dup_times) > 0:
-                    dup_time_reports.extend(self._make_dup_time_reports(filepath, filedesc, dup_times))
+                    dup_times = self._report_dup_times(new_file_timestamps, old_file_timestamps)
+                    if np.size(dup_times) > 0:
+                        dup_time_reports.extend(self._make_dup_time_reports(filepath, filedesc, dup_times))
+            except OSError as err:
+                # In testing, an OSError catches a nonexistant file, and a corrupted or non-netCDF file.
+                logging.warning(f'Could not read existing {filedesc} file {filepath} when checking for duplicate times; error was: {err}')
 
         if len(dup_time_reports) == 0:
             logging.info(f'{netcdf_handle.filepath()} has no duplicate times.')
