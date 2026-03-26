@@ -216,7 +216,7 @@ def _write_results(summary_writer: IO, details_writer: IO, results: Sequence[Pre
     # sort the results so that the most critical issues are first
     results = sorted(results, key=lambda r: r.severity.display_order)
 
-    summary_writer.write('\n\nBelow is a summary of the issued identified.\n\n')
+    summary_writer.write('\n\nBelow is a summary of the issues identified.\n\n')
 
     for index, issue in enumerate(results, start=1):
         summary_writer.write(f'Issue {index} ({issue.severity.value.upper()}): {issue.summary_line}\n')
