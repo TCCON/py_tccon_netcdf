@@ -57,18 +57,18 @@ def test_main(orig_files, concat_file, test_variables=_DEFAULT_TEST_VARS, verbos
                     failures += 1
 
             if failures == 0:
-                print('{}: PASS'.format(var))
+                print(f'{var}: PASS', file=sys.stderr)
             else:
-                print('{}: FAIL ({} of {} files do not match)'.format(var, failures, len(orig_files)))
+                print(f'{var}: FAIL ({failures} of {len(orig_files)} files do not match)', file=sys.stderr)
                 ecode = 1
 
             if verbose:
-                print('')  # put a gap before the next section
+                print('', file=sys.stderr)  # put a gap before the next section
 
     if ecode == 0:
-        print('{} PASSES'.format(concat_file))
+        print(f'{concat_file} PASSES', file=sys.stderr)
     else:
-        print('{} FAILS'.format(concat_file))
+        print(f'{concat_file} FAILS', file=sys.stderr)
 
     return ecode
 
@@ -81,9 +81,9 @@ def compare_variables(concat_ds, orig_ds, inds, varname, verbose=True):
         ok = np.all(concat_ds[varname][:][inds].mask)
         if verbose:
             if ok:
-                print('{} absent from {} and is all fill values in concatenated file (correct)'.format(varname, orig_ds.filepath()))
+                print(f'{varname} absent from {orig_ds.filepath()} and is all fill values in concatenated file (correct)', file=sys.stderr)
             else:
-                print('FAIL: {} absent from {} and but is NOT all fill values in concatenated file'.format(varname, orig_ds.filepath()))
+                print(f'FAIL: {varname} absent from {orig_ds.filepath()} and but is NOT all fill values in concatenated file', file=sys.stderr)
         return ok
 
     else:
@@ -94,13 +94,13 @@ def compare_variables(concat_ds, orig_ds, inds, varname, verbose=True):
         ok = val_ok and mask_ok
         if verbose:
             if ok:
-                print('Variable {} matches between {} and concatenated file (correct)'.format(varname, orig_ds.filepath()))
+                print(f'Variable {varname} matches between {orig_ds.filepath()} and concatenated file (correct)', file=sys.stderr)
             elif not val_ok:
-                print('FAIL: Variable {} DOES NOT match between {} and concatenated file'.format(varname, orig_ds.filepath()))
+                print(f'FAIL: Variable {varname} DOES NOT match between {orig_ds.filepath()} and concatenated file', file=sys.stderr)
             elif not mask_ok:
-                print('FAIL: Fill values locations in variable {} DO NOT match between {} and concatenated file'.format(varname, orig_ds.filepath()))
-            print('   Original: {}'.format(o_vals))
-            print('   Concatenated: {}'.format(c_vals))
+                print(f'FAIL: Fill values locations in variable {varname} DO NOT match between {orig_ds.filepath()} and concatenated file', file=sys.stderr)
+            print(f'   Original: {o_vals}', file=sys.stderr)
+            print(f'   Concatenated: {c_vals}', file=sys.stderr)
         return ok
 
 
@@ -166,24 +166,24 @@ def _fancy_progress(i,tot,bar_length=20,word=''):
     sys.stdout.flush()
 
 
-def print_collection_diffs(name1, col1, name2, col2, stream=sys.stdout):
+def print_collection_diffs(name1, col1, name2, col2, stream=sys.stderr):
     col1 = set(col1)
     col2 = set(col2)
-    print('Present in {} but not {}:'.format(name1, name2), file=stream)
+    print(f'Present in {name1} but not {name2}:', file=stream)
     for v in col1.difference(col2):
-        print('  - {}'.format(v), file=stream)
-    print('Missing from {} but not {}:'.format(name1, name2), file=stream)
+        print(f'  - {v}', file=stream)
+    print(f'Missing from {name1} but not {name2}:', file=stream)
     for v in col2.difference(col1):
-        print('  - {}'.format(v), file=stream)
+        print(f'  - {v}', file=stream)
 
 
-def print_differing_values(name1, vals1, name2, vals2, common_vals=None, stream=sys.stdout):
+def print_differing_values(name1, vals1, name2, vals2, common_vals=None, stream=sys.stderr):
     if common_vals is None:
         common_vals = sorted(set(vals1.keys()).intersection(vals2.keys()))
 
-    print('Differing values for {} vs. {}:'.format(name1, name2), file=stream)
+    print(f'Differing values for {name1} vs. {name2}:', file=stream)
     for cv in common_vals:
-        print('  - {}: {} vs {}'.format(cv, vals1[cv], vals2[cv]), file=stream)
+        print(f'  - {cv}: {vals1[cv]} vs {vals2[cv]}', file=stream)
 
 
 def get_first_variable(ncin_list, varname):
@@ -233,6 +233,7 @@ def main():
     parser.add_argument('--simple-progress',action='store_true',help='Print percentage complete every 250 variables copied instead of the fancy progress bar. (Useful for logging to a file.)')
     parser.add_argument('--use-first-values', help="A comma-separated list of variables for which to take the first file's values without checking for equality. "
                                                    'Has no effect if the variable is concatenated, only matters if the variable must be equal across files.')
+    parser.add_argument('--print-concat-name-only', action='store_true', help='Print the name the concatenated file will have and exit.')
     parser.add_argument('--test',help='Run tests on a concatenated file, comparing against the files matched by PATH and --prefix.')
     parser.add_argument('--test-verbose',action='store_true',help='Print more information from the testing')
     args = parser.parse_args()
@@ -258,22 +259,25 @@ def main():
         sys.exit('No files to concatenate')
     elif len(nc_list) == 1:
         print('Only one file to concatenate, making a copy instead', file=sys.stderr)
+        new_nc = os.path.join(args.out, nc_list[0]) if os.path.isdir(args.out) else args.out
+        if args.print_concat_name_only:
+            print(os.path.basename(new_nc))
+            sys.exit(0)
         if args.path == args.out:
             sys.exit("When using on a single file, the output filename is the same as the input file, use a different output directory to avoid overwritting the input file")
         shutil.copy2(os.path.join(args.path, nc_list[0]), args.out)
-        new_nc = os.path.join(args.out, nc_list[0]) if os.path.isdir(args.out) else args.out
         with netCDF4.Dataset(new_nc,'r+') as ncout:
             ncout.setncatts({"file_creation":file_creation,"history":history})
         sys.exit(0)
 
     if args.test is not None:
-        print('Running test only!')
+        print('Running test only!', file=sys.stderr)
         ecode = test_main(nc_list, args.test, verbose=args.test_verbose)
         sys.exit(ecode)
 
-    print('{} files will be concatenated:'.format(len(nc_list)))
+    print(f'{len(nc_list)} files will be concatenated:', file=sys.stderr)
     for nc_file in nc_list:
-        print('\t',nc_file)
+        print('\t', nc_file, file=sys.stderr)
 
     N_sites = len(set([i[:2] for i in nc_list]))
     if N_sites!=1:
@@ -336,15 +340,18 @@ def main():
 
 
         outfile = '{}{}_{}{}'.format(site_abbrv,start,end,extension)
+        if args.print_concat_name_only:
+            print(outfile)
+            sys.exit(0)
         outpath = os.path.join(args.out,outfile)
-        print('Output netCDF file will be saved as',outpath)
+        print('Output netCDF file will be saved as',outpath,file=sys.stderr)
 
         nspec = np.sum([ncin['time'].size for ncin in ncin_list]) # total size of the output time variable
         nprior = np.sum([ncin['prior_time'].size for ncin in ncin_list]) # total size of the output prior_time variable
         ndaily = np.sum([ncin['daily_error_date'].size for ncin in ncin_list])
-        print('Output time dimension size:',nspec)
-        print('Output prior_time dimension size:',nprior)
-        print('Output daily_error_date dimension size:', ndaily)
+        print('Output time dimension size:',nspec,file=sys.stderr)
+        print('Output prior_time dimension size:',nprior,file=sys.stderr)
+        print('Output daily_error_date dimension size:', ndaily,file=sys.stderr)
 
         # Figure out the union of variables across all input files, keeping variable order as much as possible.
         # This is necessary if concatenating files containing different detectors, i.e. one is InGaAs+Si and one
@@ -470,7 +477,8 @@ def main():
             # end of for ncin
         # end of for name,variable
     # end of with statement
-    print('\nFinished writing {} {:.2f} MB'.format(outpath,os.path.getsize(outpath)/1e6))
+    file_size = os.path.getsize(outpath)/1e6
+    print(f'\nFinished writing {outpath} {file_size:.2f} MB', file=sys.stderr)
 
 if __name__ == "__main__":
     main()
