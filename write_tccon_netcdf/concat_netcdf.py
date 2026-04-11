@@ -258,11 +258,12 @@ def main():
     if len(nc_list) == 0:
         sys.exit('No files to concatenate')
     elif len(nc_list) == 1:
-        print('Only one file to concatenate, making a copy instead', file=sys.stderr)
         new_nc = os.path.join(args.out, nc_list[0]) if os.path.isdir(args.out) else args.out
         if args.print_concat_name_only:
             print(os.path.basename(new_nc))
             sys.exit(0)
+
+        print('Only one file to concatenate, making a copy instead', file=sys.stderr)
         if args.path == args.out:
             sys.exit("When using on a single file, the output filename is the same as the input file, use a different output directory to avoid overwritting the input file")
         shutil.copy2(os.path.join(args.path, nc_list[0]), args.out)
@@ -275,9 +276,10 @@ def main():
         ecode = test_main(nc_list, args.test, verbose=args.test_verbose)
         sys.exit(ecode)
 
-    print(f'{len(nc_list)} files will be concatenated:', file=sys.stderr)
-    for nc_file in nc_list:
-        print('\t', nc_file, file=sys.stderr)
+    if not args.print_concat_name_only:
+        print(f'{len(nc_list)} files will be concatenated:', file=sys.stderr)
+        for nc_file in nc_list:
+            print('\t', nc_file, file=sys.stderr)
 
     N_sites = len(set([i[:2] for i in nc_list]))
     if N_sites!=1:
@@ -299,6 +301,11 @@ def main():
             print('WARNING: different types of netCDF file (e.g. public vs. private) detected! Extension defaulting to ".nc".', file=sys.stderr)
         else:
             extension = list(extension)[0]
+
+        outfile = '{}{}_{}{}'.format(site_abbrv,start,end,extension)
+        if args.print_concat_name_only:
+            print(outfile)
+            sys.exit(0)
 
         # verify that dimensions other than time, prior_time, daily_error_date, specname and other character dimensions
         # have the same length across all files, and that all files have the same dimensions (excluding character dims).
@@ -339,10 +346,6 @@ def main():
             print('WARNING: Since at least one .nc file has different global attributes than the first, note that the concatenated file will use the first input file\'s attributes', file=sys.stderr)
 
 
-        outfile = '{}{}_{}{}'.format(site_abbrv,start,end,extension)
-        if args.print_concat_name_only:
-            print(outfile)
-            sys.exit(0)
         outpath = os.path.join(args.out,outfile)
         print('Output netCDF file will be saved as',outpath,file=sys.stderr)
 
