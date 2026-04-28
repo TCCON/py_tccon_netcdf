@@ -45,10 +45,11 @@ update_manual_flags = "write_tccon_netcdf.update_manual_flags:main"
 update_file_format = "write_tccon_netcdf.file_format_updating:main"
 
 [tool.setuptools]
-packages = ["write_tccon_netcdf"]
+packages = ["write_tccon_netcdf", "write_tccon_netcdf.prechecks"]
 
 [tool.setuptools.package-data]
-write_tccon_netcdf = ["write_netcdf/*.json", "write_netcdf/*.nc"]
+"write_tccon_netcdf" = ["*.nc", "*.json"]
+"write_tccon_netcdf.prechecks" = ["*.dat"]
 
 [tool.setuptools.dynamic]
 version = { attr = "write_tccon_netcdf.__version__" }
