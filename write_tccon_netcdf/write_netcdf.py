@@ -27,6 +27,7 @@ from signal import signal, SIGINT
 import gc
 
 from . import common_utils as cu
+from .common_utils import file_info
 from . import get_paths as gp
 from . import daily_error
 from .file_format_updating import ggg2020a_to_ggg2020c, write_file_fmt_attrs, is_file_current_version, vCurrent
@@ -123,22 +124,6 @@ def checksum(file_name,hexdigest):
     if not check:
         print('\n')
         logging.warning('Checksum mismatch for {}\nNew: {}\nOld: {}'.format(file_name,md5(file_name),hexdigest))
-
-
-def file_info(file_name,delimiter=''):
-    """
-    Read the first line of a file and get the number of header lines and number of data columns
-
-    file_name: full path to the file
-    """
-    with open(file_name,'r') as infile:
-        if delimiter:
-            nhead,ncol = [int(i) for i in infile.readline().strip().split(delimiter)[:2]]
-        else:
-            nhead,ncol = [int(i) for i in infile.readline().strip().split()[:2]]
-    nhead = nhead-1
-
-    return nhead,ncol
 
 
 def gravity(gdlat,altit):
@@ -1552,7 +1537,9 @@ def _set_extra_flags(nc_file,flags_data,flag_type,qc_file=''):
             if 'name' in flags_data[time_period]:
                 flag_name = flags_data[time_period]['name'].lower()
                 if flag_name != MANUAL_FLAGS_DICT[flag_value]:
-                    logging.warning('flag={value} is reserved for "{name}", you tried to set it for "{wrongname}". Setting flag={other} ("other") instead for {time}. Check your {type} flag file'.format(value=flag_value,name=MANUAL_FLAGS_DICT[flag_value],wrongname=flag_name,other=MANUAL_FLAG_OTHER,time=time_period))
+                    logging.warning(
+                        f'flag={flag_value} is reserved for "{MANUAL_FLAGS_DICT[flag_value]}", you tried to set it for "{flag_name}". Setting flag={MANUAL_FLAG_OTHER} ("other") instead for {time_period}. Check your {flag_type} flag file'
+                    )
                     flag_value = MANUAL_FLAG_OTHER
                     flag_name = MANUAL_FLAGS_DICT[flag_value]
             elif flag_value in MANUAL_FLAGS_DICT:
@@ -1888,10 +1875,7 @@ def main_inner(args, logger, show_progress, HEAD_commit, code_dir, GGGPATH):
 
     # qc file: it contains information on some variables as well as their flag limits
     logging.info('\t- {}'.format(qc_file))
-    nhead, ncol = file_info(qc_file)
-    qc_data = pd.read_fwf(qc_file,widths=[15,3,8,7,10,9,10,100],skiprows=nhead+1,names='Variable Output Scale Format Unit Vmin Vmax Description'.split())
-    for key in ['Variable','Format','Unit']:
-        qc_data[key] = [i.replace('"','') for i in qc_data[key]]
+    qc_data = cu.read_qc_file(qc_file)
     len_list = len(list(qc_data['Variable']))
     len_set = len(list(set(qc_data['Variable'])))
     if len_list!=len_set:

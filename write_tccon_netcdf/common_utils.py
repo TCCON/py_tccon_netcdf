@@ -632,6 +632,35 @@ def correct_prior_index(ds: netCDF4.Dataset, assign: bool = True) -> np.ndarray:
     return new_indices
 
 
+def read_qc_file(qc_file):
+    nhead, ncol = file_info(qc_file)
+    qc_data = pd.read_fwf(
+        qc_file,
+        widths=[15,3,8,7,10,9,10,100],
+        skiprows=nhead+1,
+        names='Variable Output Scale Format Unit Vmin Vmax Description'.split()
+    )
+    for key in ['Variable','Format','Unit']:
+        qc_data[key] = [i.replace('"','') for i in qc_data[key]]
+    return qc_data
+
+
+def file_info(file_name,delimiter=''):
+    """
+    Read the first line of a file and get the number of header lines and number of data columns
+
+    file_name: full path to the file
+    """
+    with open(file_name,'r') as infile:
+        if delimiter:
+            nhead,ncol = [int(i) for i in infile.readline().strip().split(delimiter)[:2]]
+        else:
+            nhead,ncol = [int(i) for i in infile.readline().strip().split()[:2]]
+    nhead = nhead-1
+
+    return nhead,ncol
+
+
 def parse_fortran_format(fmt_str, rtype='fmtstr', bare_fmt=False):
     # Fortran uses "i" for integers, Python uses "d"
     # Fortran uses "a" for strings, Python uses "s"

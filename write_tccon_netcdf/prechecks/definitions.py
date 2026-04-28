@@ -1,14 +1,17 @@
 """This module defines the concrete implementations of the different prechecks.
 """
+from dataclasses import dataclass
+from importlib import resources
 from netCDF4 import Dataset
 import logging
 import numpy as np
 import os
 import pandas as pd
 from pathlib import Path
+import re
 
 from .interface import PrecheckResult, PrecheckSeverity, TcconPrecheck, TcconSanityCheck
-from ..common_utils import FileFmtVer, grammatical_join, check_prior_index, correct_prior_index, md5sum_file
+from ..common_utils import FileFmtVer, grammatical_join, check_prior_index, correct_prior_index, md5sum_file, read_qc_file
 
 from typing import Optional, Union, Sequence, Dict
 
@@ -368,3 +371,112 @@ class ChronologicalOrderCheck(TcconPrecheck):
             t2 = pd.Timestamp(1970,1,1) + pd.to_timedelta(times[i+1], unit='s')
             report.append(f'- {t1:%Y-%m-%dT%H:%M:%S} (index {i}) to {t2:%Y-%m-%dT%H:%M:%S} (index {i+1})')
         return report
+
+
+class PrecisionCheck(TcconPrecheck):
+    def __init__(self, template_qc_file: Optional[os.PathLike] = None, check_full_format: bool = False):
+        if template_qc_file is None:
+            with resources.path("write_tccon_netcdf.prechecks", "oc_qc_ggg2020.1.dat") as dat_path:
+                self.qc_data = read_qc_file(dat_path)
+        else:
+            self.qc_data = read_qc_file(template_qc_file)
+        self.check_full_format = check_full_format
+        # Maps a variable in the qc.dat table to a list of variables in the netCDF file
+        # that should have that QC variable's format. It has to be a one-to-many mapping
+        # to allow for the multiple different scales of XCO2.
+        self.variable_mapping = {
+            'xco2': ['xco2_x2007', 'xco2_x2019'],
+        }
+
+    def check_file(self, netcdf_handle: Dataset) -> Optional[PrecheckResult]:
+        missing_vars = []
+        incorrect_reasons = {}
+
+        for _, row in self.qc_data.iterrows():
+            qc_varname = row.Variable
+            qc_format = _NumericFormat.from_string(row.Format)
+            nc_varnames = self.variable_mapping.get(qc_varname, [qc_varname])
+
+            # Each QC variable can map to multiple netCDF variables. See __init__ for why.
+            for nc_varname in nc_varnames:
+                reasons = []
+
+                if nc_varname not in netcdf_handle.variables.keys():
+                    missing_vars.append(nc_varname)
+                    continue
+
+                nc_format_str = getattr(netcdf_handle[nc_varname], 'precision', None)
+                if nc_format_str is None:
+                    reasons.append('missing precision attribute')
+                else:
+                    nc_format = _NumericFormat.from_string(nc_format_str)
+                    # Precision is used to round the netCDF values, so we always care about it.
+                    if nc_format.precision is not None and qc_format.precision is not None and nc_format.precision < qc_format.precision:
+                        reasons.append(f'precision is too small (expected {qc_format.precision} or greater, got {nc_format.precision})')
+                    elif (nc_format.precision is None) != (qc_format.precision is None):
+                        reasons.append(f'had a precision value when one not expected or vice versa (template format was {row.Format}, got {nc_format_str})')
+
+                    # The other parts aren't used, so we may ignore them if we want to reduce false positives.
+                    # For example, someone might change their width to make their .oof files more readable.
+                    if self.check_full_format and nc_format.kind != qc_format.kind:
+                        reasons.append(f'wrong kind (expected {qc_format.kind}, got {nc_format.kind})')
+                    if self.check_full_format and nc_format.width < qc_format.width:
+                        reasons.append(f'width is too small (expected {qc_format.width} or greater, got {nc_format.width})')
+
+                if reasons:
+                    reasons.insert(0, f'template format was "{row.Format}", netCDF format was "{nc_format_str}"')
+                    incorrect_reasons[nc_varname] = reasons
+
+        if missing_vars:
+            missing = ', '.join(missing_vars)
+            logging.info(f'There were {len(missing_vars)} from the template QC file not found in the netCDF file: {missing}')
+
+        if incorrect_reasons:
+            return self._build_result(incorrect_reasons)
+        else:
+            return None
+
+    @classmethod
+    def _build_result(cls, incorrect_reasons: dict):
+        bad_vars = ', '.join(incorrect_reasons.keys())
+        summary = (
+            f'{len(incorrect_reasons)} variable(s) had unexpected, possibly incorrect, formats from their qc.dat files. The variable(s) were: {bad_vars}. '
+            'See the detailed results for this check for the expected formats.'
+        )
+        fix = (
+            'Ensure that you have updated the "Format" column in your qc.dat file to match the pa_qc.dat and/or oc_qc.dat file provided with GGG2020.1. '
+            'It is necessary that the number after the decimal in the "Format" specifiers be large enough to provide sufficient resolution for each variables. '
+        )
+        details = ['The following variables have incorrect/unexpected formats.']
+        for nc_varname, reasons in incorrect_reasons.items():
+            details.append(f'{nc_varname}:')
+            for reason in reasons:
+                details.append(f'  - {reason}')
+        return PrecheckResult(
+            severity=PrecheckSeverity.WARNING,
+            summary_line=summary,
+            possible_fix=fix,
+            detailed_lines=details
+        )
+
+
+@dataclass
+class _NumericFormat:
+    kind: str
+    width: int
+    precision: Optional[int]
+
+    @classmethod
+    def from_string(cls, s: str):
+        # It's okay if the precision is still wrapped in ", the regex will work with or
+        # without that
+        match = re.search(r'(?P<kind>[a-z])(?P<width>\d+)(\.(?P<prec>\d+))?', s)
+        if match is None:
+            raise ValueError(f'Invalid format string: {s}')
+
+        kind = match.group('kind')
+        width = int(match.group('width'))
+        precision = match.group('prec')
+        if precision is not None:
+            precision = int(precision)
+        return cls(kind=kind, width=width, precision=precision)

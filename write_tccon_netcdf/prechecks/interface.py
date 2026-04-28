@@ -71,7 +71,10 @@ class PrecheckSeverity(Enum):
         if self == PrecheckSeverity.WARNING:
             return 'A issue that may require reprocessing. Discussion with editor/reviewers/alg team required before proceeding to QA/QC.'
         if self == PrecheckSeverity.ERROR:
-            return 'A issue that does require reprocessing. If you do not know how to correct this, please ask for help in the QA/QC topic.'
+            return (
+                'A issue that does require reprocessing. Please go ahead and correct this issue and reupload the affected data. '
+                'If you do not know how to correct this, please ask for help in the QA/QC topic.'
+            )
 
         return 'A meaning has not been defined for this severity! (Please let the alg team know you saw this message.)'
 
