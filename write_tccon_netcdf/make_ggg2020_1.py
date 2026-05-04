@@ -88,7 +88,7 @@ VARS_TO_REMOVE = {
 OLD_O2_DMF = 0.2095
 
 
-def driver(input_file, mode, output_file=None, in_place=False):
+def driver(input_file, mode, output_file=None, in_place=False, update_o2_file: bool = True):
     if not os.path.exists(input_file):
         raise IOError(f'Input file {input_file} does not exist')
 
@@ -115,7 +115,7 @@ def driver(input_file, mode, output_file=None, in_place=False):
     )
 
     with ncdf.Dataset(output_file, 'a') as ds:
-        update_o2_and_aicfs(ds, mode)
+        update_o2_and_aicfs(ds, mode, update_o2_file=update_o2_file)
         if do_xn2o_bc:
             bias_correct_xn2o(ds)
         elif 'xn2o_original' in ds.variables.keys():
@@ -125,9 +125,9 @@ def driver(input_file, mode, output_file=None, in_place=False):
         os.rename(output_file, input_file)
 
 
-def update_o2_and_aicfs(ds, mode):
+def update_o2_and_aicfs(ds, mode, update_o2_file: bool = True):
     mode = mode.lower()
-    new_o2_dmfs = _get_new_o2_dmfs(ds)
+    new_o2_dmfs = _get_new_o2_dmfs(ds, update_o2_file=update_o2_file)
     # For every gas and its error, it was calculated as X = V * fO2 / AICF, so we
     # need to multiply by new_fO2 / old_fO2 and old_AICF / new_AICF
     if mode == 'tccon':
@@ -263,9 +263,9 @@ def update_o2_and_aicfs(ds, mode):
     ds.algorithm_version = 'GGG2020.1'
 
 
-def _get_new_o2_dmfs(ds):
+def _get_new_o2_dmfs(ds, update_o2_file: bool = True):
     time_index = pd.Timestamp(1970, 1, 1) + pd.to_timedelta(ds['time'][:], unit='s')
-    o2_dmf_record = O2MeanMoleFractionRecord(auto_update_fo2_file=True)
+    o2_dmf_record = O2MeanMoleFractionRecord(auto_update_fo2_file=update_o2_file)
     o2_dmfs = np.full(time_index.size, np.nan)
     for i, time in enumerate(time_index):
         o2_dmfs[i] = o2_dmf_record.get_o2_mole_fraction(time)

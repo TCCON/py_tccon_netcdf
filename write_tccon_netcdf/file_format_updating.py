@@ -29,6 +29,8 @@ def main():
                    help='Version to upgrade the file to, consisting of MAJOR.MINOR.REV e.g. '
                         '2020.1.A. The MINOR value may be omitted if it is 0, so 2020.B and 2020.0.B are '
                         'equivalent. The default is "%(default)s".')
+    p.add_argument('--no-update-o2-file', action='store_false', dest='update_o2_file',
+                   help='Do not automatically update the O2 mole fraction file.')
     p.add_argument('--log-level', default='INFO', type=lambda x: x.upper(), choices=LOG_LEVEL_CHOICES,
                    help="Log level for the screen (it is always DEBUG for the log file)")
     p.add_argument('--pdb', action='store_true', help='Start in the Python debugger')
@@ -41,7 +43,8 @@ def main():
     driver(**clargs)
 
 
-def driver(netcdf_file: os.PathLike, mode: str = 'TCCON', tgt_ver: cu.FileFmtVer = v2020p1A):
+def driver(netcdf_file: os.PathLike, mode: str = 'TCCON', tgt_ver: cu.FileFmtVer = v2020p1A,
+           update_o2_file: bool = True):
     # Open the file once to get necessary information about it
     with Dataset(netcdf_file) as ds:
         is_public = 'flag' not in ds.variables.keys()
@@ -54,7 +57,7 @@ def driver(netcdf_file: os.PathLike, mode: str = 'TCCON', tgt_ver: cu.FileFmtVer
 
     if file_version < v2020p1A and tgt_ver >= v2020p1A:
         logging.info('Converting from v2020.0.C to v2020.1.A')
-        ggg2020c_to_ggg2020p1a(netcdf_file, mode=mode, in_place=True)
+        ggg2020c_to_ggg2020p1a(netcdf_file, mode=mode, in_place=True, update_o2_file=update_o2_file)
 
 
 def is_file_current_version(netcdf_file: os.PathLike):
