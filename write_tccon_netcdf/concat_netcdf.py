@@ -451,6 +451,8 @@ def main():
                 prior_time_size = ncin['prior_time'].size
                 daily_error_size = ncin['daily_error_date'].size
 
+                # NOTE: netCDF 1.7.4 has a bug in stringtochar that can be worked around with encoding='ascii',
+                # see https://github.com/Unidata/netcdf4-python/issues/1464
                 if name not in ncin.variables.keys():
                     # If concatenating files containing different detectors (e.g. InGaAs+Si or InGaAs+InSb),
                     # there will be some variables absent from some of the files. Don't try to copy in 
@@ -461,16 +463,16 @@ def main():
                     ncout[name][prior_count:prior_count+prior_time_size] = ncin[name][:]
                 elif 'prior_time' in ncin[name].dimensions and has_char_dim(ncin[name]):
                     n = char_dim_lens_by_var[name]
-                    ncout[name][prior_count:prior_count+prior_time_size] = netCDF4.stringtochar(np.array(ncin[name][:],f'S{n}'))
+                    ncout[name][prior_count:prior_count+prior_time_size] = netCDF4.stringtochar(np.array(ncin[name][:],f'S{n}'), encoding='ascii')
                 elif name == 'prior_index': # special case, need to add prior_count to it to properly sample along the concatenated prior_time dimension
                     ncout[name][spec_count:spec_count+time_size] = ncin[name][:] + prior_count
                 elif 'time' in ncin[name].dimensions and not has_char_dim(ncin[name]) and 'specname' not in ncin[name].dimensions:
                     ncout[name][spec_count:spec_count+time_size] = ncin[name][:]
                 elif 'time' in ncin[name].dimensions and has_char_dim(ncin[name]):
                     n = char_dim_lens_by_var[name]
-                    ncout[name][spec_count:spec_count+time_size] = netCDF4.stringtochar(np.array(ncin[name][:],f'S{n}'))
+                    ncout[name][spec_count:spec_count+time_size] = netCDF4.stringtochar(np.array(ncin[name][:],f'S{n}'), encoding='ascii')
                 elif 'time' in ncin[name].dimensions and 'specname' in ncin[name].dimensions:
-                    ncout[name][spec_count:spec_count+time_size] = netCDF4.stringtochar(np.array(ncin[name][:],f'S{speclength}'))
+                    ncout[name][spec_count:spec_count+time_size] = netCDF4.stringtochar(np.array(ncin[name][:],f'S{speclength}'), encoding='ascii')
                 elif 'daily_error_date' in ncin[name].dimensions:
                     ncout[name][daily_error_count:daily_error_count+daily_error_size] = ncin[name][:]
 

@@ -265,7 +265,7 @@ def update_o2_and_aicfs(ds, mode, update_o2_file: bool = True):
 
 def _get_new_o2_dmfs(ds, update_o2_file: bool = True):
     time_index = pd.Timestamp(1970, 1, 1) + pd.to_timedelta(ds['time'][:], unit='s')
-    o2_dmf_record = O2MeanMoleFractionRecord(auto_update_fo2_file=update_o2_file)
+    o2_dmf_record = O2MeanMoleFractionRecord(auto_update_fo2_file=update_o2_file, auto_update_from_tccondata=True)
     o2_dmfs = np.full(time_index.size, np.nan)
     for i, time in enumerate(time_index):
         o2_dmfs[i] = o2_dmf_record.get_o2_mole_fraction(time)
@@ -320,8 +320,9 @@ def override_aicf_scale(ds, aicf_scale_varname, aicf_scale):
     logging.debug(f'Updating {aicf_scale_varname} values to "{aicf_scale}"')
     values = np.full(ds.dimensions['time'].size, aicf_scale).astype('S')
     # Unsure why the stringtochar call is needed here but not in _add_x2019_variable.
-    # Character values are a pain.
-    ds[aicf_scale_varname][:] = ncdf.stringtochar(values)
+    # Character values are a pain. And especially with a bug in netCDF v1.7.4,
+    # see https://github.com/Unidata/netcdf4-python/issues/1464
+    ds[aicf_scale_varname][:] = ncdf.stringtochar(values, encoding='ascii')
 
 def bias_correct_xn2o(ds):
     logging.info('Applying PT700 bias correction to XN2O')

@@ -6,7 +6,6 @@ import logging
 import netCDF4
 import numpy as np
 import os
-from numpy.core.fromnumeric import var
 import pandas as pd
 import platform
 import re
@@ -111,6 +110,13 @@ def find_subset_prior_time_inds(ncin, time_inds):
     return np.isin(prior_inds, subset_prior_inds)
 
 
+def find_subset_daily_error_inds(ncin, start_date, end_date):
+    daily_datetimes = pd.Timestamp(1970,1,1) + pd.to_timedelta(ncin['daily_error_date'][:], unit='s')
+    daily_dates = daily_datetimes.date
+    subset_dates = pd.date_range(start_date, end_date).date
+    return np.isin(daily_dates, subset_dates)
+
+
 def copy_group_attrs(ncin, ncout):
     group_attrs = ncin.__dict__.copy()
     now = datetime.now(timezone.utc).astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')
@@ -119,12 +125,14 @@ def copy_group_attrs(ncin, ncout):
     ncout.setncatts(group_attrs)
 
 
-def copy_group_dims(ncin, ncout, time_inds, prior_time_inds):
+def copy_group_dims(ncin, ncout, time_inds, prior_time_inds, daily_error_inds):
     for name, dimension in ncin.dimensions.items():
         if name == 'time':
             length = np.sum(time_inds)
         elif name == 'prior_time':
             length = np.sum(prior_time_inds)
+        elif name == 'daily_error_date':
+            length = np.sum(daily_error_inds)
         elif dimension.isunlimited():
             length = None
         else:
@@ -133,7 +141,7 @@ def copy_group_dims(ncin, ncout, time_inds, prior_time_inds):
         ncout.createDimension(name, length)
 
 
-def copy_variable(ncin, ncout, varname, time_inds, prior_time_inds):
+def copy_variable(ncin, ncout, varname, time_inds, prior_time_inds, daily_error_inds):
     def check_dim_position(v, dimname):
         if v.dimensions.index(dimname) != 0:
             raise NotImplementedError('Error copying variable "{}": {} dimension is not first'.format(v.name, dimname))
@@ -151,7 +159,9 @@ def copy_variable(ncin, ncout, varname, time_inds, prior_time_inds):
             if v_in.ndim != 2:
                 raise NotImplementedError('Copying string variables with other than 2 dimensions not implemented')
             dtype = 'S{}'.format(v_in.shape[1])
-            char_array = netCDF4.stringtochar(np.array(v_in[inds], dtype))
+            # There is a bug in netCDF4 v1.7.4 that requires encoding='ascii' as a workaround,
+            # see https://github.com/Unidata/netcdf4-python/issues/1464
+            char_array = netCDF4.stringtochar(np.array(v_in[inds], dtype), encoding='ascii')
             v_out[:] = char_array
         else:
             v_out[:] = v_in[inds]
@@ -178,6 +188,9 @@ def copy_variable(ncin, ncout, varname, time_inds, prior_time_inds):
     elif 'prior_time' in var_in.dimensions:
         check_dim_position(var_out, 'prior_time')
         copy_var_data(var_in, var_out, prior_time_inds)
+    elif 'daily_error_date' in var_in.dimensions:
+        check_dim_position(var_out, 'daily_error_date')
+        copy_var_data(var_in, var_out, daily_error_inds)
     else:
         # use a tuple to indicate copy all variable data - works
         # even for scalars
@@ -229,11 +242,13 @@ def driver(input_nc_file, start_date, end_date=None, output_file=None, clobber=F
         # Next figure out the time and prior_time indices we need to keep 
         time_inds = find_subset_time_inds(ncin, start_date, end_date)
         prior_time_inds = find_subset_prior_time_inds(ncin, time_inds)
+        daily_error_inds = find_subset_daily_error_inds(ncin, start_date, end_date)
 
         nspectra = np.sum(time_inds)
         nprior = np.sum(prior_time_inds)
+        ndaily_error = np.sum(daily_error_inds)
         if nspectra > 0:
-            logging.info('{} spectra and {} prior values will be retained'.format(nspectra, nprior))
+            logging.info('{} spectra, {} prior values, and {} daily error values will be retained'.format(nspectra, nprior, ndaily_error))
         else:
             logging.warn('No spectra found in the date range {} to {}!'.format(start_date, end_date))
 
@@ -241,12 +256,12 @@ def driver(input_nc_file, start_date, end_date=None, output_file=None, clobber=F
         logging.info('Copying global attributes')
         copy_group_attrs(ncin=ncin, ncout=ncout)
         logging.info('Copying global dimensions')
-        copy_group_dims(ncin=ncin, ncout=ncout, time_inds=time_inds, prior_time_inds=prior_time_inds)
+        copy_group_dims(ncin=ncin, ncout=ncout, time_inds=time_inds, prior_time_inds=prior_time_inds, daily_error_inds=daily_error_inds)
         logging.info('Copying variables')
         nvar = len(ncin.variables)
         for ivar, varname in enumerate(ncin.variables.keys()):
             progress(ivar, nvar, word=varname, simple=simple_progress)
-            copy_variable(ncin=ncin, ncout=ncout, varname=varname, time_inds=time_inds, prior_time_inds=prior_time_inds)
+            copy_variable(ncin=ncin, ncout=ncout, varname=varname, time_inds=time_inds, prior_time_inds=prior_time_inds, daily_error_inds=daily_error_inds)
 
 
 def main():

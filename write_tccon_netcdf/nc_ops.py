@@ -85,7 +85,9 @@ def _copy_variable(ncin: netCDF4.Dataset, ncout: netCDF4.Dataset, varname: str, 
             if v_in.ndim != 2:
                 raise NotImplementedError('Copying string variables with other than 2 dimensions not implemented')
             dtype = 'S{}'.format(v_in.shape[1])
-            char_array = netCDF4.stringtochar(np.array(v_in[inds], dtype))
+            # NOTE: netCDF4 1.7.4 has a bug in stringtochar that must be worked around with encoding='ascii', see
+            # https://github.com/Unidata/netcdf4-python/issues/1464
+            char_array = netCDF4.stringtochar(np.array(v_in[inds], dtype), encoding='ascii')
             v_out[:] = char_array
             return
 
