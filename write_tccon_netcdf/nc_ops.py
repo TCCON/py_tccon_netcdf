@@ -5,9 +5,11 @@ import os
 
 from typing import Optional
 
-def copy_netcdf(input_nc_file, output_file, clobber=False, var_renames=None, exclude_vars=None):
+def copy_netcdf(input_nc_file, output_file, clobber=False, var_renames=None, var_retypes=None, exclude_vars=None):
     if var_renames is None:
         var_renames = dict()
+    if var_retypes is None:
+        var_retypes = dict()
     if exclude_vars is None:
         exclude_vars = set()
 
@@ -30,7 +32,8 @@ def copy_netcdf(input_nc_file, output_file, clobber=False, var_renames=None, exc
         for ivar, varname in enumerate(ncin.variables.keys()):
             if varname not in exclude_vars:
                 new_name = var_renames.get(varname, varname)
-                _copy_variable(ncin=ncin, ncout=ncout, varname=varname, new_varname=new_name, time_inds=None, prior_time_inds=None)
+                new_type = var_retypes.get(varname, None)
+                _copy_variable(ncin=ncin, ncout=ncout, varname=varname, new_varname=new_name, time_inds=None, prior_time_inds=None, new_type=new_type)
             else:
                 logging.info(f'Not copying excluded variable {varname}')
 
@@ -58,7 +61,7 @@ def _copy_group_dims(ncin, ncout, time_inds: Optional[np.ndarray], prior_time_in
 
 
 def _copy_variable(ncin: netCDF4.Dataset, ncout: netCDF4.Dataset, varname: str, new_varname: str,
-                   time_inds: Optional[np.ndarray], prior_time_inds: Optional[np.ndarray]):
+                   time_inds: Optional[np.ndarray], prior_time_inds: Optional[np.ndarray], new_type: Optional[str] = None):
     def check_dim_position(v, dimname):
         if v.dimensions.index(dimname) != 0:
             raise NotImplementedError('Error copying variable "{}": {} dimension is not first'.format(v.name, dimname))
@@ -98,7 +101,8 @@ def _copy_variable(ncin: netCDF4.Dataset, ncout: netCDF4.Dataset, varname: str, 
     if 'time' in var_in.dimensions and 'prior_time' in var_in.dimensions:
         raise NotImplementedError('Cannot copy/subset a variable ({}) with both time and prior_time as dimensions!'.format(varname))
 
-    var_out = ncout.createVariable(new_varname, var_in.datatype, var_in.dimensions)
+    new_type = new_type or var_in.datatype
+    var_out = ncout.createVariable(new_varname, new_type, var_in.dimensions)
     var_out.setncatts(var_in.__dict__)
     if 'a32' in var_in.dimensions or 'specname' in var_in.dimensions:
         var_out._Encoding = 'ascii'

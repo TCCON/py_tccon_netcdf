@@ -2375,7 +2375,7 @@ def main_inner(args, logger, show_progress, HEAD_commit, code_dir, GGGPATH):
 
         # flags
         logging.info('\t- Flags')
-        nc_data.createVariable('flag',np.int16,('time',))
+        nc_data.createVariable('flag',np.int32,('time',))
         att_dict = {
             "description": 'data quality flag, 0 = good',
             "standard_name": 'quality_flag',

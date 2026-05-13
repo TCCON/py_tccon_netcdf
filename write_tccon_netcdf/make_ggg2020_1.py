@@ -111,6 +111,7 @@ def driver(input_file, mode, output_file=None, in_place=False, update_o2_file: b
         output_file=output_file,
         clobber=True,
         var_renames=var_renames,
+        var_retypes={'flag': 'i4'},
         exclude_vars=VARS_TO_REMOVE
     )
 
