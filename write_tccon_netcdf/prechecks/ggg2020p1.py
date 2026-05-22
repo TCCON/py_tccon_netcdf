@@ -24,6 +24,9 @@ def main():
                    help='Where to write the details. Accepts the same values as --summary. If not given, details will not be written.')
     p.add_argument('-m', '--min-report-severity', default=None, type=PrecheckSeverity, choices=[v.value for v in PrecheckSeverity.__members__.values()],
                    help='If given, only results with at least this severity will be reported.')
+    p.add_argument('--site-var-exception-file',
+                   help='If given, a path to a JSON file with site IDs as keys pointing to lists of variables that this program '
+                        'should not check are in the netCDF file.')
     p.add_argument('--log-level', default='WARNING', type=lambda x: x.upper(), choices=LOG_LEVEL_CHOICES,
                    help="Log level for the screen (no log file will be written). Default is %(default)s",)
     p.add_argument('--pdb', action='store_true', help='Launch the python debugger')
@@ -73,6 +76,7 @@ def main():
             target_file=clargs['target_file'],
             existing_files=existing_files,
             min_report_severity=clargs['min_report_severity'],
+            site_var_exception_file=clargs['site_var_exception_file'],
             summary_writer=summary_writer,
             details_writer=details_writer
         )
@@ -129,7 +133,8 @@ def _open_writer(path: Optional[str], stack: ExitStack) -> IO:
 
 
 def driver(target_file: os.PathLike, existing_files: Union[Sequence[os.PathLike], Dict[os.PathLike, str]],
-           min_report_severity: Optional[PrecheckSeverity], summary_writer: IO, details_writer: IO) -> Optional[PrecheckSeverity]:
+           min_report_severity: Optional[PrecheckSeverity], site_var_exception_file: Optional[os.PathLike], 
+           summary_writer: IO, details_writer: IO) -> Optional[PrecheckSeverity]:
     sanity_checks = [
         defs.ReadableFileCheck()
     ]
@@ -139,7 +144,7 @@ def driver(target_file: os.PathLike, existing_files: Union[Sequence[os.PathLike]
         defs.DupTimeCheck(existing_files),
         defs.UnitScalingCheck(),
         defs.PrecisionCheck(),
-        defs.ExpectedVariablesCheck(),
+        defs.ExpectedVariablesCheck(site_exception_file=site_var_exception_file),
         defs.PriorMismatchCheck(),
         defs.FileNameDateCheck(),
         defs.ChronologicalOrderCheck()

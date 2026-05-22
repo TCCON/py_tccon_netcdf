@@ -484,6 +484,18 @@ class _NumericFormat:
 
 
 class ExpectedVariablesCheck(TcconPrecheck):
+    """Check that the expected variables are present in the netCDF file.
+
+    Parameters
+    ----------
+    required_variables_file
+        A JSON file with at least one key, "required" at the top, which points
+        to a list of required variables.
+
+    site_exception_file
+        A JSON file with site IDs as keys, each pointing to a list of variables
+        that should not be expected for that site.
+    """
     def __init__(self, required_variables_file: Optional[os.PathLike] = None, site_exception_file: Optional[os.PathLike] = None):
         if required_variables_file is None:
             with resources.path("write_tccon_netcdf.prechecks", "required_2020.1_variables.json") as path:
