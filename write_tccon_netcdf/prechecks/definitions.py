@@ -2,6 +2,7 @@
 """
 from dataclasses import dataclass
 from importlib import resources
+import json
 from netCDF4 import Dataset
 import logging
 import numpy as np
@@ -480,3 +481,45 @@ class _NumericFormat:
         if precision is not None:
             precision = int(precision)
         return cls(kind=kind, width=width, precision=precision)
+
+
+class ExpectedVariablesCheck(TcconPrecheck):
+    def __init__(self, required_variables_file: Optional[os.PathLike] = None, site_exception_file: Optional[os.PathLike] = None):
+        if required_variables_file is None:
+            with resources.path("write_tccon_netcdf.prechecks", "required_2020.1_variables.json") as path:
+                with open(path) as f:
+                    self.variable_lists = json.load(f)
+        else:
+            with open(required_variables_file) as f:
+                self.variable_lists = json.load(f)
+
+        if site_exception_file is None:
+            self.site_exceptions = dict()
+        else:
+            with open(site_exception_file) as f:
+                self.site_exceptions = json.load(f)
+
+    def check_file(self, netcdf_handle: Dataset) -> Optional[PrecheckResult]:
+        site_id = Path(netcdf_handle.filepath()).name[:2]
+        site_exceptions = self.site_exceptions.get(site_id, {})
+        expected_vars = set(self.variable_lists['required'])
+        expected_vars.difference_update(site_exceptions)
+        file_vars = set(netcdf_handle.variables.keys())
+        missing_vars = expected_vars.difference(file_vars)
+        return self._build_result(missing_vars)
+
+    def _build_result(self, missing_vars: Sequence[str]) -> Optional[PrecheckResult]:
+        n_missing = len(missing_vars)
+        if n_missing == 0:
+            return None
+
+
+        if n_missing <= 10:
+            all_missing = ', '.join(sorted(missing_vars))
+            summary = f'{n_missing} expected variables were missing from the file: {all_missing}'
+            return PrecheckResult(severity=PrecheckSeverity.WARNING, summary_line=summary)
+        else:
+            summary = f'{n_missing} expected variables were missing from the file. See the details file for the list.'
+            details = ['The follow expected variable were missing:']
+            details.extend(f'- {v}' for v in sorted(missing_vars))
+            return PrecheckResult(severity=PrecheckSeverity.WARNING, summary_line=summary, detailed_lines=details)

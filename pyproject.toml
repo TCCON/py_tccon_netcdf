@@ -49,7 +49,7 @@ packages = ["write_tccon_netcdf", "write_tccon_netcdf.prechecks"]
 
 [tool.setuptools.package-data]
 "write_tccon_netcdf" = ["*.nc", "*.json"]
-"write_tccon_netcdf.prechecks" = ["*.dat"]
+"write_tccon_netcdf.prechecks" = ["*.dat", "*.json"]
 
 [tool.setuptools.dynamic]
 version = { attr = "write_tccon_netcdf.__version__" }

@@ -139,6 +139,7 @@ def driver(target_file: os.PathLike, existing_files: Union[Sequence[os.PathLike]
         defs.DupTimeCheck(existing_files),
         defs.UnitScalingCheck(),
         defs.PrecisionCheck(),
+        defs.ExpectedVariablesCheck(),
         defs.PriorMismatchCheck(),
         defs.FileNameDateCheck(),
         defs.ChronologicalOrderCheck()
