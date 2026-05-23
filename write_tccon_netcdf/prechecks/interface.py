@@ -69,10 +69,10 @@ class PrecheckSeverity(Enum):
         if self == PrecheckSeverity.INFO:
             return 'For information only. Does not prevent a file from automatically proceeding to QA/QC.'
         if self == PrecheckSeverity.WARNING:
-            return 'A issue that may require reprocessing. Discussion with editor/reviewers/alg team required before proceeding to QA/QC.'
+            return 'An issue that may require reprocessing. Discussion with editor/reviewers/alg team required before proceeding to QA/QC.'
         if self == PrecheckSeverity.ERROR:
             return (
-                'A issue that does require reprocessing. Please go ahead and correct this issue and reupload the affected data. '
+                'An issue that does require reprocessing. Please go ahead and correct this issue and reupload the affected data. '
                 'If you do not know how to correct this, please ask for help in the QA/QC topic.'
             )
 
