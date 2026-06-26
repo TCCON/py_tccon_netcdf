@@ -408,7 +408,18 @@ def main():
             varcount += 1
 
             variable = get_first_variable(ncin_list, name)
-            ncout.createVariable(name,variable.datatype,variable.dimensions)
+            # For character variables, use the longest length that we calculated
+            if has_char_dim(variable):
+                dims = []
+                for d in variable.dimensions:
+                    if is_char_dim(d):
+                        dims.append(f'a{char_dim_lens_by_var[name]}')
+                    else:
+                        dims.append(d)
+                dims = tuple(dims)
+            else:
+                dims = variable.dimensions
+            ncout.createVariable(name,variable.datatype,dims)
             ncout[name].setncatts(variable.__dict__)
 
             # Set the values of non-time coordinate variables. Should only need to do
@@ -436,10 +447,6 @@ def main():
                 continue
 
             # If this is a character variable, provide a text encoding
-            # TODO: handle the GEOS version variables (which won't necessarily be "a32")
-            # - both give then the ascii encoding _and_ handle if their second dimension
-            # varies from file to file - we'd want to use the largest dimension for the
-            # concatenated file.
             if has_char_dim(variable) or 'specname' in variable.dimensions:
                 ncout[name]._Encoding = 'ascii'
 
