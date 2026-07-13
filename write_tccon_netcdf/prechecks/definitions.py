@@ -171,8 +171,14 @@ class DupTimeCheck(TcconPrecheck):
 
 
     def _report_dup_times(self, new_file_times: np.ndarray, old_file_times: np.ndarray) -> np.ndarray:
-        dt = new_file_times[:, np.newaxis] - old_file_times[np.newaxis, :]
-        is_dup = np.any(np.abs(dt) < self.max_dt_sec, axis=1)
+        is_dup = np.zeros(new_file_times.shape, dtype=bool)
+        n = is_dup.size
+        for i, new_time in enumerate(new_file_times):
+            if i % 10_000 == 0:
+                logging.debug(f'Checking new time {i+1}/{n} for duplication against old times')
+            dt = new_time - old_file_times
+            is_dup[i] = np.any(np.abs(dt) < self.max_dt_sec)
+        logging.debug('Finished checking for duplicate times')
         return new_file_times[is_dup]
 
     def _make_dup_time_reports(self, filepath: os.PathLike, filedesc: str, dup_times: np.ndarray) -> Sequence[str]:
