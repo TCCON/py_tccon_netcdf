@@ -108,7 +108,10 @@ def find_subset_time_inds(ncin, start_date, end_date):
 def find_subset_prior_time_inds(ncin, time_inds):
     prior_inds = np.arange(ncin['prior_time'].size)
     subset_prior_inds = ncin['prior_index'][time_inds]
-    return np.isin(prior_inds, subset_prior_inds)
+    # Take the whole block of prior entries between the first and last indices,
+    # otherwise if there are extra prior entries in the prior variables not
+    # referenced by the prior index, the "skipped" ones aren't copied.
+    return (prior_inds >= subset_prior_inds.min()) & (prior_inds <= subset_prior_inds.max())
 
 
 def copy_group_attrs(ncin, ncout):
