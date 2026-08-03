@@ -10,7 +10,8 @@
 		"long", 
 		"zobs", 
 		"zmin", 
-		"asza", 
+		"asza",
+		"solzen",
 		"azim", 
 		"tout", 
 		"pout", 
@@ -18,9 +19,13 @@
 		"sia", 
 		"fvsi", 
 		"wspd", 
-		"wdir"],
+		"wdir",
+		"integration_operator",
+        "o2_mean_mole_fraction"
+	],
 
 	"startswith": [
+		"xluft",
 		"xhf", 
 		"xh2o", 
 		"xhdo", 
@@ -28,7 +33,8 @@
 		"xco2", 
 		"xn2o", 
 		"xch4", 
-		"prior_", 
+		"prior_",
+		"prior_x",
 		"ak_"],
 
 	"experimental_group_startswith": [
@@ -66,18 +72,39 @@
 		"_modfile", 
 		"_vmrfile",
 		"xtco2_",
+        "prior_xtco2",
 		"xfco2_",
-		"xth2o_"],
+        "prior_xfco2",
+		"xth2o_",
+        "prior_xth2o",
+        "prior_xluft",
+        "prior_xzco2",
+        "prior_xo2",
+        "prior_xhcl",
+        "prior_xco2_x2007",
+        "ak_xo2"
+    ],
 	"exclude_regex": [
+        "prior_x[wl]co2.*",
 		"_g$",
-		"_p$"],
+		"_p$",
+		"geos_[a-zA-Z0-9]+_version",
+		"geos_[a-zA-Z0-9]+_filename",
+		"geos_[a-zA-Z0-9]+_checksum"
+	],
 	"has_aicf_scale": [
-		"xco2",
-		"xwco2",
-		"xlco2",
+		"xco2_x2007",
+		"xwco2_x2007",
+		"xlco2_x2007",
+		"xco2_x2019",
+		"xwco2_x2019",
+		"xlco2_x2019",
 		"xch4",
 		"xn2o",
 		"xco",
-		"xh2o",
-		"xluft"]
+		"xh2o"
+    ],
+	"remap": {
+        "prior_xco2_x2019": "prior_xco2"
+    }
 }

@@ -1,0 +1,164 @@
+from argparse import ArgumentParser
+from contextlib import ExitStack
+from glob import glob
+import json
+import os
+import sys
+
+from . import definitions as defs
+from .interface import run_checks, PrecheckSeverity
+from ..file_format_updating import v2020C
+from ..common_utils import setup_logging
+from ..constants import LOG_LEVEL_CHOICES
+
+from typing import Dict, IO, Optional, Sequence, Union
+
+
+def main():
+    p = ArgumentParser(description='Run pre-QA/QC checks on a private netCDF file')
+    p.add_argument('target_file', help='The private netCDF file to check.')
+    p.add_argument('-s', '--summary', default='STDOUT',
+                   help='Where to write the summary. A value of "-" or "STDOUT" writes to standard out, "STDERR" to standard error, '
+                        'and any other value is assumed to be a path to a file to write. Default is %(default)s.')
+    p.add_argument('-d', '--details', default=None,
+                   help='Where to write the details. Accepts the same values as --summary. If not given, details will not be written.')
+    p.add_argument('-m', '--min-report-severity', default=None, type=PrecheckSeverity, choices=[v.value for v in PrecheckSeverity.__members__.values()],
+                   help='If given, only results with at least this severity will be reported.')
+    p.add_argument('--site-var-exception-file',
+                   help='If given, a path to a JSON file with site IDs as keys pointing to lists of variables that this program '
+                        'should not check are in the netCDF file.')
+    p.add_argument('--log-level', default='WARNING', type=lambda x: x.upper(), choices=LOG_LEVEL_CHOICES,
+                   help="Log level for the screen (no log file will be written). Default is %(default)s",)
+    p.add_argument('--pdb', action='store_true', help='Launch the python debugger')
+
+    subp = p.add_subparsers()
+    filep = subp.add_parser('files', help='Specify existing file to check against for duplicate times as arguments.')
+    filep.add_argument('files', nargs='*', help='Individual existing private netCDF files to check')
+    filep.set_defaults(ex_files_fxn=_get_files_list)
+
+    globp = subp.add_parser('globs', help='Specify existing files (and their labels) to check against for duplicate times with a glob pattern.')
+    globp.add_argument('labels_and_globs', nargs='*',
+                       help='Alternate file labels and glob patterns, e.g.: "published" "/data/pub/*.nc" "preliminary" "/data/prelim/*.nc". '
+                            'For most shells, the globs must be quoted to avoid expanding then in the shell.')
+    globp.set_defaults(ex_files_fxn=_get_files_glob)
+
+    jsonp = subp.add_parser('json', help='Specify existing files (optionally with labels) in a JSON file')
+    jsonp.add_argument('json_file', help='A JSON file containing either (a) a list of paths to existing netCDF files or '
+                                         '(b) a map of netCDF files to labels for them to check against for duplicate times.')
+    jsonp.set_defaults(ex_files_fxn=_get_files_json)
+
+    jsonclip = subp.add_parser('json-cl', help='Like "json", but passes the JSON as the command line argument')
+    jsonclip.add_argument('json_str', help='A JSON string with the same contents as the file for the "json" subcommand.')
+    jsonclip.set_defaults(ex_files_fxn=_get_files_json_str)
+
+    p.epilog = (
+        'If you do not specify any of the "files", "globs", or "json", then there will be no check for duplicate times. '
+        'The exit codes are as follows: a 0 indicates that the file passed all checks (and the report has no information), '
+        'a 3 indicates that the file can be moved to QA/QC, but there is information in the report, and '
+        'a 4 indicates that the file has issues that must be addressed before moving to QA/QC. '
+        'A 1 indicates a Python error, a 2 indicates a CLI error.'
+    )
+
+    clargs = vars(p.parse_args())
+    if clargs.pop('pdb'):
+        import pdb
+        pdb.set_trace()
+    setup_logging(clargs['log_level'], log_file=None)
+
+    get_files_fxn = clargs.get('ex_files_fxn', _get_no_files)
+
+    existing_files = get_files_fxn(clargs)
+
+    with ExitStack() as stack:
+        summary_writer = _open_writer(clargs['summary'], stack)
+        details_writer = _open_writer(clargs['details'], stack)
+        severity = driver(
+            target_file=clargs['target_file'],
+            existing_files=existing_files,
+            min_report_severity=clargs['min_report_severity'],
+            site_var_exception_file=clargs['site_var_exception_file'],
+            summary_writer=summary_writer,
+            details_writer=details_writer
+        )
+
+    if severity is None:
+        sys.exit(0)
+    elif severity.proceed_automatically:
+        sys.exit(3)
+    else:
+        sys.exit(4)
+
+
+def _get_files_list(args):
+    return args['files']
+
+
+def _get_files_glob(args):
+    n = len(args['labels_and_globs'])
+    if n % 2 != 0:
+        raise ValueError(f'Must be an even number of labels and globs (got {n})')
+
+    files = dict()
+    for i in range(0, n, 2):
+        label = args['labels_and_globs'][i]
+        pattern = args['labels_and_globs'][i+1]
+        for f in glob(pattern):
+            files[f] = label
+    return files
+
+
+def _get_files_json(args):
+    with open(args['json_file']) as f:
+        return json.load(f)
+
+
+def _get_files_json_str(args):
+    return json.loads(args['json_str'])
+
+
+def _get_no_files(args):
+    return []
+
+
+def _open_writer(path: Optional[str], stack: ExitStack) -> IO:
+    if path is None:
+        return stack.enter_context(open(os.devnull, 'w'))
+    if path in {'-', 'STDOUT'}:
+        return sys.stdout
+    if path == 'STDERR':
+        return sys.stderr
+
+    return stack.enter_context(open(path, 'w'))
+
+
+
+def driver(target_file: os.PathLike, existing_files: Union[Sequence[os.PathLike], Dict[os.PathLike, str]],
+           min_report_severity: Optional[PrecheckSeverity], site_var_exception_file: Optional[os.PathLike], 
+           summary_writer: IO, details_writer: IO) -> Optional[PrecheckSeverity]:
+    sanity_checks = [
+        defs.ReadableFileCheck()
+    ]
+
+    prechecks = [
+        defs.FileFormatCheck(v2020C),
+        defs.DupTimeCheck(existing_files),
+        defs.UnitScalingCheck(),
+        defs.PrecisionCheck(),
+        defs.ExpectedVariablesCheck(site_exception_file=site_var_exception_file),
+        defs.PriorMismatchCheck(),
+        defs.FileNameDateCheck(),
+        defs.ChronologicalOrderCheck()
+    ]
+
+    return run_checks(
+        target_file=target_file,
+        sanity_checks=sanity_checks,
+        prechecks=prechecks,
+        min_report_severity=min_report_severity,
+        summary_writer=summary_writer,
+        details_writer=details_writer
+    )
+
+
+if __name__ == '__main__':
+    main()

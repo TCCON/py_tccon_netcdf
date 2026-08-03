@@ -4,6 +4,7 @@ import os
 import numpy as np
 import netCDF4
 import re
+import shutil
 import argparse
 from contextlib import ExitStack
 import time
@@ -32,6 +33,8 @@ _DEFAULT_TEST_VARS = ('time', 'xluft', 'xco2', 'xch4',
                       'prior_time', 'prior_1co2', 'prior_effective_latitude',
                       'ak_xco2', 'ak_xch4', 'ak_slant_xco2_bin', 'ak_slant_xch4_bin')
 
+_TIME_DIMS = ('prior_time', 'time', 'daily_error_date')
+
 def test_main(orig_files, concat_file, test_variables=_DEFAULT_TEST_VARS, verbose=True):
     ecode = 0
     with ExitStack() as stack:
@@ -54,23 +57,23 @@ def test_main(orig_files, concat_file, test_variables=_DEFAULT_TEST_VARS, verbos
                     failures += 1
 
             if failures == 0:
-                print('{}: PASS'.format(var))
+                print(f'{var}: PASS', file=sys.stderr)
             else:
-                print('{}: FAIL ({} of {} files do not match)'.format(var, failures, len(orig_files)))
+                print(f'{var}: FAIL ({failures} of {len(orig_files)} files do not match)', file=sys.stderr)
                 ecode = 1
 
             if verbose:
-                print('')  # put a gap before the next section
+                print('', file=sys.stderr)  # put a gap before the next section
 
     if ecode == 0:
-        print('{} PASSES'.format(concat_file))
+        print(f'{concat_file} PASSES', file=sys.stderr)
     else:
-        print('{} FAILS'.format(concat_file))
+        print(f'{concat_file} FAILS', file=sys.stderr)
 
     return ecode
-                
 
-                
+
+
 def compare_variables(concat_ds, orig_ds, inds, varname, verbose=True):
     if varname not in orig_ds.variables.keys():
         # This variable wasn't in this original file, so the concatenated dataset should be all
@@ -78,9 +81,9 @@ def compare_variables(concat_ds, orig_ds, inds, varname, verbose=True):
         ok = np.all(concat_ds[varname][:][inds].mask)
         if verbose:
             if ok:
-                print('{} absent from {} and is all fill values in concatenated file (correct)'.format(varname, orig_ds.filepath()))
+                print(f'{varname} absent from {orig_ds.filepath()} and is all fill values in concatenated file (correct)', file=sys.stderr)
             else:
-                print('FAIL: {} absent from {} and but is NOT all fill values in concatenated file'.format(varname, orig_ds.filepath()))
+                print(f'FAIL: {varname} absent from {orig_ds.filepath()} and but is NOT all fill values in concatenated file', file=sys.stderr)
         return ok
 
     else:
@@ -91,13 +94,13 @@ def compare_variables(concat_ds, orig_ds, inds, varname, verbose=True):
         ok = val_ok and mask_ok
         if verbose:
             if ok:
-                print('Variable {} matches between {} and concatenated file (correct)'.format(varname, orig_ds.filepath()))
+                print(f'Variable {varname} matches between {orig_ds.filepath()} and concatenated file (correct)', file=sys.stderr)
             elif not val_ok:
-                print('FAIL: Variable {} DOES NOT match between {} and concatenated file'.format(varname, orig_ds.filepath()))
+                print(f'FAIL: Variable {varname} DOES NOT match between {orig_ds.filepath()} and concatenated file', file=sys.stderr)
             elif not mask_ok:
-                print('FAIL: Fill values locations in variable {} DO NOT match between {} and concatenated file'.format(varname, orig_ds.filepath()))
-            print('   Original: {}'.format(o_vals))
-            print('   Concatenated: {}'.format(c_vals))
+                print(f'FAIL: Fill values locations in variable {varname} DO NOT match between {orig_ds.filepath()} and concatenated file', file=sys.stderr)
+            print(f'   Original: {o_vals}', file=sys.stderr)
+            print(f'   Concatenated: {c_vals}', file=sys.stderr)
         return ok
 
 
@@ -163,24 +166,24 @@ def _fancy_progress(i,tot,bar_length=20,word=''):
     sys.stdout.flush()
 
 
-def print_collection_diffs(name1, col1, name2, col2, stream=sys.stdout):
+def print_collection_diffs(name1, col1, name2, col2, stream=sys.stderr):
     col1 = set(col1)
     col2 = set(col2)
-    print('Present in {} but not {}:'.format(name1, name2), file=stream)
+    print(f'Present in {name1} but not {name2}:', file=stream)
     for v in col1.difference(col2):
-        print('  - {}'.format(v), file=stream)
-    print('Missing from {} but not {}:'.format(name1, name2), file=stream)
+        print(f'  - {v}', file=stream)
+    print(f'Missing from {name1} but not {name2}:', file=stream)
     for v in col2.difference(col1):
-        print('  - {}'.format(v), file=stream)
+        print(f'  - {v}', file=stream)
 
 
-def print_differing_values(name1, vals1, name2, vals2, common_vals=None, stream=sys.stdout):
+def print_differing_values(name1, vals1, name2, vals2, common_vals=None, stream=sys.stderr):
     if common_vals is None:
         common_vals = sorted(set(vals1.keys()).intersection(vals2.keys()))
 
-    print('Differing values for {} vs. {}:'.format(name1, name2), file=stream)
+    print(f'Differing values for {name1} vs. {name2}:', file=stream)
     for cv in common_vals:
-        print('  - {}: {} vs {}'.format(cv, vals1[cv], vals2[cv]), file=stream)
+        print(f'  - {cv}: {vals1[cv]} vs {vals2[cv]}', file=stream)
 
 
 def get_first_variable(ncin_list, varname):
@@ -192,12 +195,45 @@ def get_first_variable(ncin_list, varname):
 
 
 
+def calc_char_dim_lengths(ncin_list):
+    var_dims = dict()
+    for ncin in ncin_list:
+        for varname, var in ncin.variables.items():
+            if has_char_dim(var):
+                curr_max = var_dims.setdefault(varname, 0)
+                var_dims[varname] = max(curr_max, char_dim_len(ncin, var))
+    return var_dims
+
+
+def is_char_dim(dimname):
+    return re.match(r'a\d+$', dimname) is not None
+
+
+def has_char_dim(ncvar):
+    for dimname in ncvar.dimensions:
+        if is_char_dim(dimname):
+            return True
+
+    return False
+
+
+def char_dim_len(ncin, ncvar):
+    for dimname in ncvar.dimensions:
+        if is_char_dim(dimname):
+            return ncin.dimensions[dimname].size
+
+    raise ValueError('No character dimension found')
+
+
 def main():
     parser = argparse.ArgumentParser(description="Concatenate netCDF files that are in the given directory")
     parser.add_argument('path',help='full path to a folder containing netCDF files')
     parser.add_argument('--out',default='',help='full path to the directory where the output file will be saved, default to same as the "path" argument')
     parser.add_argument('--prefix',default='',help='if given, only use files starting with the given prefix')
     parser.add_argument('--simple-progress',action='store_true',help='Print percentage complete every 250 variables copied instead of the fancy progress bar. (Useful for logging to a file.)')
+    parser.add_argument('--use-first-values', help="A comma-separated list of variables for which to take the first file's values without checking for equality. "
+                                                   'Has no effect if the variable is concatenated, only matters if the variable must be equal across files.')
+    parser.add_argument('--print-concat-name-only', action='store_true', help='Print the name the concatenated file will have and exit.')
     parser.add_argument('--test',help='Run tests on a concatenated file, comparing against the files matched by PATH and --prefix.')
     parser.add_argument('--test-verbose',action='store_true',help='Print more information from the testing')
     args = parser.parse_args()
@@ -215,22 +251,42 @@ def main():
         nc_list = [i for i in os.listdir(args.path) if i.startswith(args.prefix) and i.endswith('.nc')]
     else:
         nc_list = [i for i in os.listdir(args.path) if i.endswith('.nc')]
-    if len(nc_list)<=1:
+
+    file_creation = "Created with Python {}; the library netCDF4 {}; and the code concat_netcdf.py".format(platform.python_version(),netCDF4.__version__)
+    history = "Created {} (UTC) from the concatenation of {} netCDF files".format(time.asctime(time.gmtime(time.time())),len(nc_list))
+
+    if len(nc_list) == 0:
         sys.exit('No files to concatenate')
+    elif len(nc_list) == 1:
+        new_nc = os.path.join(args.out, nc_list[0]) if os.path.isdir(args.out) else args.out
+        if args.print_concat_name_only:
+            print(os.path.basename(new_nc))
+            sys.exit(0)
+
+        print('Only one file to concatenate, making a copy instead', file=sys.stderr)
+        if args.path == args.out:
+            sys.exit("When using on a single file, the output filename is the same as the input file, use a different output directory to avoid overwritting the input file")
+        shutil.copy2(os.path.join(args.path, nc_list[0]), args.out)
+        with netCDF4.Dataset(new_nc,'r+') as ncout:
+            ncout.setncatts({"file_creation":file_creation,"history":history})
+        sys.exit(0)
 
     if args.test is not None:
-        print('Running test only!')
+        print('Running test only!', file=sys.stderr)
         ecode = test_main(nc_list, args.test, verbose=args.test_verbose)
         sys.exit(ecode)
 
-    print('{} files will be concatenated:'.format(len(nc_list)))
-    for nc_file in nc_list:
-        print('\t',nc_file)
+    if not args.print_concat_name_only:
+        print(f'{len(nc_list)} files will be concatenated:', file=sys.stderr)
+        for nc_file in nc_list:
+            print('\t', nc_file, file=sys.stderr)
 
     N_sites = len(set([i[:2] for i in nc_list]))
     if N_sites!=1:
         sys.exit('There are files from {} sites. All netCDF files to concatenate should be from the same site'.format(N_sites))
     site_abbrv = nc_list[0][:2]
+
+    use_first_values = set() if args.use_first_values is None else set(args.use_first_values.split(','))
 
     with ExitStack() as stack:
         ncin_list = [stack.enter_context(netCDF4.Dataset(os.path.join(args.path,nc_file),'r')) for nc_file in nc_list]
@@ -246,18 +302,23 @@ def main():
         else:
             extension = list(extension)[0]
 
-        # verify that dimensions other than time, prior_time, and specname have the same length across all files,
-        # and that all files have the same dimensions. 
-        first_file_dim_lengths = {name: len(dim) for name, dim in ncin_list[0].dimensions.items()}
+        outfile = '{}{}_{}{}'.format(site_abbrv,start,end,extension)
+        if args.print_concat_name_only:
+            print(outfile)
+            sys.exit(0)
+
+        # verify that dimensions other than time, prior_time, daily_error_date, specname and other character dimensions
+        # have the same length across all files, and that all files have the same dimensions (excluding character dims).
+        first_file_dim_lengths = {name: len(dim) for name, dim in ncin_list[0].dimensions.items() if not is_char_dim(name)}
         for ncin in ncin_list[1:]:
-            other_file_dim_lengths = {name: len(dim) for name, dim in ncin.dimensions.items()}
+            other_file_dim_lengths = {name: len(dim) for name, dim in ncin.dimensions.items() if not is_char_dim(name)}
             if first_file_dim_lengths.keys() != other_file_dim_lengths.keys():
                 print('ERROR: {} and {} have different dimensions!'.format(ncin_list[0].filepath(), ncin.filepath()), file=sys.stderr)
                 print_collection_diffs(ncin_list[0].filepath(), first_file_dim_lengths.keys(), ncin.filepath(), other_file_dim_lengths.keys(), stream=sys.stderr)
                 sys.exit(1)
 
             common_dims = set(first_file_dim_lengths.keys()).intersection(other_file_dim_lengths.keys())
-            unequal_dims = [d for d in common_dims if d not in ('time', 'prior_time', 'specname') and first_file_dim_lengths[d] != other_file_dim_lengths[d]]
+            unequal_dims = [d for d in common_dims if d not in _TIME_DIMS + ('specname',) and first_file_dim_lengths[d] != other_file_dim_lengths[d]]
             if len(unequal_dims) > 0:
                 print('ERROR: {} and {} have {} common non-time dimensions with different lengths'.format(ncin_list[0].filepath(), ncin.filepath(), len(unequal_dims)), file=sys.stderr)
                 print_differing_values(ncin_list[0].filepath(), first_file_dim_lengths, ncin.filepath(), other_file_dim_lengths, common_vals=unequal_dims)
@@ -285,14 +346,15 @@ def main():
             print('WARNING: Since at least one .nc file has different global attributes than the first, note that the concatenated file will use the first input file\'s attributes', file=sys.stderr)
 
 
-        outfile = '{}{}_{}{}'.format(site_abbrv,start,end,extension)
         outpath = os.path.join(args.out,outfile)
-        print('Output netCDF file will be saved as',outpath)
+        print('Output netCDF file will be saved as',outpath,file=sys.stderr)
 
         nspec = np.sum([ncin['time'].size for ncin in ncin_list]) # total size of the output time variable
         nprior = np.sum([ncin['prior_time'].size for ncin in ncin_list]) # total size of the output prior_time variable
-        print('Output time dimension size:',nspec)
-        print('Output prior_time dimension size:',nprior)
+        ndaily = np.sum([ncin['daily_error_date'].size for ncin in ncin_list])
+        print('Output time dimension size:',nspec,file=sys.stderr)
+        print('Output prior_time dimension size:',nprior,file=sys.stderr)
+        print('Output daily_error_date dimension size:', ndaily,file=sys.stderr)
 
         # Figure out the union of variables across all input files, keeping variable order as much as possible.
         # This is necessary if concatenating files containing different detectors, i.e. one is InGaAs+Si and one
@@ -314,23 +376,30 @@ def main():
         ## copy attributes, dimensions, and variables metadata using the first file
         global_attributes = ncin_list[0].__dict__.copy()
         # update the history and file_creation
-        global_attributes['file_creation'] = "Created with Python {}; the library netCDF4 {}; and the code concat_netcdf.py".format(platform.python_version(),netCDF4.__version__)
-        global_attributes['history'] = "Created {} (UTC) from the concatenation of {} netCDF files".format(time.asctime(time.gmtime(time.time())),len(nc_list))
+        global_attributes['file_creation'] = file_creation
+        global_attributes['history'] = history
         ncout.setncatts(global_attributes)
 
         # Copy dimensions from the first file. We ensured above that all files have the same dimensions
         # and dimensions other than time, prior_time, and specname have the same length, so we can copy
         # from the first file safely. 
         speclength = np.max([ncin.dimensions['specname'].size for ncin in ncin_list])
+        char_dim_lens_by_var = calc_char_dim_lengths(ncin_list)
         for name, dimension in ncin_list[0].dimensions.items():
             if name == 'time':
                 ncout.createDimension(name, nspec)
             elif name == 'prior_time':
                 ncout.createDimension(name, nprior)
+            elif name == 'daily_error_date':
+                ncout.createDimension(name, ndaily)
             elif name == 'specname':
                 ncout.createDimension(name, speclength)
-            else:
+            elif not is_char_dim(name):
                 ncout.createDimension(name, (len(dimension) if not dimension.isunlimited() else None))
+
+        # For the character lengths, make one dimension per unique maximum length
+        for n in sorted(set(char_dim_lens_by_var.values())):
+            ncout.createDimension(f'a{n}', n)
 
         varcount = 0
         nvar = len(all_variables)
@@ -339,63 +408,89 @@ def main():
             varcount += 1
 
             variable = get_first_variable(ncin_list, name)
-            ncout.createVariable(name,variable.datatype,variable.dimensions)
+            # For character variables, use the longest length that we calculated
+            if has_char_dim(variable):
+                dims = []
+                for d in variable.dimensions:
+                    if is_char_dim(d):
+                        dims.append(f'a{char_dim_lens_by_var[name]}')
+                    else:
+                        dims.append(d)
+                dims = tuple(dims)
+            else:
+                dims = variable.dimensions
+            ncout.createVariable(name,variable.datatype,dims)
             ncout[name].setncatts(variable.__dict__)
 
             # Set the values of non-time coordinate variables. Should only need to do
             # this from one file; if other 
-            is_nontime_dim = (name not in ['prior_time','time']) and (name in list(ncout.dimensions))
-            has_no_time_dim = all(d not in variable.dimensions for d in ['prior_time','time'])
+            is_nontime_dim = (name not in _TIME_DIMS) and (name in list(ncout.dimensions))
+            has_no_time_dim = all(d not in variable.dimensions for d in _TIME_DIMS)
+            is_use_first_var = name in use_first_values
             if is_nontime_dim or has_no_time_dim:
                 # First verify that the value is the same across all file
                 for ncin in ncin_list[1:]:
                     if name in ncin.variables.keys() and not np.ma.allclose(variable[:], ncin[name][:]):
-                        if is_nontime_dim:
+                        if is_use_first_var:
+                            print('WARNING: Variable "{}" has different values across files, but as requested, the values from the first file will be used'.format(name), file=sys.stderr)
+                        elif is_nontime_dim:
                             print('ERROR: Dimension coordinate variable "{}" has different values across files'.format(name), file=sys.stderr)
                         elif has_no_time_dim:
                             print('ERROR: Variable without temporal dimension "{}" has different values across files'.format(name), file=sys.stderr)
                         else:
                             print('ERROR: Variable "{}" has different values across files'.format(name), file=sys.stderr)
-                        sys.exit(1)
+
+                        if not is_use_first_var:
+                            sys.exit(1)
 
                 ncout[name][:] = variable[:]
                 continue
 
             # If this is a character variable, provide a text encoding
-            if 'a32' in variable.dimensions or 'specname' in variable.dimensions:
+            if has_char_dim(variable) or 'specname' in variable.dimensions:
                 ncout[name]._Encoding = 'ascii'
 
             spec_count = 0
             prior_count = 0
+            daily_error_count = 0
             for ncin in ncin_list:
                 time_size = ncin['time'].size
                 prior_time_size = ncin['prior_time'].size
+                daily_error_size = ncin['daily_error_date'].size
 
+                # NOTE: netCDF 1.7.4 has a bug in stringtochar that can be worked around with encoding='ascii',
+                # see https://github.com/Unidata/netcdf4-python/issues/1464
                 if name not in ncin.variables.keys():
                     # If concatenating files containing different detectors (e.g. InGaAs+Si or InGaAs+InSb),
                     # there will be some variables absent from some of the files. Don't try to copy in 
                     # that case, but don't skip the whole rest of the loop, because we need to advance spec_count
                     # and prior_count
                     pass
-                elif 'prior_time' in ncin[name].dimensions and 'a32' not in ncin[name].dimensions:
+                elif 'prior_time' in ncin[name].dimensions and not has_char_dim(ncin[name]):
                     ncout[name][prior_count:prior_count+prior_time_size] = ncin[name][:]
-                elif 'prior_time' in ncin[name].dimensions and 'a32' in ncin[name].dimensions:
-                    ncout[name][prior_count:prior_count+prior_time_size] = netCDF4.stringtochar(np.array(ncin[name][:],'S32'))
+                elif 'prior_time' in ncin[name].dimensions and has_char_dim(ncin[name]):
+                    n = char_dim_lens_by_var[name]
+                    ncout[name][prior_count:prior_count+prior_time_size] = netCDF4.stringtochar(np.array(ncin[name][:],f'S{n}'), encoding='ascii')
                 elif name == 'prior_index': # special case, need to add prior_count to it to properly sample along the concatenated prior_time dimension
                     ncout[name][spec_count:spec_count+time_size] = ncin[name][:] + prior_count
-                elif 'time' in ncin[name].dimensions and 'a32' not in ncin[name].dimensions and 'specname' not in ncin[name].dimensions:
+                elif 'time' in ncin[name].dimensions and not has_char_dim(ncin[name]) and 'specname' not in ncin[name].dimensions:
                     ncout[name][spec_count:spec_count+time_size] = ncin[name][:]
-                elif 'time' in ncin[name].dimensions and 'a32' in ncin[name].dimensions:
-                    ncout[name][spec_count:spec_count+time_size] = netCDF4.stringtochar(np.array(ncin[name][:],'S32'))
+                elif 'time' in ncin[name].dimensions and has_char_dim(ncin[name]):
+                    n = char_dim_lens_by_var[name]
+                    ncout[name][spec_count:spec_count+time_size] = netCDF4.stringtochar(np.array(ncin[name][:],f'S{n}'), encoding='ascii')
                 elif 'time' in ncin[name].dimensions and 'specname' in ncin[name].dimensions:
-                    ncout[name][spec_count:spec_count+time_size] = netCDF4.stringtochar(np.array(ncin[name][:],'S{}'.format(speclength)))
-                
+                    ncout[name][spec_count:spec_count+time_size] = netCDF4.stringtochar(np.array(ncin[name][:],f'S{speclength}'), encoding='ascii')
+                elif 'daily_error_date' in ncin[name].dimensions:
+                    ncout[name][daily_error_count:daily_error_count+daily_error_size] = ncin[name][:]
+
                 spec_count += time_size
                 prior_count += prior_time_size
+                daily_error_count += daily_error_size
             # end of for ncin
         # end of for name,variable
     # end of with statement
-    print('\nFinished writing {} {:.2f} MB'.format(outpath,os.path.getsize(outpath)/1e6))
+    file_size = os.path.getsize(outpath)/1e6
+    print(f'\nFinished writing {outpath} {file_size:.2f} MB', file=sys.stderr)
 
 if __name__ == "__main__":
     main()

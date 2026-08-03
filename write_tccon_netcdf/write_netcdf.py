@@ -1,10 +1,9 @@
-from __future__ import print_function
-
 """
 Compile data from the input and output files of GFIT into netCDF files.
 
 For usage info run this code with the --help argument.
 """
+from __future__ import print_function
 
 import os
 import sys
@@ -19,7 +18,6 @@ import argparse
 from collections import OrderedDict
 import time
 from datetime import datetime, timedelta
-import calendar
 import re
 import logging
 import warnings
@@ -28,159 +26,28 @@ from shutil import copyfile
 from signal import signal, SIGINT
 import gc
 
-wnc_version = 'write_netcdf.py (Version 1.0; 2019-11-15; SR)\n'
-
-# Let's try to be CF compliant: http://cfconventions.org/Data/cf-conventions/cf-conventions-1.7/cf-conventions.pdf
-standard_name_dict = {
-'year':'year',
-'run':'run_number',
-'lat':'latitude',
-'long':'longitude',
-'hour':'decimal_hour',
-'azim':'solar_azimuth_angle',
-'solzen':'solar_zenith_angle',
-'day':'day_of_year',
-'wspd':'wind_speed',
-'wdir':'wind_direction',
-'graw':'spectrum_spectral_point_spacing',
-'tins':'instrument_internal_temperature',
-'tout':'atmospheric_temperature',
-'pins':'instrument_internal_pressure',
-'pout':'atmospheric_pressure',
-'hout':'atmospheric_humidity',
-'h2o_dmf_out':'water_vapour_dry_mole_fraction',
-'h2o_dmf_mod':'model_water_vapour_dry_mole_fraction',
-'tmod':'model_atmospheric_temperature',
-'pmod':'model_atmospheric_pressure',
-'sia':'solar_intensity_average',
-'fvsi':'fractional_variation_in_solar_intensity',
-'zobs':'observation_altitude',
-'zmin':'pressure_altitude',
-'osds':'observer_sun_doppler_stretch',
-'gfit_version':'gfit_version',
-'gsetup_version':'gsetup_version',
-'fovi':'internal_field_of_view',
-'opd':'maximum_optical_path_difference',
-'rmsocl':'fit_rms_over_continuum_level',
-'cfampocl':'channel_fringe_amplitude_over_continuum_level',
-'cfperiod':'channel_fringe_period',
-'cfphase':'channel_fringe_phase',
-'nit':'number_of_iterations',
-'cl':'continuum_level',
-'ct':'continuum_tilt',
-'cc':'continuum_curvature',
-'fs':'frequency_stretch',
-'sg':'solar_gas_stretch',
-'zo':'zero_level_offset',
-'zpres':'pressure_altitude',
-'cbf':'continuum_basis_function_coefficient_{}',
-'ncbf':'number_of_continuum_basis_functions',
-'lsf':'laser_sampling_fraction',
-'lse':'laser_sampling_error',
-'lsu':'laser_sampling_error_uncertainty',
-'lst':'laser_sampling_error_correction_type',
-'dip':'dip',
-'mvd':'maximum_velocity_displacement',
-}
-
-checksum_var_list = ['config','apriori','runlog','levels','mav','ray','isotopologs','windows','telluric_linelists','solar']
-
-standard_name_dict.update({var+'_checksum':var+'_checksum' for var in checksum_var_list})
-
-long_name_dict = {key:val.replace('_',' ') for key,val in standard_name_dict.items()} # standard names without underscores
-
-"""
-dimensionless and unspecified units will have empty strings
-we could use "1" for dimensionless units instead
-both empty string and 1 are recognized as dimensionless units by udunits
-but using 1 would differentiate actual dimensionless variables and variables with unspecified units
-"""
-units_dict = {
-'year':'years',
-'run':'',
-'lat':'degrees_north',
-'long':'degrees_east',
-'hour':'hours',
-'azim':'degrees',
-'solzen':'degrees',
-'day':'days',
-'wspd':'m.s-1',
-'wdir':'degrees',
-'graw':'cm-1',
-'tins':'degrees_Celsius',
-'tout':'degrees_Celsius',
-'pins':'hPa',
-'pout':'hPa',
-'hout':'%',
-'h2o_dmf_out':'',
-'h2o_dmf_mod':'',
-'tmod':'degrees_Celsius',
-'pmod':'hPa',
-'sia':'',
-'fvsi':'%',
-'zobs':'km',
-'zmin':'km',
-'osds':'ppm',
-'gfit_version':'',
-'gsetup_version':'',
-'fovi':'radians',
-'opd':'cm',
-'rmsocl':'%',
-'cfampocl':'',
-'cfperiod':'cm-1',
-'cfphase':'radians',
-'nit':'',
-'cl':'',
-'ct':'',
-'cc':'',
-'fs':'ppm',
-'sg':'ppm',
-'zo':'%',
-'zpres':'km',
-'cbf':'',
-'ncbf':'',
-'prior_effective_latitude':'degrees_north',
-'prior_mid_tropospheric_potential_temperature':'degrees_Kelvin',
-'prior_equivalent_latitude':'degrees_north',
-'prior_temperature':'degrees_Kelvin',
-'prior_density':'molecules.cm-3',
-'prior_pressure':'atm',
-'prior_altitude':'km',
-'prior_tropopause_altitude':'km',
-'prior_gravity':'m.s-2',
-'prior_h2o':'',
-'prior_hdo':'',
-'prior_co2':'ppm',
-'prior_n2o':'ppb',
-'prior_co':'ppb',
-'prior_ch4':'ppb',
-'prior_hf':'ppt',
-'prior_o2':'',
-}
-
-special_description_dict = {
-    'lco2':' lco2 is the strong CO2 band centered at 4852.87 cm-1 and does not contribute to the xco2 calculation.',
-    'wco2':' wco2 is the weak CO2 band centered at 6073.5 and does not contribute to the xco2 calculation.',
-    'th2o':' th2o is used for temperature dependent H2O windows and does not contribute to the xh2o calculation.',
-    'fco2':' fco2 is used for a spectral window chosen to estimate the channel fringe amplitude and period, it does not contribute to the xco2 calculation',
-    'luft':' luft is used for "dry air"',
-    'qco2':' qco2 is the strong CO2 band centered at  4974.05 cm-1 and does not contribute to the xco2 calculation.',
-    'zco2':' zco2 is used to test zero level offset (zo) fits in the strong CO2 window, zco2_4852 is without zo, and zco2_4852a is with zo. it does not contribute to the xco2 calculation'
-}
-
-"""
-manual_flag_other = 9
-manual_flags_dict = {
-    1:"ils",
-    2:"tracking",
-    3:"surface pressure",
-    manual_flag_other:"other"
-}
-"""
-with open(os.path.join(os.path.dirname(__file__), 'release_flag_definitions.json')) as f:
-    tmp = json.load(f)
-    manual_flags_dict = {v: k for k, v in tmp['definitions'].items()}
-    manual_flag_other = tmp['other_flag']
+from . import common_utils as cu
+from .common_utils import file_info
+from . import get_paths as gp
+from . import daily_error
+from .file_format_updating import ggg2020a_to_ggg2020c, write_file_fmt_attrs, is_file_current_version, vCurrent
+from .constants import (
+    AUX_DATA_URL,
+    CHECKSUM_VAR_LIST,
+    FILE_FMT_V2020pC,
+    GGG2020_REFERENCE,
+    LOG_LEVEL_CHOICES,
+    LONG_NAME_DICT,
+    MANUAL_FLAGS_DICT,
+    MANUAL_FLAG_OTHER,
+    MOLE_FRACTION_CONVERSIONS,
+    NETWORK_MODES,
+    SPECIAL_DESCRIPTION_DICT,
+    STANDARD_NAME_DICT,
+    STD_O2_MOLE_FRAC,
+    TCCON_DATA_POLICY_URL,
+    UNITS_DICT,
+)
 
 
 def signal_handler(sig,frame):
@@ -191,56 +58,8 @@ def signal_handler(sig,frame):
     sys.exit()
 
 
-def get_json_path(env_var, default, default_in_code_dir=True, none_allowed=False):
-    if default_in_code_dir:
-        code_dir = os.path.dirname(__file__)
-        default = os.path.join(code_dir, default)
-
-    # transform e.g. "public_variables.json" to "public variables"
-    file_quantity = os.path.splitext(os.path.basename(default))[0].replace('_', ' ')
-    json_path = os.getenv(env_var, default)
-
-    if json_path is None and none_allowed:
-        return json_path
-    elif json_path is None:
-        logging.critical('No path defined for %s, aborting.', file_quantity)
-        sys.exit(1)
-
-    if not os.path.exists(json_path) and json_path == default:
-        logging.critical('The default file for %s (%s) does not exist and no %s environmental variable is defined', file_quantity, default, env_var)
-        sys.exit(1)
-    elif not os.path.exists(json_path):
-        logging.critical('The %s file path given by the %s environmental variable (%s) does not exist. Correct it, or unset the environmental variable to use the default file.', file_quantity, env_var, default)
-        sys.exit(1)
-    else:
-        logging.info('Will use %s for %s.', json_path, file_quantity)
-        return json_path
-
-
-def missing_data_json():
-    return get_json_path('TCCON_NETCDF_MISSING_DATA', 'missing_data.json')
-
-
-def public_variables_json():
-    return get_json_path('TCCON_NETCDF_PUB_VARS', 'public_variables.json')
-
-
-def site_info_json():
-    return get_json_path('TCCON_NETCDF_SITE_INFO', 'site_info.json')
-
-
-def tccon_gases_json():
-    return get_json_path('TCCON_NETCDF_GASES', 'tccon_gases.json')
-
-
-def release_flags_json(cmd_line_value):
-    default_in_code_dir = cmd_line_value is None
-    cmd_line_value = 'release_flags.json' if cmd_line_value is None else cmd_line_value
-    return get_json_path('TCCON_NETCDF_MFLAGS', cmd_line_value, default_in_code_dir=default_in_code_dir)
-
-
 def read_site_info(siteID):
-    with open(site_info_json(),'r') as f:
+    with open(gp.site_info_json(),'r') as f:
         try:
             site_data = json.load(f)[siteID]
         except KeyError:
@@ -281,12 +100,8 @@ def md5(file_name):
 
     file_name: full path to the file
     """
-    hash_md5 = hashlib.md5()
     if 'telluric_linelists.md5' not in file_name:
-        with open(file_name, "rb") as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                hash_md5.update(chunk)      
-        md5sum = hash_md5.hexdigest()
+        md5sum = cu.md5sum_file(file_name)
     else:
         with open(file_name,'r') as f:
             content = f.readlines()
@@ -309,22 +124,6 @@ def checksum(file_name,hexdigest):
     if not check:
         print('\n')
         logging.warning('Checksum mismatch for {}\nNew: {}\nOld: {}'.format(file_name,md5(file_name),hexdigest))
-
-
-def file_info(file_name,delimiter=''):
-    """
-    Read the first line of a file and get the number of header lines and number of data columns
-
-    file_name: full path to the file
-    """
-    with open(file_name,'r') as infile:
-        if delimiter:
-            nhead,ncol = [int(i) for i in infile.readline().strip().split(delimiter)[:2]]
-        else:
-            nhead,ncol = [int(i) for i in infile.readline().strip().split()[:2]]
-    nhead = nhead-1
-
-    return nhead,ncol
 
 
 def gravity(gdlat,altit):
@@ -380,6 +179,108 @@ def gravity(gdlat,altit):
     gravity=(ge*(1-shc*(3.0*np.sin(gclat)**2-1)/ff)/ff-hh*np.cos(gclat)**2)*(1+0.5*(np.sin(gclat)*np.cos(gclat)*(hh/ge+2.0*shc/ff**2))**2)
 
     return gravity
+
+
+def get_geos_versions(mod_file):
+    """Extract GEOS versions from the header of a .mod file, if present
+
+    Input:
+        - ``mod_file``: full path to a .mod file
+
+    Output:
+        - ``versions``: a dictionary with keys of the different GEOS file types
+          (e.g. "Met2d", "Chm3d") and values that given the GEOS version description
+          (e.g. "fpit (GEOS v5.12.v)").
+        - ``found_versions``: a boolean indicating if any versions were found in the header
+          (True) or if it had to assume the versions based on the date of the .mod file (False).
+          If it had to assume the versions, the version strings themselves will end in an "*".
+    """
+    versions = dict()
+    filenames = dict()
+    checksums = dict()
+    try:
+        with open(mod_file) as f:
+            nhead = int(f.readline().split()[0])
+            for _ in range(1,nhead):
+                line = f.readline()
+                if line.startswith('GEOS source'):
+                    _, key, vers, name, chksum = [x.strip() for x in line.split(':')]
+                    versions[key] = vers
+                    filenames[key] = name
+                    checksums[key] = chksum
+    except FileNotFoundError:
+        # If we can't find the files, then we can't actually assume that they
+        # have the default versions for their date - it's possible that the user
+        # ran with e.g. a file combining GEOS FP-IT met and GEOS IT CO but then
+        # deleted it.
+        logging.error(f'Could not find .mod file {mod_file}, will use fill values for GEOS file versions. Note that this is NOT ALLOWED for submitted TCCON data!')
+        versions = {k: 'UNKNOWN' for k in cu.GEOS_VERSION_EXPECTED_KEYS}
+        filenames = {k: '' for k in cu.GEOS_VERSION_EXPECTED_KEYS}
+        checksums = {k: '' for k in cu.GEOS_VERSION_EXPECTED_KEYS}
+
+    found_versions = len(versions) > 0
+    
+    if not found_versions:
+        # Fallback if no GEOS version information - must assume that this is
+        # an unpatched .mod file and go by the transition date.
+        versions, filenames, checksums = cu.infer_geos_version_from_modfile_time(mod_file)
+    else:
+        missing_keys = tuple(k for k in cu.GEOS_VERSION_EXPECTED_KEYS if k not in versions)
+        if missing_keys:
+            s = ', '.join(missing_keys)
+            logging.warning(f'.mod file {mod_file} is missing some GEOS version keys: {s}')
+            for k in missing_keys:
+                versions[k] = 'Unknown'
+                filenames[k] = ''
+                checksums[k] = ''
+    return versions, filenames, checksums, found_versions
+
+
+def get_geos_version_max_length(mav_data, version_key):
+    """Return the length required to store the longest GEOS version string in ``mav_data``.
+
+    Inputs:
+        - ``mav_data``: a dictionary of dictionaries, where each child dictionary contains the
+          key ``version_key`` which itself points to a dictionary containing the GEOS version strings
+          as values, i.e.::
+
+            mav_data = {
+                'pa20040721saaaaa.043': {
+                    'geos_versions': {'Met2d': 'fpit (GEOS v5.12.4)', 'Met3d': 'fpit (GEOS v5.12.4)', 'Chm3d': 'fpit (GEOS v5.12.4)'},
+                    ...
+                }
+            }
+
+        - ``version_key``: the key that points to the GEOS versions dictionary in each of the
+          first-level child dictionaries of ``mav_data``.
+
+    Outputs:
+        - ``length``: the length of the longest version string.
+    """
+    length = 0
+    for data_dict in mav_data.values():
+        for version in data_dict[version_key].values():
+            length = max(length, len(version))
+    return max(length, 1)
+
+
+def get_geos_versions_key_set(mav_data, version_key='geos_versions'):
+    """Return the set of keys describing GEOS versions.
+
+    Inputs:
+        - ``mav_data``: a dictionary of dictionaries returned by ``read_mav``, see same named
+          argument of :func:`get_geos_version_max_length` for details.
+        - ``version_key``: the key that points to the GEOS versions dictionary in each of the
+          first-level child dictionaries of ``mav_data``.
+
+    Outputs:
+        - ``length``: the length of the longest version string.
+    """
+    keys = set()
+    for data_dict in mav_data.values():
+        keys.update(data_dict[version_key].keys())
+    return sorted(keys)
+
 
 
 def get_eqlat(mod_file,levels):
@@ -470,6 +371,7 @@ def read_mav(path,GGGPATH,maxspec,show_progress):
     """
     logging.info('Reading MAV file ...')
     DATA = OrderedDict()
+    assumed_geos_versions = 0
 
     with open(path,'r') as infile:
         for i in range(3): # line[0] is gsetup version and line[1] is a "next spectrum" line
@@ -502,7 +404,9 @@ def read_mav(path,GGGPATH,maxspec,show_progress):
     eflat, mid_trop_pt = get_eflat(os.path.join(GGGPATH,'vmrs','gnd',vmr_file))
     DATA[spectrum]['effective_latitude'] = eflat
     DATA[spectrum]['mid_tropospheric_potential_temperature'] = mid_trop_pt
-    
+    DATA[spectrum]['geos_versions'], DATA[spectrum]['geos_filenames'], DATA[spectrum]['geos_checksums'], found_geos_vers = get_geos_versions(os.path.join(GGGPATH, 'models', 'gnd', mod_file))
+    if not found_geos_vers:
+        assumed_geos_versions += 1
     nlines = d['altitude'].size - nlev # the number of lines in the .mav file starting from "Next spectrum" of the SECOND block
     nblocks = int(nlines/(nlev+7)) # number of mav blacks (starting at the SECOND block)
     ispec = 1
@@ -540,6 +444,9 @@ def read_mav(path,GGGPATH,maxspec,show_progress):
         eflat, mid_trop_pt = get_eflat(os.path.join(GGGPATH,'vmrs','gnd',vmr_file))
         DATA[spectrum]['effective_latitude'] = eflat
         DATA[spectrum]['mid_tropospheric_potential_temperature'] = mid_trop_pt
+        DATA[spectrum]['geos_versions'], DATA[spectrum]['geos_filenames'], DATA[spectrum]['geos_checksums'], found_geos_vers = get_geos_versions(os.path.join(GGGPATH, 'models', 'gnd', mod_file))
+        if not found_geos_vers:
+            assumed_geos_versions += 1
 
         ispec += 1
 
@@ -566,32 +473,31 @@ def read_mav(path,GGGPATH,maxspec,show_progress):
                     del DATA[spec]
     if not show_progress: # it's obsolete to print this if we show the progress bar
         logging.info('Finished reading MAV file')
+    if assumed_geos_versions > 0:
+        logging.warning(f'{assumed_geos_versions} of {ispec} .mod files were missing GEOS versions in the header; they have been assumed from the file dates.')
     return DATA, nlev, ncell
 
 
-def read_col(col_file,speclength):
+def read_col(col_file):
     """
     Read a .col file into a dataframe
 
     :param col_file: full path to the .col file
 
-    :param speclength: maximum length of the spectrum file names
-
     :return: dataframe with the .col file data
     """
-
     nhead,ncol = file_info(col_file)
     with open(col_file,'r') as infile:
         content = [infile.readline() for i in range(nhead+1)]
-    ggg_line = content[nhead-1]
     gfit_version, gsetup_version = [i.strip().split()[2] for i in content[1:3]]
-    ngas = len(ggg_line.split(':')[-1].split())
-    widths = [speclength+1,3,6,6,5,6,6,7,7,8]+[7,11,10,8]*ngas # the fixed widths for each variable so we can read with pandas.read_fwf, because sometimes there is no whitespace between numbers
+    
     headers = content[nhead].split()
-    col_data = pd.read_fwf(col_file,widths=widths,names=headers,skiprows=nhead+1)
+    colspecs = cu.parse_fortran_format(content[nhead-2], rtype='colspecs')
+    colspecs = colspecs[:len(headers)]
+    
+    col_data = pd.read_fwf(col_file,colspecs=colspecs,names=headers,skiprows=nhead+1)
     col_data.rename(str.lower,axis='columns',inplace=True)
     col_data.rename(index=str,columns={'rms/cl':'rmsocl'},inplace=True)
-
     return col_data, gfit_version, gsetup_version
 
 
@@ -636,7 +542,8 @@ def write_eof(private_nc_file,eof_file,qc_file,nc_var_list,show_progress):
         nrow = nc['time'].size
 
         writer.writerow([nhead,ncol,nrow])
-        eof.write(wnc_version)
+        eof.write(cu.get_version_string())
+        eof.write('\n')
         eof.writelines(qc_content)
 
         eof_var_list = [] # make a new list of variables for the eof file, including units
@@ -832,8 +739,11 @@ def print_detailed_diff(variable, old_vals, new_vals, threshold=0.01):
         logging.warning('  %s has more than 2 dimensions, not set up to give detailed diffs', variable)
         return
 
-    imax = _nanabsargmax(perdiffs)
-    logging.info('  %s has max percent diff (%.4f %%) at spectrum %d', variable, perdiffs[imax], imax+1)
+    if np.all(np.isnan(perdiffs)):
+        logging.info('  %s has all NaN percent differences', variable)
+    else:
+        imax = _nanabsargmax(perdiffs)
+        logging.info('  %s has max percent diff (%.4f %%) at spectrum %d', variable, perdiffs[imax], imax+1)
     ispec = 0
     for old, new, delta, pdelta in zip(old_vals, new_vals, diffs, perdiffs):
         ispec += 1
@@ -871,54 +781,152 @@ def write_values(nc_data,var,values,inds=[]):
         nc_data[var][:] = full_array.astype(nc_data[var].dtype)
 
 
-def update_attrs_for_public_files(ds, is_public):
-    _add_prior_long_units(ds, is_public)
-    _fix_co2_description(ds)
+def add_obs_op_variables(private_ds, public_ds, public_slice, mode):
+    # This has two parts: converting the OVCs to original Xgas values and generating the
+    # "observation operator" vectors, which combine the effective path length, number density,
+    # and conversion to column average mole fraction all in one. We will need two of those: one
+    # for the regular xgas values and one for the _x2019 ones (since the O2 mole fraction is different).
+
+    # We'll do the observation operator first. 
+    ret_o2_col = private_ds['vsw_o2_7885'][:][public_slice]
+    x2007_o2 = STD_O2_MOLE_FRAC
+    if mode.lower()=="tccon":
+        x2019_o2 = private_ds['o2_mean_mole_fraction_x2019'][:][public_slice]
+    eff_path = private_ds['effective_path_length'][:][public_slice]
+    # use the public dataset for this one because it's already been expanded to one/spectrum and
+    # subset to the kept data
+    nair = public_ds['prior_density'][:]
 
 
-def _add_prior_long_units(ds, is_public):
-    """
-    Add a field that describes that the prior gases are wet mole fraction
-    """
-    logging.info('Adding long_units attributes to prior VMR profile variables')
-    unit_long_str = {
-        '': 'parts',
-        'ppm': 'parts per million',
-        'ppb': 'parts per billion',
-        'ppt': 'parts per trillion'
+    # This won't work when the experimental variables are in groups, but those won't be standard
+    # files anyway.
+    x2007_vars = ', '.join(v for v in public_ds.variables.keys() if re.match(r'x[a-z0-9]+$', v) and '_error_' not in v)
+    if mode.lower()=="tccon":
+        x2019_vars = ', '.join(v for v in public_ds.variables.keys() if re.match(r'x[a-z0-9]+.*_x2019$', v) and '_error_' not in v)
+
+    obs_op_atts = {
+        'description': ('A vector that, when the dot product is taken with a wet mole fraction profile, applies the TCCON column-average integration. '
+                        'This does NOT include the averaging kernel, those must be applied in addition to this vector. '
+                        'The relates_to attribute indicates which Xgas variable to use this operator for when trying to compare against.'), 
+        'units': '1', 
+        'relates_to': x2007_vars,
+        'usage': 'https://tccon-wiki.caltech.edu/Main/AuxiliaryDataGGG2020'
     }
-    if is_public:
-        # there's not a clear pattern to distinguish gases from other variables
-        # in the public files, so must specify the gas names
-        regex = re.compile(r'prior_(h2o|co2|n2o|co|ch4|o2|hf|hdo)$')
-        h2o_prior = 'prior_h2o'
-        units_note = ' (Be sure to convert the H2O and gas priors to compatible units.)'
-    else:
-        # look for variables of the form "prior_1co2" - must have a number then immediately
-        # after "prior_". This excludes things like "prior_gravity"
-        regex = re.compile(r'prior_\d+[a-z][a-z0-9]+$')
-        h2o_prior = 'prior_1h2o'
-        units_note = ''
+    x2007_obs_var = public_ds.createVariable('integration_operator', 'f4', dimensions=('time', 'prior_altitude'), zlib=True, complevel=9)
+    x2007_obs_var[:] = (eff_path * nair * x2007_o2 / ret_o2_col[:, np.newaxis]).astype(np.float32)
+    x2007_obs_var.setncatts(obs_op_atts)
 
-    for varname in ds.variables.keys():
-        if not regex.match(varname):
+    if mode.lower()=="tccon":
+        obs_op_atts['relates_to'] = x2019_vars
+        x2019_obs_var = public_ds.createVariable('integration_operator_x2019', 'f4', dimensions=('time', 'prior_altitude'))
+        x2019_obs_var[:] = (eff_path * nair * x2019_o2[:, np.newaxis] / ret_o2_col[:, np.newaxis]).astype(np.float32)
+        x2019_obs_var.setncatts(obs_op_atts)
+
+    # Now let's calculate the a priori column-average mole fractions
+    for gas, priv_var in cu.TCCON_PRIOR_XGAS_OVC_VARS.copy().items():
+        if priv_var not in private_ds.variables.keys():
+            logging.warning(f'{priv_var} missing from the private file, unexpected for TCCON products')
+            continue
+        # Since we want to scale these by the units, it's easier to do the loop here rather
+        # than use cu.create_tccon_prior_xgas_variables
+        col = private_ds[priv_var][:][public_slice]
+        unit = public_ds[f'x{gas}'].units
+        varname = cu.create_one_prior_xgas_variable(
+            ds=public_ds, gas=gas, col=col, ret_o2_col=ret_o2_col, o2_dmf=x2007_o2, units=unit
+        )
+        public_ds[varname].description = f'Column-average mole fraction calculated from the PRIOR profile of {gas} using the standard mean O2 mole fraction of {STD_O2_MOLE_FRAC} appropriate for use when comparing other profiles to non-x2019 variables.'
+
+    if mode.lower()=="tccon":
+        # We'll also need to do a special one for co2 with the variable mole fraction
+        col = private_ds[cu.TCCON_PRIOR_XGAS_OVC_VARS['co2']][:][public_slice]
+        unit = public_ds['xco2_x2019'].units
+        varname = 'prior_xco2_x2019'
+        cu.create_one_prior_xgas_variable(
+            ds=public_ds, gas=gas, col=col, ret_o2_col=ret_o2_col, o2_dmf=x2019_o2, units=unit, varname=varname
+        )
+        public_ds[varname].description = 'Column-average mole fraction calculated from the PRIOR profile of co2 using the variable mean O2 mole fraction appropriate for use when comparing other profiles to _x2019 variables ONLY.'
+    
+
+def _add_x2019_co2(ds, is_public):
+    """Adds fields for XCO2, XwCO2, and XlCO2 that are converted to the X2019 CO2 scale and variable O2 mole fraction
+
+    DEPRECATED! This should be handled by make_ggg2020.1 starting with GGG2020.1.
+    """
+    def delta_fo2(xco2_prime, fo2_ref, xco2_ref=400e-6, beta=-1/0.4575):
+        # Equation for how the change in O2 mole fraction changes from the reference given. See J. Laughner slides
+        # from Dec 2022 telecon or GGG2020 data paper for derivation.
+        return (beta - beta*fo2_ref - fo2_ref) * (xco2_prime - xco2_ref) / (1 - xco2_prime - beta * xco2_prime)
+
+    if is_public or "o2_mean_mole_fraction_x2019" in ds.variables:
+        # The fields should already be generated in the private files.
+        return
+
+    # Updated AICFS were calculated in the 2022-11-16 notebook. I used the ones where I kept what profiles
+    # passed filtering with the new (variable O2) Xluft, rather than the ones where I forced the profiles to
+    # match because (in theory) the xluft using variable O2 mole fractions should be more accurate.
+    old_fo2_ref = STD_O2_MOLE_FRAC
+    new_fo2_ref = 0.209341
+    
+
+    new_aicfs = {'xco2': 1.00899, 'xwco2': 0.99957, 'xlco2': 1.00058}
+    for k in new_aicfs:
+        if ds[k].units != 'ppm':
+            raise NotImplementedError(f'Cannot add X2019 CO2 if existing {k} not in ppm! Units were "{ds[k].units}"')
+
+
+    # The first thing we need is the XCO2 value we use to calculate the O2 mole fractions. For GGG2020.1, what we
+    # will end up doing is using the new reference mole fraction of 0.209341 and a simple mean of the airmass corrected
+    # XCO2 windows. To approximate that here, since xco2 = co2 / o2 * f_o2 / AICF, we need to multiple by the old AICF
+    # and 0.209341 / 0.2095 to switch to the new reference O2 mole fraction. Also convert from ppm.
+    xco2_for_o2 = 1e-6 * ds['xco2'][:] * ds['xco2_aicf'][:] * new_fo2_ref / old_fo2_ref
+    fo2 = new_fo2_ref + delta_fo2(xco2_for_o2, new_fo2_ref)
+
+    # Now it's straightforward to convert each variable, it's just a matter of multiplying the old values by
+    # old_aicf/new_aicf and new_fo2/old_fo2
+    for key, new_aicf in new_aicfs.items():
+        x2019_varname = f'{key}_x2019'
+        if x2019_varname in ds.variables.keys():
+            logging.info(f'{x2019_varname} already exists, no need to calculate this X2019 time series')
             continue
 
-        units = ds[varname].units
-        long_str = unit_long_str.get(units, units)
-        ds[varname].long_units = '{} (wet mole fraction)'.format(long_str)
-        ds[varname].note = 'Prior VMRs are given in wet mole fractions. To convert to dry mole fractions, you must calculate H2O_dry = H2O_wet/(1 - H2O_wet) and then gas_dry = gas_wet * (1 + H2O_dry), where H2O_wet is the {} variable.{}'.format(h2o_prior, units_note)
+        logging.info(f'Adding x2019 values ({x2019_varname})')
+        old_aicf = ds[f'{key}_aicf'][:]
 
+        old_var = ds[key]
+        new_var = ds.createVariable(x2019_varname, old_var.dtype, dimensions=old_var.dimensions)
+        # just copy the attributes, most of them are the same. We haven't added the scale yet, but do need
+        # to update the description
+        new_var.setncatts(old_var.__dict__)
+        new_var.description = old_var.description.replace('0.2095', 'fo2')
+        new_var.note = ('The *_x2019 fields use a variable O2 mole fraction in computing the dry air column mole fraction. '
+                        'This is explained in more detail in the GGG2020 paper.')
+        new_var.wmo_or_analogous_scale = 'WMO CO2 X2019'
+        new_var[:] = old_var[:] * fo2 / old_fo2_ref * old_aicf / new_aicf
 
-def _fix_co2_description(ds):
-    # The default pa_qc.dat file with GGG2020 has the description for XCO2 refer to
-    # column_*w*co2. If that slips through, fix it.
-    if ds['xco2'].description == '0.2095*column_wco2/column_o2':
-        logging.info('Corrected description of "xco2" variable')
-        ds['xco2'].description = '0.2095*column_co2/column_o2'
+        # Repeat for the error, it's also scaled by the O2 mole fraction and AICF
+        errkey = key.replace('co2', 'co2_error')
+        old_var = ds[errkey]
+        new_var = ds.createVariable(f'{errkey}_x2019', old_var.dtype, dimensions=old_var.dimensions)
+        new_var.setncatts(old_var.__dict__)
+        new_var.note = ('The *_x2019 fields use a variable O2 mole fraction in computing the dry air column mole fraction. '
+                        'This is explained in more detail in the GGG2020 paper.')
+        new_var[:] = old_var[:] * fo2 / old_fo2_ref * old_aicf / new_aicf
+
+    # Also write the fO2 value, we'll need it in the public file generation for the obs operator
+    o2_varname = 'o2_mean_mole_fraction_x2019'
+    if o2_varname in ds.variables.keys():
+        logging.info(f'{o2_varname} already exists, no need to add the O2 mole fraction amounts')
+    else:
+        logging.info(f'Adding O2 mole fraction values ({o2_varname})')
+        o2_var = ds.createVariable(o2_varname, 'f4', dimensions=('time',))
+        o2_var.description = f'O2 mole fraction used when calculating the x*_x2019 variables ONLY. Any Xgas variables without the _x2019 suffix use {STD_O2_MOLE_FRAC} in their Xgas calculation.'
+        o2_var.units = '1'
+        o2_var.standard_name = 'dry_atmospheric_mole_fraction_of_oxygen'
+        o2_var[:] = fo2.astype('float32')
 
 
 def _add_aicf_scale_attr(variable_name, pub_variable, priv_data):
+    logging.info(f'AICF scale attr: {variable_name}')
     scale_variable = 'aicf_{}_scale'.format(variable_name)
     if scale_variable not in priv_data.variables:
         logging.warning('Cannot add AICF scale to {}, as {} is not a variable in the private data'.format(variable_name, scale_variable))
@@ -935,13 +943,120 @@ def _add_aicf_scale_attr(variable_name, pub_variable, priv_data):
         pub_variable.wmo_or_analogous_scale = scale
 
 
-def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False):
+def _expand_aks(ds, xgas, n=500, full_ak_resolution=False, min_extrap=0):
+    try:
+        import xarray as xr
+    except ImportError:
+        raise ImportError('xarray is required to save per-spectrum AKs. Please install it in this environment.')
+    logging.debug('Expanding AKs for %s', xgas)
+    airmass = ds['o2_7885_am_o2'][:]
+    if re.match('x[wl]?co2', xgas) and xgas not in ds.variables.keys():
+        # The difference in Xgas value between the X2007 and X2019 scale should be minor on the scale
+        # of what the AKs care about, so to avoid adding three more AK variables, just use the X2019
+        # Xgas value to expand the AKs.
+        varname = f'{xgas}_x2019'
+        logging.info(f'Using {varname} to compute slant Xgas for {xgas} AKs')
+        slant_xgas_values = ds[varname][:] * airmass
+    else:
+        slant_xgas_values = ds[xgas][:] * airmass
+    slant_xgas_bins = ds['ak_slant_{}_bin'.format(xgas)][:]
+    if xgas == 'xch4' and ds['ak_slant_{}_bin'.format(xgas)].units == 'ppb':
+        # XCH4 bins are given in ppb, but XCH4 itself in ppm. Oops!
+        slant_xgas_bins = slant_xgas_bins * 1e-3
+    aks = ds['ak_{}'.format(xgas)][:]
+    extrap_flags = np.zeros(slant_xgas_values.shape, dtype=np.int8)
+    extrap_flags[slant_xgas_values < min_extrap] = -2
+    extrap_flags[(slant_xgas_values >= min_extrap) & (slant_xgas_values < np.min(slant_xgas_bins))] = -1
+    extrap_flags[slant_xgas_values > np.max(slant_xgas_bins)] = 2
+    if not full_ak_resolution:
+        slant_xgas_values = _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=n, min_extrap=min_extrap)
+    else:
+        slant_xgas_values = np.clip(slant_xgas_values, min_extrap, np.max(slant_xgas_bins))
+    
+    expanded_aks = np.full([slant_xgas_values.size, aks.shape[0]], np.nan, dtype=aks.dtype)
+    alt = ds['ak_altitude'][:]  # isn't really necessary, but need a coordinate along that dimension anyway
+    lookup_aks = xr.DataArray(aks, coords=[alt, slant_xgas_bins], dims=['alt', 'slant_bin'])
+    # only interpolate to finite values to avoid errors because of invalid Xgas or airmass data.
+    is_finite = np.isfinite(slant_xgas_values)
+    expanded_aks_tmp = lookup_aks.interp(slant_bin=slant_xgas_values[is_finite], kwargs={'fill_value':'extrapolate'})
+
+    nobs = np.size(slant_xgas_values)
+    nlev = np.size(alt)
+    expanded_aks = np.full([nobs, nlev], netCDF4.default_fillvals['f4'], dtype=np.float32)
+    expanded_aks[is_finite] = expanded_aks_tmp.data.T
+
+    return expanded_aks, extrap_flags
+
+    
+def _compute_quantized_slant_xgas(slant_xgas_values, slant_xgas_bins, n=500, min_extrap=0):
+    # Put the individual spectra's slant Xgas values on a smaller number
+    # of quantized values ranging between the minimum and maximum values, not allowing
+    # the values to go outside of the bins. I decided to base these off of the bins
+    # rather than the actual slant xgas values because doing the latter will cause the
+    # AKs to change when the public files are updated and there's a wider range of slant
+    # xgas variables.
+    def quantize(values, minval, maxval, nval):
+        si = (values - minval)/(maxval - minval) # normalize to 0 to 1
+        si = np.clip(si, 0, 1)
+        si = np.round(si * (nval - 1)) # round to values between 0 and (n-1)
+        si = si / (nval - 1) * (maxval - minval) + minval # restore original magnitude
+        return si
+        
+    smin = np.min(slant_xgas_bins)
+    smax = np.max(slant_xgas_bins)
+    
+    quant_slant = np.full_like(slant_xgas_values, np.nan)
+    
+    xx_in = (slant_xgas_values >= smin) & (slant_xgas_values <= smax)
+    xx_ex = (slant_xgas_values >= min_extrap) & (slant_xgas_values < smin)
+    xx_below = slant_xgas_values < min_extrap
+    xx_above = slant_xgas_values > smax
+    
+    # First handle values inside the range of the bins
+    quant_slant[xx_in] = quantize(slant_xgas_values[xx_in], smin, smax, n)
+    # Then the values extrapolated between the bottom bin and 0. Use 10x fewer
+    # quantized points that the main region, as this should be a significantly
+    # smaller range.
+    quant_slant[xx_ex] = quantize(slant_xgas_values[xx_ex], min_extrap, smin, n // 10)
+    # Finally set the min and max values
+    quant_slant[xx_below] = min_extrap
+    quant_slant[xx_above] = smax
+    return quant_slant
+
+
+def _create_geos_source_summary_var(public_ds, private_ds, public_slice):
+    logging.debug('Summarizing GEOS sources')
+    prior_index = private_ds['prior_index'][:]
+    met3d_version = private_ds[cu.geos_version_varname('met3d')][:][prior_index][public_slice]
+    met2d_version = private_ds[cu.geos_version_varname('met2d')][:][prior_index][public_slice]
+    chm3d_version = private_ds[cu.geos_version_varname('chm3d')][:][prior_index][public_slice]
+
+    met_is_fpit = np.char.startswith(met3d_version, 'fpit') & np.char.startswith(met2d_version, 'fpit')
+    met_is_it = np.char.startswith(met3d_version, 'it') & np.char.startswith(met2d_version, 'it')
+    chm_is_fpit = np.char.startswith(chm3d_version, 'fpit')
+    chm_is_it = np.char.startswith(chm3d_version, 'it')
+
+    geos_flag = np.full(public_ds.dimensions['time'].size, 99, np.int8)
+    geos_flag[met_is_fpit & chm_is_fpit] = 0
+    geos_flag[met_is_it & chm_is_it] = 1
+    geos_flag[met_is_fpit & chm_is_it] = 2
+
+    geos_flag_var = public_ds.createVariable('apriori_data_source', geos_flag.dtype, ('time',))
+    geos_flag_var[:] = geos_flag
+    geos_flag_var.setncatts({
+        'long_name': 'A priori Met & VMR profile data source',
+        'usage': 'Used to identify different combination of meteorological and chemical a priori information used in the retrieval. See https://tccon-wiki.caltech.edu/Main/GGG2020DataChanges for additional information.',
+        'flag_values': np.asarray([0, 1, 2, 99], dtype=geos_flag.dtype),
+        'flag_meanings': 'all a priori from GEOS FP-IT\nall a priori from GEOS IT\nmet a priori from GEOS FP-IT, CO from GEOS IT\nnon-standard a priori source set',
+    })
+
+
+def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=False,public_nc_file=None,remove_if_no_experimental=False,rename_by_dates=True,flag0_only=True,expand_priors=True,expand_aks=True,full_ak_resolution=True,mode="tccon"):
     """
     Take a private netcdf file and write the public file using the public_variables.json file
     """
     logging.profile('Profiling output enabled')
-    # factor to convert the prior fields of the public archive into more intuitive units
-    factor = {'temperature':1.0,'pressure':1.0,'density':1.0,'gravity':1.0,'1h2o':1.0,'1hdo':1.0,'1co2':1e6,'1n2o':1e9,'1co':1e9,'1ch4':1e9,'1hf':1e12,'1o2':1.0}
+    priors_to_keep = {'temperature','pressure','density','gravity','1h2o','1hdo','1co2','1n2o','1co','1ch4','1hf','1o2'}
 
     # Using this regex ensures that we only replace "private" in the extension of the netCDF
     # file, not elsewhere in the path. It allows for .private.nc or .private.qc.nc extensions.
@@ -954,7 +1069,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
         remove_if_no_experimental = False
 
     has_experimental = False
-
+    
     logging.info('Writing {}'.format(public_nc_file))
     with netCDF4.Dataset(private_nc_file,'r') as private_data, netCDF4.Dataset(public_nc_file,'w',format=nc_format) as public_data:
         ## copy all the metadata
@@ -963,7 +1078,7 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
         public_attributes = private_attributes.copy()
         manual_flag_attr_list = [i for i in private_attributes if i.startswith('manual_flags')]
         release_flag_attr_list = [i for i in private_attributes if i.startswith('release_flags')]
-        pgrm_versions_attr_list = [i for i in private_attributes if i.endswith('_version')]
+        pgrm_versions_attr_list = [i for i in private_attributes if i.endswith('_version') and i != 'algorithm_version']
         for attr in ['flag_info','release_lag','GGGtip','number_of_spectral_windows']+manual_flag_attr_list+pgrm_versions_attr_list: # remove attributes that are only meant for private files
             if attr not in public_attributes:
                 continue
@@ -998,12 +1113,23 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
         release_lag = int(private_data.release_lag.split()[0])
         last_public_time = (datetime.utcnow()-datetime(1970,1,1)).total_seconds() - timedelta(days=release_lag).total_seconds()
         release_ids = private_data['time'][:]<last_public_time
+        if np.all(~release_ids):
+            empty_public_error = f'All the data comes after the public release date ({datetime.utcnow()-timedelta(days=release_lag)}), ' \
+                                  'the public file will be empty.\n' \
+                                 f'The release lag is set to {release_lag} days, reduce it in site_info.json or in the .private.nc file' \
+                                  'to allow more recent data into the public files.'
+            logging.critical(empty_public_error)
+            raise Exception(empty_public_error)
 
-        # get indices of data with flag = 0
-        no_flag_ids = private_data['flag'][:]==0
+        # get indices of data with flag = 0 unless we are publishing all of the data
+        if flag0_only:
+            no_flag_ids = private_data['flag'][:]==0
+        else:
+            no_flag_ids = np.ones(private_data['flag'].shape, dtype=np.bool_)
         
         nspec = private_data['time'].size
         public_slice = np.array(release_ids & no_flag_ids) # boolean array to slice the private variables on the public ids
+        prior_idx = private_data['prior_index'][:][public_slice] # used if expanding priors
 
         nspec_public = np.sum(public_slice)
 
@@ -1012,6 +1138,12 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
         for name, dimension in private_data.dimensions.items():
             if name == 'time':
                 public_data.createDimension(name, nspec_public)
+            elif expand_priors and name == 'prior_time':
+                pass
+            elif expand_aks and name == 'ak_slant_xgas_bin':
+                pass
+            elif name in {'cell_index', 'specname'} or re.match(r'a\d+$', name):
+                pass
             else:
                 public_data.createDimension(name, (len(dimension) if not dimension.isunlimited() else None))
         logging.info('  -> Done copying dimensions')
@@ -1019,8 +1151,13 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
         ## copy variables based on the info in public_variables.json
         nprivate = len(private_data.variables)
         logging.info('Copying variables. {} variables in private file.'.format(nprivate))
-        with open(public_variables_json()) as f:
+        with open(gp.public_variables_json()) as f:
             public_variables = json.load(f)
+
+        # ensure that the flag variable is included if the public file does not
+        # contain only flag == 0 data
+        if not flag0_only and "flag" not in public_variables['isequalto']:
+            public_variables['isequalto'].append('flag')
 
         ivariable = -1
         for name,variable in private_data.variables.items():
@@ -1036,12 +1173,16 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             experimental_group_startswith_check = np.array([name.startswith(elem) for elem in public_variables['experimental_group_startswith']]).any()
             insb_group_check = np.array([(name.startswith(elem) and name.endswith('_insb')) for elem in public_variables['insb_group_startswith']]).any()
             si_group_check = np.array([(name.startswith(elem) and name.endswith('_si')) for elem in public_variables['si_group_startswith']]).any()
+            remap_check = np.array([name==elem for elem in public_variables['remap']]).any()
 
             excluded_simple = np.array([elem in name for elem in public_variables['exclude']]).any()
             excluded_regex = np.array([re.search(elem, name) is not None for elem in public_variables.get('exclude_regex', [])]).any()
+            is_secondary_prior_xgas = re.match(r'prior_x[a-zA-Z0-9]+_(si|insb)', name) is not None
             excluded = excluded_simple or excluded_regex
+            if not include_experimental:
+                excluded = excluded or is_secondary_prior_xgas
 
-            public = np.array([contain_check,isequalto_check,startswith_check,endswith_check,experimental_group_startswith_check,insb_group_check,si_group_check]).any() and not excluded
+            public = np.array([contain_check,isequalto_check,startswith_check,endswith_check,experimental_group_startswith_check,insb_group_check,si_group_check,remap_check]).any() and not excluded
 
             aicf_scale_check = name in public_variables.get('has_aicf_scale', [])
 
@@ -1057,27 +1198,68 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                 public_data.createGroup('si_experimental')
                 public_data['si_experimental'].description = 'These data are EXPERIMENTAL.\nIn the root group of this file, all data is obtained from an InGaAs detector while data in this group is obtained from an Si detector. If you plan to use these data, please work with the site PI.'
 
+            
             # JLL 2021-09-13: For some reason, it is much faster to read the whole variable
             # in from the private file, then subset it to the public IDs once it is in as
             # a regular numpy (masked) array. There must be either some inefficiency in 
             # the netCDF library to read a subset or an optimization to read the whole array.
             if public and not experimental_group_startswith_check and not (insb_group_check or si_group_check):
-                if 'time' in variable.dimensions: # only the variables along the 'time' dimension need to be sampled with public_ids
-                    public_data.createVariable(name, variable.datatype, variable.dimensions)
+                write_atts = True
+                outname = name
+                extra_atts = dict()
+                logging.debug(f'Writing "{name}" to public file')
+
+                if expand_priors and name in {'prior_index'}:
+                    # We do not need these variables if we are expanding the priors
+                    write_atts = False
+                elif expand_aks and name.startswith('ak_slant'):
+                    # Also don't need these coordinate variables if expanding the AKs
+                    write_atts = False
+                elif 'time' in variable.dimensions: # only the variables along the 'time' dimension need to be sampled with public_ids
+                    # Remapping currently only supported for standard variables
+                    outname = public_variables['remap'].get(name, name)
+                    public_data.createVariable(outname, variable.datatype, variable.dimensions)
                     this_var_data = private_data[name][:]
-                    public_data[name][:] = this_var_data[public_slice] #private_data[name][public_slice]
+                    public_data[outname][:] = this_var_data[public_slice] #private_data[name][public_slice]
+                elif expand_priors and 'prior_time' in variable.dimensions:
+                    new_dimensions = ('time',) + variable.dimensions[1:]
+                    public_data.createVariable(name,variable.datatype,new_dimensions,zlib=True,complevel=9)
+                    public_data[name][:] = private_data[name][:][prior_idx]
+                elif expand_aks and name.startswith('ak_x'):
+                    new_dimensions = ('time',) + tuple([d for d in variable.dimensions if d != 'ak_slant_xgas_bin'])
+                    public_data.createVariable(name,variable.datatype,new_dimensions,zlib=True,complevel=9)
+                    this_xgas = name.split('_')[1]
+                    full_aks, ak_extrap_flags = _expand_aks(private_data, this_xgas, full_ak_resolution=full_ak_resolution)
+                    public_data[name][:] = full_aks[public_slice]
+
+                    ex_flag_varname = 'extrapolation_flags_{}'.format(name)
+                    ex_flag_var = public_data.createVariable(ex_flag_varname, ak_extrap_flags.dtype, dimensions=('time',),zlib=True,complevel=9)
+                    ex_flag_var[:] = ak_extrap_flags[public_slice]
+                    ex_flag_var.flag_values = np.array([-2, -1, 0, 1, 2], dtype=ak_extrap_flags.dtype)
+                    ex_flag_var.flag_meanings = "clamped_to_min_slant_xgas\nextrapolated_below_lowest_slant_xgas_bin\ninterpolated_normally\nextrapolated_above_largest_slant_xgas_bin\nclamped_to_max_slant_xgas"
+                    ex_flag_var.usage = 'Please see https://tccon-wiki.caltech.edu/Main/GGG2020DataChanges for more information'
+
+                    extra_atts.update({'ancillary_variables': (variable.__dict__.get('ancillary_variables', '') + ' ' + ex_flag_varname).strip()})
                 else:
                     public_data.createVariable(name, variable.datatype, variable.dimensions)
                     public_data[name][:] = private_data[name][:]
-                # copy variable attributes all at once via dictionary
-                public_data[name].setncatts(private_data[name].__dict__)
+
+                if write_atts:
+                    # copy variable attributes all at once via dictionary
+                    public_data[outname].setncatts(private_data[name].__dict__)
+                    if extra_atts:
+                        public_data[outname].setncatts(extra_atts)
 
                 # add WMO or comparable scale attribute if needed
                 if aicf_scale_check:
                     _add_aicf_scale_attr(name, public_data[name], private_data)
             elif nc_format=='NETCDF4' and public and experimental_group_startswith_check: # ingaas experimental variables
-                public_data['ingaas_experimental'].createVariable(name, variable.datatype, variable.dimensions)
-                this_var_data = private_data[name][:]
+                if expand_aks and name.startswith('ak_x'):
+                    public_data['ingaas_experimental'].createVariable(name, variable.datatype, variable.dimensions, zlib=True, complevel=9)
+                    this_var_data = _expand_aks(private_data, name.split('_')[1], full_ak_resolution=full_ak_resolution)
+                else:
+                    public_data['ingaas_experimental'].createVariable(name, variable.datatype, variable.dimensions)
+                    this_var_data = private_data[name][:]
                 public_data['ingaas_experimental'][name][:] = this_var_data[public_slice]
                 public_data['ingaas_experimental'][name].setncatts(private_data[name].__dict__)
                 
@@ -1086,8 +1268,12 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                     _add_aicf_scale_attr(name, public_data['ingaas_experimental'][name], private_data)
             elif include_experimental and nc_format=='NETCDF4' and public and insb_group_check: # insb experimental variables
                 has_experimental = True
-                public_data['insb_experimental'].createVariable(name.replace('_insb',''), variable.datatype, variable.dimensions)
-                this_var_data = private_data[name][:]
+                if expand_aks and name.startswith('ak_x'):
+                    public_data['insb_experimental'].createVariable(name.replace('_insb',''), variable.datatype, variable.dimensions, zlib=True, complevel=9)
+                    this_var_data = _expand_aks(private_data, name.split('_')[1])
+                else:
+                    public_data['insb_experimental'].createVariable(name.replace('_insb',''), variable.datatype, variable.dimensions)
+                    this_var_data = private_data[name][:]
                 public_data['insb_experimental'][name.replace('_insb','')][:] = this_var_data[public_slice]
                 public_data['insb_experimental'][name.replace('_insb','')].setncatts(private_data[name].__dict__)
                 
@@ -1098,8 +1284,12 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                 has_experimental = True
                 public_name = name.replace('_si', '')
                 
-                public_data['si_experimental'].createVariable(public_name, variable.datatype, variable.dimensions)
-                this_var_data = private_data[name][:]
+                if expand_aks and name.startswith('ak_x'):
+                    public_data['si_experimental'].createVariable(public_name, variable.datatype, variable.dimensions, zlib=True, complevel=9)
+                    this_var_data = _expand_aks(private_data, name.split('_')[1])
+                else:
+                    public_data['si_experimental'].createVariable(public_name, variable.datatype, variable.dimensions)
+                    this_var_data = private_data[name][:]
 
                 public_data['si_experimental'][public_name][:] = this_var_data[public_slice]
                 public_data['si_experimental'][public_name].setncatts(private_data[name].__dict__)
@@ -1114,9 +1304,19 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                 if insb_group_check or si_group_check:
                     has_experimental = True
 
-                public_name = name+'_experimental'
-                public_data.createVariable(public_name, variable.datatype, variable.dimensions)
-                this_var_data = private_data[name][:]
+                if name.endswith('_x2019'):
+                    public_name = name.replace('_x2019', '') + '_experimental_x2019'
+                elif name.endswith('_x2007'):
+                    public_name = name.replace('_x2007', '') + '_experimental_x2007'
+                else:
+                    public_name = name+'_experimental'
+
+                if expand_aks and name.startswith('ak_x'):
+                    public_data.createVariable(public_name, variable.datatype, variable.dimensions, zlib=True, complevel=9)
+                    this_var_data = _expand_aks(private_data, name.split('_')[1])
+                else:
+                    public_data.createVariable(public_name, variable.datatype, variable.dimensions)
+                    this_var_data = private_data[name][:]
                 public_data[public_name][:] = this_var_data[public_slice]
                 public_data[public_name].setncatts(private_data[name].__dict__)
                 if hasattr(public_data[public_name],'description'):
@@ -1129,13 +1329,22 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
                     _add_aicf_scale_attr(name, public_data[public_name], private_data)
                 
             # prior variables
-            elif name in ['prior_{}'.format(var) for var in factor.keys()]: # for the a priori profile, only the ones listed in the "factor" dictionary make it to the public file
+            elif name in ['prior_{}'.format(var) for var in priors_to_keep]:
                 public_name = name.replace('_1','_')
-                public_data.createVariable(public_name,variable.datatype,variable.dimensions)
-                public_data[public_name][:] = private_data[name][:]
+                try:
+                    scale_factor = MOLE_FRACTION_CONVERSIONS[UNITS_DICT[public_name]] # also need to scale them from straight DMF to ppm, ppb, etc.
+                except KeyError as e:
+                    raise KeyError(f'{e}, while getting mole fraction conversion for variable "{public_name}"') from None
+                if not expand_priors:
+                    public_data.createVariable(public_name,variable.datatype,variable.dimensions)
+                    public_data[public_name][:] = private_data[name][:] * scale_factor
+                else:
+                    new_dimensions = ('time',) + variable.dimensions[1:]
+                    public_data.createVariable(public_name,variable.datatype,new_dimensions,zlib=True,complevel=9)
+                    public_data[public_name][:] = private_data[name][:][prior_idx] * scale_factor
                 public_data[public_name].setncatts(private_data[name].__dict__)
                 public_data[public_name].description = "a priori profile of {}".format(public_name.replace('prior_',''))
-                public_data[public_name].units = units_dict[public_name]
+                public_data[public_name].units = UNITS_DICT[public_name]
 
             logging.profile('    > Done copying %s', name)
 
@@ -1148,108 +1357,55 @@ def write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=Fals
             public_data.createVariable('airmass',private_data['o2_7885_am_o2'].datatype,private_data['o2_7885_am_o2'].dimensions)
             public_data['airmass'][:] = private_data['o2_7885_am_o2'][:][public_slice]
             public_data['airmass'].setncatts(private_data['o2_7885_am_o2'].__dict__)
-            public_data['airmass'].description = "airmass computed as the total vertical column of O2 divided by the total slant column of O2 retrieved from the window centered at 7885 cm-1. To compute the slant column of a given gas use Xgas*airmass"
+            if expand_aks:
+                public_data['airmass'].description = "airmass computed as the total vertical column of O2 divided by the total slant column of O2 retrieved from the window centered at 7885 cm-1."
+            else:
+                public_data['airmass'].description = "airmass computed as the total vertical column of O2 divided by the total slant column of O2 retrieved from the window centered at 7885 cm-1. To compute the slant column of a given gas use Xgas*airmass"
             public_data['airmass'].long_name = 'airmass'
             public_data['airmass'].standard_name = 'airmass'
             public_data['airmass'].units = ''
 
+        # do this before update_attrs so that the standard names can be assigned from cf_standard_names_json
+        private_file_fmt_version = cu.get_file_format_version(private_data)
+        if private_file_fmt_version < cu.FileFmtVer('2020.C'):
+            # This is a pre-GGG2020.1 file, so use the old way of adding the observation operator.
+            add_obs_op_variables(private_data, public_data, public_slice, mode=mode)
+            # For GGG2020.1, the intergration operator and prior xgas variables should already be present and in the right units.
+
+        # Add a summary variable about the GEOS files
+        _create_geos_source_summary_var(public_data, private_data, public_slice)
+
+        # Clean up some of the attributes around N2O
+        if 'xn2o_error' in public_data.variables.keys() and hasattr(public_data['xn2o_error'], 'ancillary_variables'):
+            # This points to a potential temperature variable not retained in the public files.
+            del public_data['xn2o_error'].ancillary_variables
+        if 'xn2o_original' in public_data.variables.keys():
+            public_data['xn2o_original'].standard_name = 'column_average_dry_atmosphere_mole_fraction_of_nitrous_oxide'
+
         logging.info('  --> Done copying variables')
-        update_attrs_for_public_files(public_data, is_public=True)
+        ggg2020a_to_ggg2020c(public_data, is_public=True, mode=mode)
+
+        # Just before we close the file, get the start and end date for the new dates
+        public_dates = public_data['time'][[0, -1]]
+        public_dates = netCDF4.num2date(public_dates, public_data['time'].units, calendar=public_data['time'].calendar)
+
     if include_experimental and not has_experimental and remove_if_no_experimental:
         logging.info('{} contains no non-standard TCCON data, removing as requested'.format(public_nc_file))
         os.remove(public_nc_file)
+    elif rename_by_dates:
+        start_dstr = public_dates[0].strftime('%Y%m%d')
+        end_dstr = public_dates[1].strftime('%Y%m%d')
+        stem, ext = os.path.basename(public_nc_file).split('.', 1)
+        # Construct the new file name out of the site ID and extension of the old name
+        new_public_file = os.path.join(os.path.dirname(public_nc_file), f'{stem[:2]}{start_dstr}_{end_dstr}.{ext}')
+        if new_public_file != public_nc_file:
+            # If the release lag/flagging doesn't change the file name, we don't need to do anything
+            if os.path.exists(new_public_file):
+                os.remove(new_public_file)
+            os.rename(public_nc_file, new_public_file)
+        logging.info('Finished writing {} (renamed from {}) {:.2f} MB'.format(new_public_file,public_nc_file,os.path.getsize(new_public_file)/1e6))
     else:
         logging.info('Finished writing {} {:.2f} MB'.format(public_nc_file,os.path.getsize(public_nc_file)/1e6))
-
-
-def get_ggg_path():
-    """
-    Get the path to GGG based on the GGGPATH or gggpath environmental variable.
-
-    :return: path to GGG. If both GGGPATH and gggpath are defined in the environment, GGGPATH is preferred.
-    :raises: EnvironmentError if neither GGGPATH nor gggpath are defined.
-    """
-    try:
-        GGGPATH = os.environ['GGGPATH']
-    except:
-        try:
-            GGGPATH = os.environ['gggpath']
-        except:
-            raise EnvironmentError('You need to set a GGGPATH (or gggpath) environment variable')
-    return GGGPATH
-
-
-def setup_logging(log_level, log_file, message='', to_stdout=False):
-    """
-    Set up the logger to use for this program
-
-    :param log_level: one of the strings "DEBUG", "INFO", "WARNING", "ERROR", or "CRITICAL" specifying the minimum
-     level a message must have to be printed
-    :type log_level: str
-
-    :param log_file: file to write all log messages to. This receives all messages, regardless of `log_level`. If this
-     is falsey, no log file will be written.
-    :type log_file: str or None
-
-    :param message: additional message to write to the log file. An empty string will write nothing.
-    :type message: str
-
-    :return: the logger created and a boolean indicating if progress bars should be displayed
-    """
-    LEVELS = {'PROFILE': 1,
-              'DEBUG': logging.DEBUG,
-              'INFO': logging.INFO,
-              'WARNING': logging.WARNING,
-              'ERROR': logging.ERROR,
-              'CRITICAL': logging.CRITICAL,
-              }
-
-    # add an extra level below DEBUG
-    logging.addLevelName(1, 'PROFILE')
-    def _log_profile(self, message, *args, **kwargs):
-        if self.isEnabledFor(1):
-            # it is correct - *args in is passes just as args
-            self._log(1, message, args, **kwargs)
-
-    def _root_profile(msg, *args, **kwargs):
-        logging.log(1, msg, *args, **kwargs)
-
-
-    logging.Logger.profile = _log_profile
-    logging.profile = _root_profile
-
-    # will only display the progress bar for log levels below ERROR
-    if LEVELS[log_level] >= 40:
-        show_progress = False
-    else:
-        show_progress = True
-    logger = logging.getLogger()
-    handlers = [logging.StreamHandler(sys.stdout if to_stdout else sys.stderr)]
-    if log_file:
-        handlers.append(logging.FileHandler(log_file))
-    logging.basicConfig(handlers=handlers,
-                        level="DEBUG",
-                        format='\n%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
-    logger.handlers[0].setLevel(LEVELS[log_level])
-    if LEVELS[log_level] < logger.level:
-        logger.setLevel(LEVELS[log_level])
-    logging.info('New write_netcdf log session')
-    for handler in logger.handlers:
-        if LEVELS[log_level] > LEVELS['PROFILE']:
-            handler.setFormatter(logging.Formatter('[%(levelname)s]: %(message)s'))
-        else:
-            handler.setFormatter(logging.Formatter('[%(levelname)s @ %(asctime)s]: %(message)s'))
-    if message:
-        logging.info('Note: %s', message)
-    logging.info('Running %s', wnc_version.strip())
-    proc = subprocess.Popen(['git','rev-parse','--short','HEAD'],cwd=os.path.dirname(__file__),stdout=subprocess.PIPE)
-    out, err = proc.communicate()
-    HEAD_commit = out.decode("utf-8").strip()
-    logging.info('tccon_netcdf repository HEAD: {}'.format(HEAD_commit))
-    logging.info('Python executable used: %s', sys.executable)
-    logging.info('GGGPATH=%s', get_ggg_path())
-    logging.info('cwd=%s', os.getcwd())
-    return logger, show_progress, HEAD_commit
 
 
 def get_runlog_file(GGGPATH,tav_file,col_file):
@@ -1266,6 +1422,8 @@ def get_runlog_file(GGGPATH,tav_file,col_file):
 
     if runlog_file.startswith(GGGPATH):
         lse_file = os.path.join(GGGPATH,'lse','gnd',os.path.basename(runlog_file).replace('.grl','.lse'))
+        if not os.path.exists(lse_file): # handle egi use case with runlogs and lse files in $GGGPATH/runlog
+            lse_file = runlog_file.replace('.grl','.lse')
     else:
         logging.warning('Path to runlog ({}) does not start with GGGPATH ({}). If you did not expect this, make sure your GGGPATH environmental variable is set correctly.'.format(runlog_file, GGGPATH))
         lse_file = runlog_file.replace('.grl','.lse')
@@ -1319,7 +1477,7 @@ def set_release_flags(nc_file,flag_file,qc_file=''):
 
 def set_manual_flags(nc_file, qc_file='', mflag_file=''):
     siteID = os.path.basename(nc_file)[:2]
-    gggpath = get_ggg_path()
+    gggpath = cu.get_ggg_path()
     if not mflag_file:
         mflag_file = os.path.join(gggpath, 'tccon', '{}_manual_flagging.dat'.format(siteID))
         if not os.path.exists(mflag_file):
@@ -1373,21 +1531,23 @@ def _set_extra_flags(nc_file,flags_data,flag_type,qc_file=''):
 
             flag_value = flags_data[time_period]['value']
             if flag_value<1 or flag_value>9:
-                logging.warning('{type} flag values only allowed between 1 and 9, you tried to set a {type} flag={value}. Setting flag={other} ("other") instead for {time}. Check your {type} flag file'.format(type=flag_type, value=flag_value, other=manual_flag_other, time=time_period))
-                flag_value = manual_flag_other
+                logging.warning('{type} flag values only allowed between 1 and 9, you tried to set a {type} flag={value}. Setting flag={other} ("other") instead for {time}. Check your {type} flag file'.format(type=flag_type, value=flag_value, other=MANUAL_FLAG_OTHER, time=time_period))
+                flag_value = MANUAL_FLAG_OTHER
                 del flags_data[time_period]['name']               
             if 'name' in flags_data[time_period]:
                 flag_name = flags_data[time_period]['name'].lower()
-                if flag_name != manual_flags_dict[flag_value]:
-                    logging.warning('flag={value} is reserved for "{name}", you tried to set it for "{wrongname}". Setting flag={other} ("other") instead for {time}. Check your {type} flag file'.format(value=flag_value,name=manual_flags_dict[flag_value],wrongname=flag_name,other=manual_flag_other,time=time_period))
-                    flag_value = manual_flag_other
-                    flag_name = manual_flags_dict[flag_value]
-            elif flag_value in manual_flags_dict:
-                flag_name = manual_flags_dict[flag_value]
+                if flag_name != MANUAL_FLAGS_DICT[flag_value]:
+                    logging.warning(
+                        f'flag={flag_value} is reserved for "{MANUAL_FLAGS_DICT[flag_value]}", you tried to set it for "{flag_name}". Setting flag={MANUAL_FLAG_OTHER} ("other") instead for {time_period}. Check your {flag_type} flag file'
+                    )
+                    flag_value = MANUAL_FLAG_OTHER
+                    flag_name = MANUAL_FLAGS_DICT[flag_value]
+            elif flag_value in MANUAL_FLAGS_DICT:
+                flag_name = MANUAL_FLAGS_DICT[flag_value]
             else:
-                logging.warning('You tried setting a new {type} flag ({value}) without a name. Setting flag={other} ("other") instead for {time}'.format(type=flag_type,value=flag_value,other=manual_flag_other,time=time_period))
-                flag_value = manual_flag_other
-                flag_name = manual_flags_dict[flag_value]
+                logging.warning('You tried setting a new {type} flag ({value}) without a name. Setting flag={other} ("other") instead for {time}'.format(type=flag_type,value=flag_value,other=MANUAL_FLAG_OTHER,time=time_period))
+                flag_value = MANUAL_FLAG_OTHER
+                flag_name = MANUAL_FLAGS_DICT[flag_value]
 
             logging.info("\t- From {start} to {end}: {type} flag={value}; name='{name}'; comment='{comment}'".format(start=start_str,end=end_str,type=flag_type,value=flag_value,name=flag_name,comment=comment))
 
@@ -1475,9 +1635,9 @@ def hash_array(x):
 def main():
     signal(SIGINT,signal_handler)
     code_dir = os.path.dirname(__file__) # path to the tccon_netcdf repository
-    GGGPATH = get_ggg_path()
+    GGGPATH = cu.get_ggg_path()
 
-    description = wnc_version + "This writes TCCON outputs in a NETCDF file"
+    description = f"{cu.get_version_string()} This writes TCCON outputs in a NETCDF file"
     
     parser = argparse.ArgumentParser(description=description,formatter_class=argparse.RawTextHelpFormatter)
     
@@ -1500,9 +1660,10 @@ def main():
     parser.add_argument('-r','--read-only',action='store_true',help="Convenience for python interactive shells; sys.exit() right after reading all the input files")
     parser.add_argument('--eof',action='store_true',help='If given, will also write the .eof.csv file')
     parser.add_argument('--public',action='store_true',help='If given, will write a .public.nc or .experimental.public.nc file from the .private.nc')
+    parser.add_argument('--publish-all-flags', action='store_true', help='Include all spectra in the public files, not just flag==0')
     parser.add_argument('-s', '--std-only',action='store_true',help='If given with --public, only writes standard TCCON product gases to the public file')
     parser.add_argument('--remove-no-expt',action='store_true',help='If given with --public but without --std-only, if the output file contains only standard TCCON data, it is removed')
-    parser.add_argument('--log-level',default='INFO',type=lambda x: x.upper(),help="Log level for the screen (it is always DEBUG for the log file)",choices=['PROFILE', 'DEBUG','INFO','WARNING','ERROR','CRITICAL'])
+    parser.add_argument('--log-level',default='INFO',type=lambda x: x.upper(),help="Log level for the screen (it is always DEBUG for the log file)",choices=LOG_LEVEL_CHOICES)
     parser.add_argument(
         '--log-file',
         default='write_netcdf.log',
@@ -1513,16 +1674,29 @@ def main():
     parser.add_argument('--skip-checksum',action='store_true',help='Option to not make a check on the checksums, for example to run the code on outputs generated by someone else or on a different machine')
     parser.add_argument('-m','--message',default='',help='Add an optional message to be kept in the log file to remember why you ran post-processing e.g. "2020 Eureka R3 processing" ')
     parser.add_argument('--multiggg',default='multiggg.sh',help='Use this argument if you use differently named multiggg.sh files')
-    parser.add_argument('--mode',default='TCCON',choices=['TCCON','em27'],help='Will be used to set TCCON specific or em27 specific metadata')
+    parser.add_argument('--mode',default='TCCON',choices=NETWORK_MODES,help='Will be used to set TCCON specific or em27 specific metadata')
     parser.add_argument('--rflag',action='store_true',help='If given with a private.nc file as input, will create a separate private.qc.nc file with updated flags based on the --rflag-file')
     parser.add_argument('--rflag-file',help='Full path to the .json input file that sets release flags (has no effect without --rflag)')
 
+    parser.add_argument('--no-expand-priors', action='store_false', dest='expand_priors', help='When writing public files, do NOT expand the priors to match the time dimension, leave them on the 3 hourly interval')
+    parser.add_argument('--no-expand-aks', action='store_false', dest='expand_aks', help='When writing public files, do NOT expand the AKs to match the time dimension, leave them as lookup tables')
+    parser.add_argument('--full-ak-resolution', action='store_true', help='Use the exact slant Xgas for each spectrum when expanding AKs, rather than quantized ones. Output files will be larger.')
+
+    parser.add_argument('--no-rename-by-dates', action='store_false', dest='rename_by_dates', help='For public files, do not rename the output file to match the range of data available.')
     args = parser.parse_args()
-    logger, show_progress, HEAD_commit = setup_logging(log_level=args.log_level, log_file=args.log_file, message=args.message, to_stdout=args.log_to_stdout)
-    
+    logger, show_progress, HEAD_commit = cu.setup_logging(log_level=args.log_level, log_file=args.log_file, message=args.message, to_stdout=args.log_to_stdout)
+
+    try:
+        main_inner(args=args, logger=logger, show_progress=show_progress, HEAD_commit=HEAD_commit, code_dir=code_dir, GGGPATH=GGGPATH)
+    except Exception:
+        logger.exception('FAILURE: THE NETCDF FILE IS INCOMPLETE. The following error occurred:')
+        raise
+   
+
+def main_inner(args, logger, show_progress, HEAD_commit, code_dir, GGGPATH):
     if not args.rflag and args.rflag_file is not None:
         logging.warning('Specifying --rflag-file without using --rflag has no effect')
-    args.rflag_file = release_flags_json(args.rflag_file)
+    args.rflag_file = gp.release_flags_json(args.rflag_file)
     
 
     nc_format = args.format
@@ -1544,12 +1718,25 @@ def main():
             # file. Since public file production occurs on tccondata.org, we don't want to
             # rely on a GGG installation.
             private_nc_file = set_release_flags(private_nc_file,args.rflag_file,qc_file=qc_file)
-            with netCDF4.Dataset(private_nc_file, 'a') as privds:
-                update_attrs_for_public_files(privds, is_public=False)
+            if not is_file_current_version(private_nc_file):
+                logging.warning(f'{private_nc_file} is not the current file format version ({vCurrent}). Please investigate if this is not expected!')
+
             if not args.public:
                 sys.exit()
         logging.info('Writing public file from {}'.format(private_nc_file))
-        write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=not args.std_only,remove_if_no_experimental=args.remove_no_expt)
+        write_public_nc(
+            private_nc_file,
+            code_dir,
+            nc_format,
+            include_experimental=not args.std_only,
+            remove_if_no_experimental=args.remove_no_expt,
+            flag0_only=not args.publish_all_flags,
+            expand_priors=args.expand_priors,
+            expand_aks=args.expand_aks,
+            full_ak_resolution=args.full_ak_resolution,
+            rename_by_dates=args.rename_by_dates,
+            mode=args.mode
+        )
         sys.exit()
 
     # input and output file names
@@ -1592,7 +1779,7 @@ def main():
     ## read data, I add the file_name to the data dictionaries for some of them
 
     # read tccon_gases.json
-    with open(tccon_gases_json(),'r') as f:
+    with open(gp.tccon_gases_json(),'r') as f:
         tccon_gases = json.load(f)
 
     # if a gas is shared by InSb and Si, but not InGaAs, then the corresponding .col file should start with 'm' for InSb and 'v' for Si
@@ -1640,7 +1827,7 @@ def main():
 
     # read site specific data from the tccon_netcdf repository
     # the .apply and .rename bits are just strip the columns from leading and tailing white spaces
-    with open(os.path.join(code_dir,'site_info.json'),'r') as f:
+    with open(gp.site_info_json(),'r') as f:
         try:
             site_data = json.load(f)[siteID]
         except KeyError:
@@ -1688,10 +1875,7 @@ def main():
 
     # qc file: it contains information on some variables as well as their flag limits
     logging.info('\t- {}'.format(qc_file))
-    nhead, ncol = file_info(qc_file)
-    qc_data = pd.read_fwf(qc_file,widths=[15,3,8,7,10,9,10,45],skiprows=nhead+1,names='Variable Output Scale Format Unit Vmin Vmax Description'.split())
-    for key in ['Variable','Format','Unit']:
-        qc_data[key] = [i.replace('"','') for i in qc_data[key]]
+    qc_data = cu.read_qc_file(qc_file)
     len_list = len(list(qc_data['Variable']))
     len_set = len(list(set(qc_data['Variable'])))
     if len_list!=len_set:
@@ -1812,7 +1996,7 @@ def main():
                 line = infile.readline()
                 if 'sf=' in line:
                     vsw_sf_check = True
-                    vsw_sf = (j for j in np.array(line.split()[1:]).astype(np.float))
+                    vsw_sf = (j for j in np.array(line.split()[1:]).astype(np.float32))
                     break
                 i += 1
         vsw_data = pd.read_csv(vsw_file,delim_whitespace=True,skiprows=nhead)
@@ -1836,8 +2020,8 @@ def main():
         sys.exit(1)
 
     specdates = np.array([datetime(int(round(aia_data['year'][i]-aia_data['day'][i]/366.0)),1,1)+timedelta(days=aia_data['day'][i]-1) for i in range(nspec)])
-    start_date = datetime.strftime(specdates[0],'%Y%m%d')
-    end_date = datetime.strftime(specdates[-1],'%Y%m%d')
+    start_date = datetime.strftime(np.min(specdates),'%Y%m%d')
+    end_date = datetime.strftime(np.max(specdates),'%Y%m%d')
 
     private_nc_file = '{}{}_{}.private.nc'.format(siteID,start_date,end_date) # the final output file
 
@@ -1873,15 +2057,16 @@ def main():
         nc_data.source = "Products retrieved from solar absorption spectra using the GGG2020 software"
         nc_data.description = '\n'+header_content
         nc_data.file_creation = "Created with Python {} and the library netCDF4 {}".format(platform.python_version(),netCDF4.__version__)
-        nc_data.code_version = "Created using commit {} of the code {}".format(HEAD_commit,wnc_version)
+        nc_data.code_version = "Created using commit {} of the code {}".format(HEAD_commit,cu.get_version_string())
         nc_data.flag_info = 'The Vmin and Vmax attributes of the variables indicate the range of valid values.\nThe values comes from the xx_qc.dat file.\n the variable "flag" stores the index of the variable that contains out of range values.\nThe variable "flagged_var_name" stores the name of that variable'
+        nc_data.auxiliary_data_description = AUX_DATA_URL
         
         if args.mode == 'TCCON':
             nc_data.title = "Atmospheric trace gas column-average dry-air mole fractions retrieved from solar absorption spectra measured by ground based Fourier Transform Infrared Spectrometers that are part of the Total Carbon Column Observing Network (TCCON)"
-            nc_data.data_use_policy = "https://tccon-wiki.caltech.edu/Network_Policy/Data_Use_Policy"
-            nc_data.auxiliary_data_description = "https://tccon-wiki.caltech.edu/Network_Policy/Data_Use_Policy/Auxiliary_Data"
+            nc_data.data_use_policy = TCCON_DATA_POLICY_URL
             nc_data.more_information = "https://tccon-wiki.caltech.edu"
             nc_data.tccon_reference = "Wunch, D., G. C. Toon, J.-F. L. Blavier, R. A. Washenfelder, J. Notholt, B. J. Connor, D. W. T. Griffith, V. Sherlock, and P. O. Wennberg (2011), The total carbon column observing network, Philosophical Transactions of the Royal Society - Series A: Mathematical, Physical and Engineering Sciences, 369(1943), 2087-2112, doi:10.1098/rsta.2010.0240. Available from: http://dx.doi.org/10.1098/rsta.2010.0240"
+            nc_data.retrieval_reference = GGG2020_REFERENCE
         elif args.mode == 'em27':
             pass # should be updated with general em27 info
 
@@ -1907,6 +2092,8 @@ def main():
             logging.warning('GGGtip %s',gggtip)
         nc_data.GGGtip = "The output of 'hg summary' from the GGG repository:\n"+gggtip
         nc_data.history = "Created {} (UTC)".format(time.asctime(time.gmtime(time.time())))
+        # add file format version information
+        write_file_fmt_attrs(nc_data, FILE_FMT_V2020pC)
 
         logging.info('Creating dimensions and coordinate variables')
         ## create dimensions
@@ -1960,14 +2147,14 @@ def main():
         att_dict = {
             "standard_name": 'prior_altitude_profile',
             "long_name": 'prior altitude profile',
-            "units": units_dict['prior_altitude'],
+            "units": UNITS_DICT['prior_altitude'],
             "description": "altitude levels for the prior profiles, these are the same for all the priors",
         }
         nc_data['prior_altitude'].setncatts(att_dict)
         nc_data['prior_altitude'][0:nlev] = prior_data[list(prior_data.keys())[0]]['data']['altitude'].values
 
         # averaging kernels
-        with netCDF4.Dataset(os.path.join(code_dir,'ak_tables.nc'),'r') as ak_nc:
+        with netCDF4.Dataset(gp.ak_tables_nc_file(),'r') as ak_nc:
             nlev_ak = ak_nc['z'].size
             nbins_ak = ak_nc['slant_xgas_bin'].size
 
@@ -2020,7 +2207,12 @@ def main():
                     "units": ak_nc[ak_bin_var].units,
                 }
                 nc_data[var].setncatts(att_dict)
-                nc_data[var][0:nbins_ak] = ak_nc[ak_bin_var][:].data.astype(np.float32)
+                if var == 'ak_slant_xch4_bin':
+                    # Need to convert the ppb in the netCDF file to ppm to be consistent with xch4
+                    nc_data[var][0:nbins_ak] = ak_nc[ak_bin_var][:].data.astype(np.float32) * 1e-3
+                    nc_data[var].units = 'ppm'
+                else:
+                    nc_data[var][0:nbins_ak] = ak_nc[ak_bin_var][:].data.astype(np.float32)
 
             for ak_var in [i for i in ak_nc.variables if i.endswith('aks')]:
                 var = 'ak_{}'.format(ak_var.strip('_aks'))
@@ -2032,9 +2224,9 @@ def main():
                     "units": '',
                 }
                 if 'lco2' in var:
-                    att_dict['description'] = att_dict['description']+special_description_dict['lco2']
+                    att_dict['description'] = att_dict['description']+SPECIAL_DESCRIPTION_DICT['lco2']
                 elif 'wco2' in var:
-                    att_dict['description'] = att_dict['description']+special_description_dict['wco2']
+                    att_dict['description'] = att_dict['description']+SPECIAL_DESCRIPTION_DICT['wco2']
                 nc_data[var].setncatts(att_dict)
                 nc_data[var][:] = ak_nc[ak_var][:].data.astype(np.float32)
  
@@ -2049,9 +2241,9 @@ def main():
         }
         nc_data['prior_index'].setncatts(att_dict)
 
-        prior_var_list = [ i for i in list(prior_data[list(prior_data.keys())[0]]['data'].keys()) if i!='altitude']
+        prior_var_list = [ i for i in list(prior_data[list(prior_data.keys())[0]]['data'].keys()) if i not in {'altitude', 'geos_versions', 'geos_filenames', 'geos_checksums'}]
         cell_var_list = []
-        units_dict.update({'prior_{}'.format(var):'' for var in prior_var_list if 'prior_{}'.format(var) not in units_dict})
+        UNITS_DICT.update({'prior_{}'.format(var):'' for var in prior_var_list if 'prior_{}'.format(var) not in UNITS_DICT})
         for var in prior_var_list:
             prior_var = 'prior_{}'.format(var)
             nc_data.createVariable(prior_var,np.float32,('prior_time','prior_altitude'))
@@ -2062,7 +2254,7 @@ def main():
                 att_dict["description"] = att_dict["long_name"]
             else:
                 att_dict["description"] = 'a priori concentration profile of {}, in parts'.format(var)
-            att_dict["units"] = units_dict[prior_var]
+            att_dict["units"] = UNITS_DICT[prior_var]
             nc_data[prior_var].setncatts(att_dict)
 
             if var in ['gravity', 'equivalent_latitude']:
@@ -2077,7 +2269,7 @@ def main():
                 att_dict["description"] = '{} in gas cell'.format(var)
             else:
                 att_dict["description"] = 'concentration of {} in gas cell, in parts'.format(var)
-            att_dict["units"] = units_dict[prior_var]
+            att_dict["units"] = UNITS_DICT[prior_var]
             nc_data[cell_var].setncatts(att_dict)
 
         prior_var_list += ['tropopause_altitude']
@@ -2086,19 +2278,32 @@ def main():
             "standard_name": 'prior_tropopause_altitude',
             "long_name": 'prior tropopause altitude',
             "description": 'altitude at which the gradient in the prior temperature profile becomes > -2 degrees per km',
-            "units": units_dict[prior_var],
+            "units": UNITS_DICT[prior_var],
         }
-        nc_data['prior_tropopause_altitude'].setncatts(att_dict)       
+        nc_data['prior_tropopause_altitude'].setncatts(att_dict)
 
-        prior_var_list += ['modfile','vmrfile']
+        geos_version_keys = get_geos_versions_key_set(prior_data)
+
+        prior_var_list += ['modfile','vmrfile'] + [cu.geos_version_varname(k) for k in geos_version_keys]
         if classic:
             prior_modfile_var = nc_data.createVariable('prior_modfile','S1',('prior_time','a32'))
             prior_modfile_var._Encoding = 'ascii'
             prior_vmrfile_var = nc_data.createVariable('prior_vmrfile','S1',('prior_time','a32'))
-            prior_vmrfile_var._Encoding = 'ascii'            
+            prior_vmrfile_var._Encoding = 'ascii'
+
+            for (vkey, vfxn) in cu.geos_version_keys_and_fxns():
+                gv_max_len = get_geos_version_max_length(prior_data, vkey)
+                for gkey in geos_version_keys:
+                    gv_varname = vfxn(gkey)
+                    cu.add_geos_version_variables(nc_data, gv_max_len, gv_varname, is_classic=True)
         else:
             prior_modfile_var = nc_data.createVariable('prior_modfile',str,('prior_time',))
             prior_vmrfile_var = nc_data.createVariable('prior_vmrfile',str,('prior_time',))
+            for (vkey, vfxn) in cu.geos_version_keys_and_fxns():
+                gv_max_len = get_geos_version_max_length(prior_data, vkey)
+                for gkey in geos_version_keys:
+                    gv_varname = vfxn(gkey)
+                    cu.add_geos_version_variables(nc_data, gv_max_len, gv_varname, is_classic=False)
         
         att_dict = {
             "standard_name":'prior_modfile',
@@ -2120,7 +2325,7 @@ def main():
             "standard_name": 'prior_effective_latitude',
             "long_name": 'prior effective latitude',
             "description": "latitude at which the mid-tropospheric potential temperature agrees with that from the corresponding 2-week period in a GEOS-FPIT climatology",
-            "units": units_dict['prior_effective_latitude'],
+            "units": UNITS_DICT['prior_effective_latitude'],
         }
         nc_data['prior_effective_latitude'].setncatts(att_dict)
 
@@ -2129,21 +2334,23 @@ def main():
             "standard_name": 'prior_mid_tropospheric_potential_temperature',
             "long_name": 'prior mid-tropospheric potential temperature',
             "description": "average potential temperature between 700-500 hPa",
-            "units": units_dict['prior_mid_tropospheric_potential_temperature'],
+            "units": UNITS_DICT['prior_mid_tropospheric_potential_temperature'],
         }
         nc_data['prior_mid_tropospheric_potential_temperature'].setncatts(att_dict)
 
+        cu.add_geos_version_var_attrs(nc_data, geos_version_keys)
+        
         # checksums
         logging.info('\t- Checksums')
-        for var in checksum_var_list:
+        for var in CHECKSUM_VAR_LIST:
             if classic:
                 checksum_var = nc_data.createVariable(var+'_checksum','S1',('time','a32'))
                 checksum_var._Encoding = 'ascii'
             else:
                 checksum_var = nc_data.createVariable(var+'_checksum',str,('time',))
             att_dict = {
-                "standard_name": standard_name_dict[var+'_checksum'],
-                "long_name": long_name_dict[var+'_checksum'],
+                "standard_name": STANDARD_NAME_DICT[var+'_checksum'],
+                "long_name": LONG_NAME_DICT[var+'_checksum'],
                 "description": 'hexdigest hash string of the md5 sum of the {} file'.format(var),
             }
             checksum_var.setncatts(att_dict)
@@ -2153,22 +2360,22 @@ def main():
         nc_data.createVariable('gfit_version',np.float32,('time',))
         att_dict = {
             "description": "version number of the GFIT code that generated the data",
-            "standard_name": standard_name_dict['gfit_version'],
-            "long_name_dict": long_name_dict['gfit_version'],
+            "standard_name": STANDARD_NAME_DICT['gfit_version'],
+            "long_name_dict": LONG_NAME_DICT['gfit_version'],
         }
         nc_data['gfit_version'].setncatts(att_dict)
 
         nc_data.createVariable('gsetup_version',np.float32,('time',))
         att_dict = {
             "description": "version number of the GSETUP code that generated the priors",
-            "standard_name": standard_name_dict['gsetup_version'],
-            "long_name": long_name_dict['gsetup_version'],
+            "standard_name": STANDARD_NAME_DICT['gsetup_version'],
+            "long_name": LONG_NAME_DICT['gsetup_version'],
         }
         nc_data['gsetup_version'].setncatts(att_dict)
 
         # flags
         logging.info('\t- Flags')
-        nc_data.createVariable('flag',np.int16,('time',))
+        nc_data.createVariable('flag',np.int32,('time',))
         att_dict = {
             "description": 'data quality flag, 0 = good',
             "standard_name": 'quality_flag',
@@ -2208,7 +2415,7 @@ def main():
         # auxiliary variables
         logging.info('\t- Auxiliary variables')
         aux_var_list = [tav_data.columns[i] for i in range(1,naux)]
-        for var in aux_var_list: 
+        for var in aux_var_list:
             qc_id = list(qc_data['variable']).index(var)
             #digit = int(qc_data['format'][qc_id].split('.')[-1])
             if var in ['year','day']:
@@ -2224,10 +2431,10 @@ def main():
                 "vmax": qc_data['vmax'][qc_id],
                 "precision": qc_data['format'][qc_id],
             }
-            if var in standard_name_dict.keys():
-                att_dict["standard_name"] = standard_name_dict[var]
-                att_dict["long_name"] = long_name_dict[var]
-                att_dict["units"] = units_dict[var] # reset units here for some of the variables in the qc_file using UDUNITS compatible units
+            if var in STANDARD_NAME_DICT.keys():
+                att_dict["standard_name"] = STANDARD_NAME_DICT[var]
+                att_dict["long_name"] = LONG_NAME_DICT[var]
+                att_dict["units"] = UNITS_DICT[var] # reset units here for some of the variables in the qc_file using UDUNITS compatible units
             nc_data[var].setncatts(att_dict)
 
         nc_data['hour'].description = 'Fractional UT hours (zero path difference crossing time)'
@@ -2245,19 +2452,19 @@ def main():
                 "vmax": qc_data['vmax'][qc_id],
                 "precision": qc_data['format'][qc_id],
             }
-            if key in standard_name_dict.keys():
-                att_dict["standard_name"] = standard_name_dict[key]
-                att_dict["long_name"] = long_name_dict[key]
-                att_dict["units"] = units_dict[key]
+            if key in STANDARD_NAME_DICT.keys():
+                att_dict["standard_name"] = STANDARD_NAME_DICT[key]
+                att_dict["long_name"] = LONG_NAME_DICT[key]
+                att_dict["units"] = UNITS_DICT[key]
             nc_data[key].setncatts(att_dict)
             write_values(nc_data,key,np.array(pth_data[key]))
         # Use extract_pth.out hmod and hout to create h2o_dmf_out and h2_dmf_mod
         for key,val in {'h2o_dmf_out':'hout','h2o_dmf_mod':'hmod'}.items():
             nc_data.createVariable(key,np.float32,('time',))
             att_dict = {
-                "standard_name":standard_name_dict[key],
-                "long_name":long_name_dict[key],
-                "units":units_dict[key],
+                "standard_name":STANDARD_NAME_DICT[key],
+                "long_name":LONG_NAME_DICT[key],
+                "units":UNITS_DICT[key],
             }
             nc_data[key].setncatts(att_dict)
             write_values(nc_data,key,np.array(pth_data[val]))
@@ -2387,6 +2594,7 @@ def main():
                 "units": qc_data['unit'][qc_id].replace('(','').replace(')','').strip(),
                 "vmin": qc_data['vmin'][qc_id],
                 "vmax": qc_data['vmax'][qc_id],
+                "oof_scaling": qc_data['scale'][qc_id],
                 "precision": qc_data['format'][qc_id],
             }
             nc_data[xvarname].setncatts(att_dict)
@@ -2405,7 +2613,7 @@ def main():
             nc_data.createVariable('column_'+varname,np.float32,('time',))
             att_dict = {
                 "description": varname+' column average.',
-                "units": 'molecules.m-2',
+                "units": 'molecules.cm-2',
                 "precision": 'e12.4',
             }
             nc_data['column_'+varname].setncatts(att_dict)
@@ -2424,12 +2632,15 @@ def main():
             nc_data['ada_'+xvarname].setncatts(att_dict)
             write_values(nc_data,'ada_'+xvarname,ada_data[xvar].values)
 
-            for key in special_description_dict.keys():
+            for key in SPECIAL_DESCRIPTION_DICT.keys():
                 if key in var:
                     for nc_var in [nc_data[xvarname],nc_data['vsf_'+varname],nc_data['column_'+varname],nc_data['ada_'+xvarname]]:
-                        nc_var.description += special_description_dict[key]
+                        nc_var.description += SPECIAL_DESCRIPTION_DICT[key]
         del tav_data, vav_data, ada_data
         gc.collect()
+
+        # daily error data
+        daily_error.write_daily_esf_data(nc_data, esf_data)
 
         # lse data
         logging.info('\t- .lse')
@@ -2463,8 +2674,8 @@ def main():
                 continue
             nc_data.createVariable(var,np.float32,('time',))
             att_dict = {
-                "standard_name":standard_name_dict[var],
-                "long_name":long_name_dict[var],
+                "standard_name":STANDARD_NAME_DICT[var],
+                "long_name":LONG_NAME_DICT[var],
                 "description":lse_dict[var]['description'],
                 "precision":lse_dict[var]['precision'],
             }
@@ -2485,8 +2696,8 @@ def main():
                 varname = f"dip_{detector}"
             nc_data.createVariable(varname,np.float32,('time',))
             att_dict = {
-                "standard_name":standard_name_dict['dip'],
-                "long_name":long_name_dict['dip'],
+                "standard_name":STANDARD_NAME_DICT['dip'],
+                "long_name":LONG_NAME_DICT['dip'],
                 "description":lse_dict['dip']['description'],
                 "precision":lse_dict['dip']['precision'],
                 "detector":detector, 
@@ -2582,10 +2793,14 @@ def main():
         
         # write prior and cell data
         logging.info('Writing prior data ...')
+        special_prior_vars = ['tropopause_altitude','modfile','vmrfile','mid_tropospheric_potential_temperature','effective_latitude']
+        special_prior_vars += [cu.geos_version_varname(k) for k in geos_version_keys]
+        special_prior_vars += [cu.geos_file_varname(k) for k in geos_version_keys]
+        special_prior_vars += [cu.geos_checksum_varname(k) for k in geos_version_keys]
         for prior_spec_id, prior_spectrum in enumerate(prior_spec_list):
             #for var in ['temperature','pressure','density','gravity','1h2o','1hdo','1co2','1n2o','1co','1ch4','1hf','1o2']:
             for var in prior_var_list:
-                if var not in ['tropopause_altitude','modfile','vmrfile','mid_tropospheric_potential_temperature','effective_latitude']:
+                if var not in special_prior_vars:
                     prior_var = 'prior_{}'.format(var)
                     nc_data[prior_var][prior_spec_id,0:nlev] = prior_data[prior_spectrum]['data'][var].values
 
@@ -2599,6 +2814,10 @@ def main():
             nc_data['prior_vmrfile'][prior_spec_id] = prior_data[prior_spectrum]['vmr_file']
             nc_data['prior_effective_latitude'][prior_spec_id] = prior_data[prior_spectrum]['effective_latitude']
             nc_data['prior_mid_tropospheric_potential_temperature'][prior_spec_id] = prior_data[prior_spectrum]['mid_tropospheric_potential_temperature']
+            for k in geos_version_keys:
+                nc_data[cu.geos_version_varname(k)][prior_spec_id] = prior_data[prior_spectrum]['geos_versions'][k]
+                nc_data[cu.geos_file_varname(k)][prior_spec_id] = prior_data[prior_spectrum]['geos_filenames'][k]
+                nc_data[cu.geos_checksum_varname(k)][prior_spec_id] = prior_data[prior_spectrum]['geos_checksums'][k]
 
         logging.info('Finished writing prior data')
         del prior_data
@@ -2719,13 +2938,13 @@ def main():
         insb_col_file_list = [i for i in col_file_list if int(''.join([j for j in i.split('.')[0].split('_')[1] if j.isdigit()]))<4000]
         si_col_file_list = [i for i in col_file_list if int(''.join([j for j in i.split('.')[0].split('_')[1] if j.isdigit()]))>10000]
         if insb_col_file_list:
-            col_data, gfit_version, gsetup_version = read_col(insb_col_file_list[0],speclength)
+            col_data, gfit_version, gsetup_version = read_col(insb_col_file_list[0])
             insb_slice = list(np.where(np.isin(aia_ref_speclist_insb,col_data['spectrum']))[0]) # indices of the InSb spectra along the time dimension
             if np.array_equal(insb_slice,aia_data.index.values):
                 # if the insb slice is the full indices, set it to empty list such that write_values writes the whole array at once instead of looping over indices
                 insb_slice = []
         if si_col_file_list:
-            col_data, gfit_version, gsetup_version = read_col(si_col_file_list[0],speclength)
+            col_data, gfit_version, gsetup_version = read_col(si_col_file_list[0])
             si_slice = list(np.where(np.isin(aia_ref_speclist_si,col_data['spectrum']))[0]) # indices of the Si spectra along the time dimension
             if np.array_equal(si_slice,aia_data.index.values):
                 # if the si slice is the full indices, set it to empty list such that write_values writes the whole array at once instead of looping over indices
@@ -2769,14 +2988,14 @@ def main():
                 inds = []
 
             # read col_file headers
-            col_data, gfit_version, gsetup_version = read_col(col_file,speclength)
+            col_data, gfit_version, gsetup_version = read_col(col_file)
 
             if col_file == col_file_list[0]:
                 nhead,ncol = file_info(col_file)
                 with open(col_file,'r') as infile:
                     content = [infile.readline() for i in range(nhead+1)]                
                 # check that the checksums are right for the files listed in the .col file header
-                checksum_dict = OrderedDict((key+'_checksum',None) for key in checksum_var_list)
+                checksum_dict = OrderedDict((key+'_checksum',None) for key in CHECKSUM_VAR_LIST)
                 # If a line begins with a 32-character MD5 hash, then one or more spaces, then
                 # a non-whitespace character, verify the checksum. That corresponds to a line like:
                 # 
@@ -2791,11 +3010,11 @@ def main():
                             checksum(fpath,csum)
                         except FileNotFoundError:
                             logging.warning('Could not find %s. Skip the checksum check ! To silence this, run with the --skip-checksum argument',fpath)
-                    checksum_dict[checksum_var_list[i]+'_checksum'] = csum
+                    checksum_dict[CHECKSUM_VAR_LIST[i]+'_checksum'] = csum
 
                 nc_data['gfit_version'][:] = gfit_version
                 nc_data['gsetup_version'][:] = gsetup_version
-                for var in checksum_var_list:
+                for var in CHECKSUM_VAR_LIST:
                     checksum_var = var+'_checksum'
                     for i in range(aia_data['spectrum'].size):
                         nc_data[checksum_var][i] = checksum_dict[checksum_var]
@@ -2831,9 +3050,9 @@ def main():
                 nc_data.createVariable(varname,np.float32,('time',))
                 
                 att_dict = {}               
-                if var in standard_name_dict.keys():
-                    att_dict['standard_name'] = standard_name_dict[var]
-                    att_dict['long_name'] = long_name_dict[var]
+                if var in STANDARD_NAME_DICT.keys():
+                    att_dict['standard_name'] = STANDARD_NAME_DICT[var]
+                    att_dict['long_name'] = LONG_NAME_DICT[var]
                 
                 if '_' in var:
                     att_dict['description'] = '{} {} retrieved from the {} window centered at {} cm-1.'.format(var.split('_')[1],var.split('_')[0],gas_XXXX.split('_')[0],gas_XXXX.split('_')[1])                    
@@ -2850,13 +3069,13 @@ def main():
                             sup = 'th'
                         att_dict['description'] += "{} is the {}{} isotopolog of {} as listed in GGG's isotopologs.dat file.".format(iso_gas,iso,sup,iso_gas[1:])
                 else:
-                    att_dict['description'] = '{} retrieved from the {} window centered at {} cm-1.'.format(long_name_dict[var],gas_XXXX.split('_')[0],gas_XXXX.split('_')[1])
-                for key in special_description_dict.keys():
+                    att_dict['description'] = '{} retrieved from the {} window centered at {} cm-1.'.format(LONG_NAME_DICT[var],gas_XXXX.split('_')[0],gas_XXXX.split('_')[1])
+                for key in SPECIAL_DESCRIPTION_DICT.keys():
                     if key in varname:
-                        att_dict['description'] += special_description_dict[key]
+                        att_dict['description'] += SPECIAL_DESCRIPTION_DICT[key]
                 if varname.endswith(('fs','sg')):
-                    att_dict['units'] = units_dict[varname[-2:]]
-                    att_dict['description'] += "The {} (wavenumber shift per spectral point) is in ppm of the spectral point spacing ({:.11f} cm-1)".format(long_name_dict[var],dnu)
+                    att_dict['units'] = UNITS_DICT[varname[-2:]]
+                    att_dict['description'] += "The {} (wavenumber shift per spectral point) is in ppm of the spectral point spacing ({:.11f} cm-1)".format(LONG_NAME_DICT[var],dnu)
                 nc_data[varname].setncatts(att_dict)
                 write_values(nc_data,varname,col_data[var].values,inds=inds)
             
@@ -2869,7 +3088,7 @@ def main():
                 ncbf_var = '{}_ncbf_si'.format(gas_XXXX)
             col_var_list += [ncbf_var]
             nc_data.createVariable(ncbf_var,np.int32,('time',))
-            att_dict = {'standard_name':standard_name_dict['ncbf'],'long_name':long_name_dict['ncbf'],'units':units_dict['ncbf']}
+            att_dict = {'standard_name':STANDARD_NAME_DICT['ncbf'],'long_name':LONG_NAME_DICT['ncbf'],'units':UNITS_DICT['ncbf']}
             nc_data[ncbf_var].setncatts(att_dict)
             nc_data[ncbf_var][:] = len(cbf_data.columns)-1 # minus 1 because of the spectrum name column
 
@@ -2879,12 +3098,12 @@ def main():
                 nc_data.createVariable(varname,np.float32,('time',))
                 att_dict = {}
                 if '_' in var:
-                    att_dict['standard_name'] = standard_name_dict[var.split('_')[0]].format(var.split('_')[1])
-                    att_dict['long_name'] = long_name_dict[var.split('_')[0]].format(var.split('_')[1])
+                    att_dict['standard_name'] = STANDARD_NAME_DICT[var.split('_')[0]].format(var.split('_')[1])
+                    att_dict['long_name'] = LONG_NAME_DICT[var.split('_')[0]].format(var.split('_')[1])
                 else:
-                    att_dict['standard_name'] = standard_name_dict[var]
-                    att_dict['long_name'] = long_name_dict[var]
-                    att_dict['units'] = units_dict[var]
+                    att_dict['standard_name'] = STANDARD_NAME_DICT[var]
+                    att_dict['long_name'] = LONG_NAME_DICT[var]
+                    att_dict['units'] = UNITS_DICT[var]
                 nc_data[varname].setncatts(att_dict)
                 write_values(nc_data,varname,cbf_data[var].values,inds=inds)
         # end of for col_id,col_file in enumerate(col_file_list)
@@ -2898,7 +3117,7 @@ def main():
         If a site has different null values defined for different time periods the key has format siteID_ii_YYYYMMDD_YYYYMMDD
         with ii just the period index (e.g. 01 ) so that they come in order when the keys get sorted
         """
-        with open(missing_data_json(),'r') as f:
+        with open(gp.missing_data_json(),'r') as f:
             missing_data = json.load(f)
         missing_data = {key:val for key,val in missing_data.items() if siteID in key}
         if len(missing_data.keys())>1: # if there are different null values for different time periods
@@ -2939,6 +3158,8 @@ def main():
 
         # get a list of all the variables written to the private netcdf file, will be used below to check for missing variables before writing an eof.csv file
         private_var_list = [v for v in nc_data.variables]
+
+        ggg2020a_to_ggg2020c(nc_data, is_public=False, mode=args.mode)
     # end of the "with open(private_nc_file)" statement
     
     # both function return the path where the flags were written, so 
@@ -2950,7 +3171,7 @@ def main():
     logging.info('Finished writing {} {:.2f} MB'.format(private_nc_file,os.path.getsize(private_nc_file)/1e6))
 
     if args.public:
-        write_public_nc(private_nc_file,code_dir,nc_format)
+        write_public_nc(private_nc_file,code_dir,nc_format,include_experimental=not args.std_only,remove_if_no_experimental=args.remove_no_expt,flag0_only=not args.publish_all_flags,expand_priors=args.expand_priors,expand_aks=args.expand_aks,full_ak_resolution=args.full_ak_resolution,mode=args.mode)
 
     if args.eof:
         ordered_var_list = ['flag','flagged_var_name','spectrum'] # list of variables for writing the eof file
@@ -2962,7 +3183,7 @@ def main():
         if not skip_vsw:
             ordered_var_list += full_vsw_var_list
         ordered_var_list += ['gfit_version','gsetup_version']
-        ordered_var_list += [var+'_checksum' for var in checksum_var_list]
+        ordered_var_list += [var+'_checksum' for var in CHECKSUM_VAR_LIST]
 
         # check that we have all the variables we want
         # the mod_var_dict keys read data from the extract_pth file, these duplicate variables from the aux_var_list
@@ -2986,8 +3207,13 @@ def compare_nc_files(base_file, other_file, log_file=None, log_level='INFO', ign
             variables = set(ds.variables.keys())
             return variables
 
-    setup_logging(log_level=log_level, log_file=log_file, message='')
-
+    cu.setup_logging(log_level=log_level, log_file=log_file, message='')
+    logging.info(f'Base file = {base_file}')
+    logging.info(f'Other file = {other_file}')
+    if len(ignore) == 0:
+        logging.info('Will check all variables (ignore input was empty)')
+    else:
+        logging.info(f'Will ignore the variables: {", ".join(ignore)}')
     base_variables = get_file_variables(base_file)
     other_variables = get_file_variables(other_file)
     common_variables = base_variables.intersection(other_variables)
@@ -2999,7 +3225,7 @@ def compare_nc_files(base_file, other_file, log_file=None, log_level='INFO', ign
 
     missing_other_vars = other_variables.difference(common_variables)
     if len(missing_other_vars) > 0:
-        logging.warning('{} variables present in the second file ({}) were not present in the first file ({})'
+        logging.warning('{} variables ({}) present in the second file ({}) were not present in the first file ({})'
                         .format(len(missing_other_vars), ', '.join(missing_other_vars), other_file, base_file))
 
     common_variables = sorted(list(common_variables))
@@ -3016,7 +3242,7 @@ def compare_nc_files_command_line():
     parser.add_argument('other_file', help='The second .nc file, which will be checked against the base_file')
     parser.add_argument('--log-level', default='INFO', type=lambda x: x.upper(),
                         help="Log level for the screen (it is always DEBUG for the log file)",
-                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'])
+                        choices=LOG_LEVEL_CHOICES)
     parser.add_argument('--log-file', default=None,
                         help="File to write the logging messages to in addition to the screen. By default, no such "
                              "file is written.")
