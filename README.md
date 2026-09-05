@@ -20,6 +20,8 @@ This will install the entry point scripts into the `bin` directory of your envir
 - `update_site_info`: update site-related attributes in a TCCON netCDF file
 - `subset_netcdf`: subset a private TCCON netCDF file along its time dimensions. Public files are not supported.
 - `update_manual_flags`: set manual quality flags in a private TCCON netCDF file.
+- `check_netcdf`: run pre-QA/QC checks on a private netCDF file
+- `update_file_format`: update a TCCON netCDF file to a newer file format version
 
 All programs include command line help, use the `-h` or `--help` flags to see specific options and flags.
 
