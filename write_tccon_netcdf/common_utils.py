@@ -588,13 +588,19 @@ def check_prior_index(ds: netCDF4.Dataset, max_delta_hours: float = 1.55) -> boo
     bool
         ``True`` if the prior indices are correct, ``False`` otherwise.
     """
+    dt_sec = difference_prior_and_zpd_time(ds)
+    max_dt_sec = np.ma.max(np.abs(dt_sec))
+    return max_dt_sec < (max_delta_hours * 3600)
+
+
+def difference_prior_and_zpd_time(ds: netCDF4.Dataset) -> np.ma.MaskedArray:
     time = ds['time'][:]
     prior_time = ds['prior_time'][:]
     prior_index = ds['prior_index'][:]
 
     expanded_prior_time = prior_time[prior_index]
-    max_dt_sec = np.ma.max(np.abs(time - expanded_prior_time))
-    return max_dt_sec < (max_delta_hours * 3600)
+    return time - expanded_prior_time
+
 
 
 def correct_prior_index(ds: netCDF4.Dataset, assign: bool = True) -> np.ndarray:

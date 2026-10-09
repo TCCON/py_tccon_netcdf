@@ -12,7 +12,7 @@ from pathlib import Path
 import re
 
 from .interface import PrecheckResult, PrecheckSeverity, TcconPrecheck, TcconSanityCheck
-from ..common_utils import FileFmtVer, grammatical_join, check_prior_index, correct_prior_index, md5sum_file, read_qc_file
+from ..common_utils import FileFmtVer, grammatical_join, check_prior_index, correct_prior_index, difference_prior_and_zpd_time, md5sum_file, read_qc_file
 
 from typing import Optional, Union, Sequence, Dict
 
@@ -273,7 +273,8 @@ class PriorMismatchCheck(TcconPrecheck):
                 '(1) Ensure you are running the GGG2020.1 code, as the netCDF write should automatically fix this from that version on, '
                 '(2) Check your write_netcdf.log file for errors, in case the writer exited before applying the fix, '
                 '(3) Ensure that the runlog contains all spectra referenced in the .mav file "next spectrum" lines and that the spectra '
-                'are consistent among the runlog, .col files, and post processing files.'
+                'are consistent among the runlog, .col files, and post processing files. '
+                '(4) Ensure that your ZPD times all fall within the range of times in the .mav file'
             )
             return PrecheckResult(
                 severity=PrecheckSeverity.ERROR,
@@ -285,9 +286,15 @@ class PriorMismatchCheck(TcconPrecheck):
     def _make_report(self, netcdf_handle: Dataset) -> Sequence[str]:
         zpd_times = pd.Timestamp(1970,1,1) + pd.to_timedelta(netcdf_handle['time'][:], unit='s')
         prior_times = pd.Timestamp(1970,1,1) + pd.to_timedelta(netcdf_handle['prior_time'][:], unit='s')
+        # We'll still use the indices in the report, but not to check.
+        # Using them to find bad indices gives a misleading (lack of) message
+        # when the real problem is that the ZPD time is outside the range
+        # of prior times
         curr_inds = netcdf_handle['prior_index'][:]
         new_inds = correct_prior_index(netcdf_handle, assign=False)
-        ii_wrong = np.flatnonzero(curr_inds != new_inds)
+
+        dt_sec = np.abs(difference_prior_and_zpd_time(netcdf_handle))
+        ii_wrong = np.flatnonzero(dt_sec >= (self.max_dt_hr * 3600))
 
         report = ['The following prior index values are incorrect:']
         for i in ii_wrong:
