@@ -71,6 +71,8 @@ EM27_VAR_RENAMES = {
 }
 
 EM27_AICF_SCALE_OVERRIDES = {
+    'xco2_x2019': 'WMO CO2 X2019',
+    'xch4': 'WMO CH4 X2004',
     'xwco2': '',
     'xlco2': ''
 }
@@ -319,7 +321,9 @@ def override_aicf_scale(ds, aicf_scale_varname, aicf_scale):
         ds[aicf_scale_varname]._Encoding = 'ascii'
 
     logging.debug(f'Updating {aicf_scale_varname} values to "{aicf_scale}"')
-    values = np.full(ds.dimensions['time'].size, aicf_scale).astype('S')
+    # Must use S32 as the dtype to ensure the second dimension is 32 long after
+    # stringtochar() below; otherwise, it uses the length of the longest string.
+    values = np.full(ds.dimensions['time'].size, aicf_scale).astype('S32')
     # Unsure why the stringtochar call is needed here but not in _add_x2019_variable.
     # Character values are a pain. And especially with a bug in netCDF v1.7.4,
     # see https://github.com/Unidata/netcdf4-python/issues/1464
